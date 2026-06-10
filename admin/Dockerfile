@@ -5,12 +5,12 @@
 #
 # Run:
 #   docker run \
-#     -e DATABASE_URL=postgres://... \
+#     -e DATABASE_URL_SHIPWRIGHT_ADMIN=postgres://... \
 #     -e SHIPWRIGHT_SESSION_SECRET=... \
 #     -e GOOGLE_CLIENT_ID=... \
 #     -e GOOGLE_CLIENT_SECRET=... \
-#     -e ADMIN_ALLOWED_EMAILS=admin@example.com \
-#     -e APP_BASE_URL=https://admin.example.com \
+#     -e SHIPWRIGHT_ADMIN_ALLOWED_EMAILS=admin@example.com \
+#     -e SHIPWRIGHT_ADMIN_APP_BASE_URL=https://admin.example.com \
 #     -e SHIPWRIGHT_INTERNAL_API_KEY=... \
 #     -p 3000:3000 \
 #     shipwright-admin
