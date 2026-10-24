@@ -65,6 +65,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.3"
+          # Release jobs publish artifacts: never restore a shared cache into them.
+          no-cache: true
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -136,6 +138,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.4.3"
+          # Release jobs publish artifacts: never restore a shared cache into them.
+          no-cache: true
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -239,6 +243,8 @@ jobs:
         if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
         with:
           bun-version: "1.4.3"
+          # Release jobs publish artifacts: never restore a shared cache into them.
+          no-cache: true
 
       - name: Base-image contract smoke test
         if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
