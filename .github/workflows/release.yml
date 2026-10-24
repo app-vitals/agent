@@ -85,7 +85,10 @@ jobs:
 
   resolve:
     name: Resolve release tag
-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
+    # `guard` is skipped on tag pushes, so `!cancelled()` replaces the implicit
+    # `success()`; a failed guard (non-admin dispatch) still blocks publishing.
+    if: ${{ !cancelled() && needs.guard.result != 'failure' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')) }}
+    needs: guard
     timeout-minutes: 5
     runs-on: ubuntu-latest
     outputs:
@@ -113,6 +116,23 @@ jobs:
             echo "version=${TAG#v}"
             echo "dry_run=$DRY_RUN"
           } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ steps.resolve.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Anyone with write access can push a tag at any commit; only publish
+      # commits that landed on main through the normal review path.
+      - name: Verify tag commit is on main
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          if ! git merge-base --is-ancestor "refs/tags/$TAG^{commit}" origin/main; then
+            echo "Error: $TAG does not point at a commit reachable from main" >&2
+            exit 1
+          fi
 
   publish-npm:
     name: Publish ${{ matrix.package }}

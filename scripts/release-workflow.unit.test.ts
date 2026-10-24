@@ -21,6 +21,15 @@ describe("release workflow", () => {
     expect(wf.on.workflow_dispatch.inputs.tag.type).toBe("string");
   });
 
+  test("publish path is gated: resolve depends on guard and requires the tag be on main", () => {
+    expect(wf.jobs.resolve.needs).toBe("guard");
+    expect(wf.jobs.resolve.if).toContain("needs.guard.result != 'failure'");
+    expect(wf.jobs["publish-npm"].needs).toBe("resolve");
+    expect(wf.jobs["publish-image"].needs).toBe("resolve");
+    expect(runText("resolve")).toContain("merge-base --is-ancestor");
+    expect(runText("resolve")).toContain("origin/main");
+  });
+
   test("every action is pinned to a full commit SHA", () => {
     const uses = [...raw.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((m) => m[1]);
     expect(uses.length).toBeGreaterThan(0);
