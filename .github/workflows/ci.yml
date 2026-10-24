@@ -127,3 +127,14 @@ jobs:
 
       - name: Base-image contract smoke test
         run: SHIPWRIGHT_CONTRACT_BASE_IMAGE=agent:ci bun test runtime/base-image-contract.smoke.test.ts
+
+      # Load-bearing: a green `bun test` in CI's unrestricted process does not
+      # prove whether /sys/fs/cgroup is delegated under a restricted securityContext.
+      # The built image may fall back to procfs descendant walk (a fully-handled
+      # fallback), so this is NOT a gate — just a durable log line showing which
+      # mode the built image actually uses.
+      - name: Report cgroup delegation mode under sandbox restrictions
+        run: |
+          docker run --rm --user 1000 --security-opt=no-new-privileges \
+            --entrypoint bun agent:ci \
+            run scripts/verify-cgroup-delegation.ts

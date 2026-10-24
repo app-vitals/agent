@@ -33,7 +33,7 @@
  * The choice is made by probing at runtime and caching the answer, rather
  * than by a deploy-time flag — a container that does delegate cgroups gets
  * the stronger guarantee for free, and one that doesn't degrades silently to
- * the fallback. `agent/scripts/verify-cgroup-delegation.ts` prints the
+ * the fallback. `scripts/verify-cgroup-delegation.ts` prints the
  * resolved mode from inside the real built image on every CI build.
  *
  * Every entry point here is best-effort and never throws: a failure to clean
