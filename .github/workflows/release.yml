@@ -41,7 +41,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
         run: |
-          PERMISSION=$(gh api repos/$GITHUB_REPOSITORY/collaborators/$ACTOR/permission --jq '.permission')
+          PERMISSION=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$ACTOR/permission" --jq '.permission')
           if [ "$PERMISSION" != "admin" ]; then
             echo "Error: $ACTOR is not a repo admin (got: $PERMISSION)" >&2
             exit 1
