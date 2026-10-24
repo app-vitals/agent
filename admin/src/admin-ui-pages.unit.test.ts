@@ -4317,3 +4317,39 @@ describe("queue-activity links (AEP-3.6)", () => {
     expect(html).toContain(">Logs</a>");
   });
 });
+
+describe("renderAgentDetailPage — signed commits toggle", () => {
+  const render = (envVars: Record<string, string>) =>
+    renderAgentDetailPage(
+      AGENT,
+      envVars,
+      [],
+      [],
+      [],
+      [],
+      [],
+      USER_NAME,
+      true,
+      { timezone: "UTC" },
+    );
+
+  test("hidden when the agent has no GH_APP_ID", () => {
+    expect(render({ SHIPWRIGHT_SIGNED_COMMITS: "1" })).not.toContain(
+      'name="signedCommits"',
+    );
+  });
+
+  test("shown unchecked when GH_APP_ID is set without the env row", () => {
+    const html = render({ GH_APP_ID: "123" });
+    expect(html).toContain('id="signedCommits"');
+    expect(html).toContain("Signed commits");
+    const checkbox = html.match(/<input\s[^>]*id="signedCommits"[^>]*>/s)?.[0];
+    expect(checkbox).not.toContain("checked");
+  });
+
+  test("shown checked when SHIPWRIGHT_SIGNED_COMMITS=1", () => {
+    const html = render({ GH_APP_ID: "123", SHIPWRIGHT_SIGNED_COMMITS: "1" });
+    const checkbox = html.match(/<input\s[^>]*id="signedCommits"[^>]*>/s)?.[0];
+    expect(checkbox).toContain("checked");
+  });
+});

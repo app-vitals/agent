@@ -2248,6 +2248,47 @@ describe("admin UI — agent policy fields", () => {
     expect(received).toEqual({ autoPostReviews: true, minConfidence: 80 });
   });
 
+  it("POST /admin/agents/:id/settings persists signedCommits check/uncheck via the env row and ignores forms that omit it", async () => {
+    const patched: Array<Record<string, string>> = [];
+    const deleted: string[] = [];
+    const app = createAdminUIApp(
+      makeMockDeps({
+        agentEnvService: {
+          getByAgentId: async () => ({ env: {}, secretKeys: [] }),
+          upsert: async () => {},
+          patch: async (_id: string, env: Record<string, string>) => {
+            patched.push(env);
+          },
+          deleteKey: async (_id: string, key: string) => {
+            deleted.push(key);
+          },
+          getConfigBundle: async () => null,
+        },
+      }),
+    );
+    const post = (body: Record<string, string>) =>
+      app.request(`/admin/agents/${AGENT_ID}/settings`, {
+        method: "POST",
+        body: new URLSearchParams(body).toString(),
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Cookie: `admin_session=${cookie}`,
+        },
+      });
+
+    expect((await post({ signedCommits: "true" })).status).toBe(302);
+    expect(patched).toEqual([{ SHIPWRIGHT_SIGNED_COMMITS: "1" }]);
+    expect(deleted).toEqual([]);
+
+    expect((await post({ signedCommits: "false" })).status).toBe(302);
+    expect(deleted).toEqual(["SHIPWRIGHT_SIGNED_COMMITS"]);
+
+    // Another form sharing the route (no signedCommits field) must not touch it.
+    expect((await post({ autoPostReviews: "true" })).status).toBe(302);
+    expect(patched).toHaveLength(1);
+    expect(deleted).toHaveLength(1);
+  });
+
   it("POST /admin/agents/:id/settings with a non-numeric minConfidence leaves it unchanged rather than passing NaN", async () => {
     let received: Record<string, unknown> | undefined;
     const app = createAdminUIApp(
