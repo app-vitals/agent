@@ -1,22 +1,38 @@
 name: Release
 
+# Two entry points, one workflow file (npm Trusted Publishing is bound to the
+# workflow filename `release.yml`, so every publish step must live here):
+#   1. workflow_dispatch without `tag`: semantic-release cuts the next version,
+#      creating the vX.Y.Z tag and GitHub release as the RELEASE_PAT identity.
+#   2. push of a vX.Y.Z tag (made by step 1, whose PAT push triggers workflows),
+#      or workflow_dispatch with `tag`: publish the three npm packages and both
+#      container images for that tag. Re-running is idempotent: versions and
+#      image tags that already exist are skipped.
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Preview the next version and changelog without publishing tags or commits"
+        description: "Preview only: semantic-release --dry-run, or npm publish --dry-run and unpushed image builds when `tag` is set"
         type: boolean
         required: false
         default: false
+      tag:
+        description: "Publish this existing vX.Y.Z tag instead of cutting a release (re-run or dry-run a publish)"
+        type: string
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
-# Least privilege at the workflow level; the release job uses a scoped GitHub
-# App token for everything that writes.
+# Least privilege at the workflow level; each job asks for what it needs.
 permissions:
   contents: read
 
 jobs:
   guard:
     name: Admin check
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
@@ -33,24 +49,16 @@ jobs:
 
   release:
     name: semantic-release
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.tag == '' }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
     needs: guard
     steps:
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: app-token
-        with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          # Scoped to what semantic-release needs: release commits and GitHub
-          # releases (contents), comments on referenced issues/PRs.
-          permission-contents: write
-          permission-issues: write
-          permission-pull-requests: write
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          # RELEASE_PAT (not GITHUB_TOKEN) so the tag it pushes triggers the
+          # publish jobs below; GITHUB_TOKEN pushes never trigger workflows.
+          token: ${{ secrets.RELEASE_PAT }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -65,10 +73,177 @@ jobs:
         if: ${{ inputs.dry_run }}
         run: bunx semantic-release --dry-run
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
 
       - name: Release
         if: ${{ !inputs.dry_run }}
         run: bunx semantic-release
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+
+  resolve:
+    name: Resolve release tag
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+    steps:
+      - name: Validate tag
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          PUSHED_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT" = "push" ]; then TAG="$PUSHED_TAG"; else TAG="$INPUT_TAG"; fi
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: '$TAG' is not a vX.Y.Z release tag" >&2
+            exit 1
+          fi
+          DRY_RUN=false
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$INPUT_DRY_RUN" = "true" ]; then DRY_RUN=true; fi
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "dry_run=$DRY_RUN"
+          } >> "$GITHUB_OUTPUT"
+
+  publish-npm:
+    name: Publish ${{ matrix.package }}
+    needs: resolve
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    # Publish in dependency order: agent-admin depends on agent-lib.
+    strategy:
+      max-parallel: 1
+      fail-fast: true
+      matrix:
+        package: [lib, runtime, admin]
+    permissions:
+      contents: read
+      # npm Trusted Publishing (OIDC): no registry token is used anywhere.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.3"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Trusted Publishing needs npm >= 11.5.1.
+      - name: Upgrade npm
+        run: npm install --global npm@^11.5.1 && npm --version
+
+      - name: Stamp the release version
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          # Version fields in the repo are placeholders; the tag is the source
+          # of truth. Stamp all three so workspace:* ranges pack as VERSION.
+          for dir in lib runtime admin; do
+            (cd "$dir" && npm pkg set version="$VERSION")
+          done
+
+      - name: Pack
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          # bun pm pack rewrites workspace:* dependencies to concrete versions.
+          mkdir -p "$RUNNER_TEMP/pack"
+          (cd "$PACKAGE" && bun pm pack --destination "$RUNNER_TEMP/pack")
+
+      - name: Publish
+        env:
+          PACKAGE: ${{ matrix.package }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          DRY_RUN: ${{ needs.resolve.outputs.dry_run }}
+        run: |
+          NAME=$(jq -r .name "$PACKAGE/package.json")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already published; skipping"
+            exit 0
+          fi
+          FLAGS=(--provenance --access public)
+          if [ "$DRY_RUN" = "true" ]; then FLAGS+=(--dry-run); fi
+          npm publish "$RUNNER_TEMP"/pack/*.tgz "${FLAGS[@]}"
+
+  publish-image:
+    name: Image ghcr.io/app-vitals/${{ matrix.image }}
+    needs: resolve
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: agent
+            dockerfile: runtime/Dockerfile
+          - image: agent-admin
+            dockerfile: admin/Dockerfile
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/app-vitals/${{ matrix.image }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      DRY_RUN: ${{ needs.resolve.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+          persist-credentials: false
+
+      - name: Log in to ghcr.io
+        if: ${{ needs.resolve.outputs.dry_run != 'true' }}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+
+      - name: Check whether the image tag already exists
+        id: exists
+        run: |
+          if [ "$DRY_RUN" != "true" ] && docker manifest inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+            echo "$IMAGE:$VERSION already exists; skipping"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The runtime Dockerfile's module-resolution guard (bun build over every
+      # runtime source file) runs inside this build.
+      - name: Build image
+        if: ${{ steps.exists.outputs.exists != 'true' }}
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
+        run: docker build -f "$DOCKERFILE" -t "$IMAGE:$VERSION" .
+
+      - name: Verify browser launch under sandbox restrictions
+        if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
+        run: |
+          docker run --rm --user 1000 --security-opt=no-new-privileges \
+            --entrypoint bun "$IMAGE:$VERSION" \
+            run scripts/verify-browser-launch.ts
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
+        with:
+          bun-version: "1.4.3"
+
+      - name: Base-image contract smoke test
+        if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
+        run: SHIPWRIGHT_CONTRACT_BASE_IMAGE="$IMAGE:$VERSION" bun test runtime/base-image-contract.smoke.test.ts
+
+      - name: Push image
+        if: ${{ needs.resolve.outputs.dry_run != 'true' && steps.exists.outputs.exists != 'true' }}
+        run: docker push "$IMAGE:$VERSION"

@@ -1,7 +1,15 @@
 {
   "name": "@app-vitals/agent-runtime",
   "version": "0.1.0",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/app-vitals/agent.git",
+    "directory": "runtime"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "exports": {
     "./agent-extension": "./agent-extension.ts",

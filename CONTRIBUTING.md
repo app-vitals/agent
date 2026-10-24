@@ -43,8 +43,9 @@ Everything in `runtime/`, `admin/`, `lib/` and `agent-types/` must resolve insid
 
 Releases are on demand and driven by semantic-release through the `Release` workflow.
 
-1. Go to **Actions, Release** and click **Run workflow**.
-2. Run with `dry_run` set to `true` first to preview the version and changelog.
-3. Re-run with `dry_run` unchecked to publish.
+1. Go to **Actions, Release** and click **Run workflow** (leave `tag` empty).
+2. Run with `dry_run` set to `true` first to preview the next version and release notes.
+3. Re-run with `dry_run` unchecked. semantic-release tags `vX.Y.Z`; the tag push publishes `@app-vitals/agent-lib`, `agent-runtime` and `agent-admin` to npm (Trusted Publishing, provenance on) and `ghcr.io/app-vitals/agent` and `agent-admin` images tagged `X.Y.Z`.
+4. To re-run or dry-run a publish for an existing tag, run the workflow with `tag` set (and `dry_run` if previewing). Versions and image tags that already exist are skipped.
 
-Do not edit `CHANGELOG.md` by hand; semantic-release owns it.
+Release notes live on the GitHub release; there is no committed changelog (main is protected, so semantic-release does not push commits).
