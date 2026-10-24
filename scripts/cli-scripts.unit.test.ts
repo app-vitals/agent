@@ -36,7 +36,9 @@ describe("verify-cgroup-delegation.ts smoke test", () => {
     const r = run("verify-cgroup-delegation.ts", []);
     expect(r.code).toBe(0);
     const isCgroup = r.out.includes("Process-tree kill mode: CGROUP");
-    const isFallback = r.out.includes("Process-tree kill mode: PROCFS FALLBACK");
+    const isFallback = r.out.includes(
+      "Process-tree kill mode: PROCFS FALLBACK",
+    );
     expect(isCgroup || isFallback).toBe(true);
   });
 });
