@@ -1701,6 +1701,27 @@ export function renderAgentDetailPage(
       </tbody></table>
     </div>`;
 
+  // Only agents with a GitHub App can make API-signed commits. Checked state
+  // is the SHIPWRIGHT_SIGNED_COMMITS env row; when the box is hidden the field
+  // is absent from the submission, so the settings route leaves it untouched.
+  const signedCommitsHtml =
+    "GH_APP_ID" in envVars
+      ? `<div class="form-group" style="display:flex;align-items:center;gap:6px">
+          <input
+            id="signedCommits"
+            name="signedCommits"
+            type="checkbox"
+            value="true"
+            ${envVars.SHIPWRIGHT_SIGNED_COMMITS === "1" ? "checked" : ""}
+          />
+          <input type="hidden" name="signedCommits" value="false" />
+          <label class="form-label" for="signedCommits" style="margin-bottom:0">Signed commits</label>
+        </div>
+        <p style="font-size:12px;color:#6b7280;margin:4px 0 12px">
+          Commits are made through the GitHub API so they show Verified. Executable bits and symlinks need the per-call bypass.
+        </p>`
+      : "";
+
   const agentPolicySection = `<div class="card">
       <div class="card-title">Agent Policy</div>
       <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/settings">
@@ -1763,6 +1784,7 @@ export function renderAgentDetailPage(
           <input id="cleanupAfterDays" name="cleanupAfterDays" type="number" value="${agent.cleanupAfterDays}" class="form-input" />
           <p style="font-size:12px;color:#6b7280;margin-top:4px">Remove worktrees older than N days even if the PR is still open.</p>
         </div>
+        ${signedCommitsHtml}
         <button type="submit" class="btn btn-primary">Save</button>
       </form>
     </div>`;

@@ -2035,6 +2035,16 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     const maxFindings = readInt("maxFindings");
     const cleanupAfterDays = readInt("cleanupAfterDays");
 
+    // Signed commits live in the AgentEnv table, not on the Agent row. Absent
+    // (box hidden for agents without GH_APP_ID, or another form posted) leaves
+    // the row untouched.
+    const signedCommits = readBool("signedCommits");
+    if (signedCommits === true) {
+      await agentEnvService.patch(agentId, { SHIPWRIGHT_SIGNED_COMMITS: "1" });
+    } else if (signedCommits === false) {
+      await agentEnvService.deleteKey(agentId, "SHIPWRIGHT_SIGNED_COMMITS");
+    }
+
     const agent = await agentService.updateFields(agentId, {
       ...(restrictSlackToMembers !== undefined && { restrictSlackToMembers }),
       ...(autoPostReviews !== undefined && { autoPostReviews }),
