@@ -66,6 +66,21 @@ jobs:
       - name: Test
         run: bun test
 
+  workflow-lint:
+    name: workflow lint (actionlint / zizmor)
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+
+      - name: zizmor
+        run: pipx run zizmor==1.5.2 --format plain .github/workflows
+
   admin-docker-build:
     name: admin docker build
     timeout-minutes: 20

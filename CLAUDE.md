@@ -29,4 +29,4 @@ bun test                # single file: bun test path/to/file.test.ts
 - Imports must stay inside this repository. Use `@app-vitals/agent-runtime/*`, `@app-vitals/agent-lib/*` and `@app-vitals/agent-admin` for cross-package imports.
 - The generated Prisma client (`admin/prisma/client`) is never committed; `bunx prisma generate --schema=prisma/schema` in `admin/` creates it.
 - `runtime/Dockerfile` keeps the module-resolution guard (a `bun build` over every runtime source file) and the base-image contract (`/opt/shipwright/marketplaces/`, `installPlugins()`, the entrypoint path). Change them only together with `runtime/base-image-contract.smoke.test.ts`.
-- Never hand-edit `CHANGELOG.md` or version fields; releases are automated.
+- Never hand-edit version fields (the release tag stamps them at publish time); releases are automated.
