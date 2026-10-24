@@ -308,3 +308,16 @@ jobs:
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "Shipwright dispatch failed for platform release $VERSION" \
             --body "The \`platform-release\` repository_dispatch to app-vitals/shipwright failed for version $VERSION, so Shipwright was not told to bump and rebuild. Check that the \`DISPATCH_TOKEN\` secret is valid, then re-run the failed job: $RUN_URL"
+
+  # Post-publish smoke of the released artifacts. Never on dry runs (nothing
+  # was pushed). Publish steps stay in this file for npm Trusted Publishing.
+  consumer-smoke:
+    name: Consumer smoke
+    if: ${{ needs.resolve.outputs.dry_run != 'true' }}
+    needs: [resolve, publish-npm, publish-image]
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/consumer-smoke.yml
+    with:
+      version: ${{ needs.resolve.outputs.version }}
