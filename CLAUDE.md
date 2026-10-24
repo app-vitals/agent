@@ -22,6 +22,8 @@ bun test                # single file: bun test path/to/file.test.ts
 
 `bun test --filter` is not a real flag; pass file paths.
 
+Post-release consumer smoke (`.github/workflows/consumer-smoke.yml`): `bun scripts/consumer-smoke.ts --version X.Y.Z` installs the published packages in a scratch dir and imports every `exports` entry; `--pack` uses locally packed tarballs instead (no release needed, skips the docker boot checks).
+
 ## Conventions
 
 - Conventional Commits for commits and PR titles (squash merge; semantic-release reads the title).

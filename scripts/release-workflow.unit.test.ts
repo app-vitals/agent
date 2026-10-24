@@ -122,3 +122,47 @@ describe("release workflow", () => {
     }
   });
 });
+
+describe("consumer-smoke workflow", () => {
+  const cRaw = readFileSync(
+    join(root, ".github/workflows/consumer-smoke.yml"),
+    "utf8",
+  );
+  // biome-ignore lint/suspicious/noExplicitAny: workflow YAML is untyped
+  const cwf = (Bun.YAML.parse(cRaw) as any) ?? {};
+  const cSteps: Step[] = Object.values<Step>(cwf.jobs).flatMap((j) => j.steps);
+  const cRun = cSteps.map((s) => s.run ?? "").join("\n");
+
+  test("runs after a successful Release workflow, or manually with a version", () => {
+    expect(cwf.on.workflow_run.workflows).toEqual(["Release"]);
+    expect(cwf.on.workflow_run.types).toEqual(["completed"]);
+    expect(cwf.on.workflow_dispatch.inputs.version.type).toBe("string");
+    for (const job of Object.values<Step>(cwf.jobs)) {
+      expect(job.if).toContain("workflow_run.conclusion == 'success'");
+    }
+  });
+
+  test("least privilege, pinned actions, bun 1.4.3 with no cache", () => {
+    expect(cwf.permissions).toEqual({ contents: "read" });
+    const uses = [...cRaw.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map(
+      (m) => m[1],
+    );
+    expect(uses.length).toBeGreaterThan(0);
+    for (const u of uses) expect(u).toMatch(/@[0-9a-f]{40}$/);
+    // Same SHAs as release.yml.
+    for (const u of uses) expect(raw).toContain(u);
+    const bun = cSteps.find((s) => String(s.uses).includes("setup-bun"));
+    expect(bun?.with["bun-version"]).toBe("1.4.3");
+    expect(bun?.with["no-cache"]).toBe(true);
+  });
+
+  test("checks out the release tag and runs the script plus the base-image contract", () => {
+    const checkout = cSteps.find((s) => String(s.uses).includes("checkout"));
+    expect(checkout?.with.ref).toContain("refs/tags/");
+    expect(checkout?.with["persist-credentials"]).toBe(false);
+    expect(cRun).toContain("scripts/consumer-smoke.ts");
+    expect(cRun).toContain(
+      'SHIPWRIGHT_CONTRACT_BASE_IMAGE="ghcr.io/app-vitals/agent:$VERSION" bun test runtime/base-image-contract.smoke.test.ts',
+    );
+  });
+});

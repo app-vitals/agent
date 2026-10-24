@@ -1,0 +1,77 @@
+name: Consumer smoke
+
+# Post-release smoke layer: proves the PUBLISHED artifacts (three npm packages
+# and both container images) are consumable without the monorepo.
+#   - workflow_run: after a successful Release run for a vX.Y.Z tag push (the
+#     publish run; the semantic-release dispatch run has no images yet).
+#   - workflow_dispatch: any version (empty = latest GitHub release).
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released version to smoke test (X.Y.Z); empty = latest release"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  consumer-smoke:
+    name: Consumer smoke
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          if [ "$EVENT" = "workflow_run" ]; then
+            TAG="$RUN_TAG"
+          elif [ -n "$INPUT_VERSION" ]; then
+            TAG="v${INPUT_VERSION#v}"
+          else
+            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: '$TAG' is not a vX.Y.Z release tag" >&2
+            exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ steps.resolve.outputs.tag }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.3"
+          # Never restore a shared cache: the point is to see what the registry serves.
+          no-cache: true
+
+      # The script derives its entry list from this checkout's package.json
+      # exports (the tag), installs the published packages in an empty scratch
+      # dir (retrying while npm publish lags), imports every entry, and boots
+      # both published images.
+      - name: Consumer smoke (packages and images)
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: bun scripts/consumer-smoke.ts --version "$VERSION" --dir "$RUNNER_TEMP/consumer-smoke"
+
+      - name: Base-image contract smoke test
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: SHIPWRIGHT_CONTRACT_BASE_IMAGE="ghcr.io/app-vitals/agent:$VERSION" bun test runtime/base-image-contract.smoke.test.ts
