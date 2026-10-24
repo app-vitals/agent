@@ -37,9 +37,15 @@ release job is a dormant manual hatch.
 3. **Automatic trigger.** `push: branches: [main]`, gated by the repo variable
    `AUTO_RELEASE == 'true'` (default off, doubling as a kill switch). Tag-path
    conditions change from `github.event_name == 'push'` to `github.ref_type == 'tag'`
-   so a branch push is never validated as a tag. `concurrency: release` serialises
-   runs. A wait job polls the three CI check-runs on the commit and fails the run if
-   any is red, missing, or times out. Commits without `feat`/`fix`/`perf` produce no
+   so a branch push is never validated as a tag. `concurrency` is keyed per ref
+   (`release-${{ github.ref }}`), not a single `release` group: GitHub keeps one
+   pending run per group and cancels older pending ones, so with a single group a
+   later main merge could displace the tag run the cut run just triggered, leaving a
+   version tag with nothing published. Per-ref keys serialise main runs among
+   themselves and leave tag runs alone. A wait job polls the three required CI
+   check-runs on the commit (`lint / typecheck / boundary / test`,
+   `runtime docker build`, `admin docker build`; `workflow lint` is emitted but not
+   required) and fails the run if any is red, missing, or times out. Commits without `feat`/`fix`/`perf` produce no
    release and the run is green.
 4. **Alerting is a red build.** Every failure path fails the workflow run; there is
    no `continue-on-error` and no issue-opening job.
