@@ -1,0 +1,10 @@
+{
+  "data": { "createCommitOnBranch": null },
+  "errors": [
+    {
+      "type": "STALE_DATA",
+      "path": ["createCommitOnBranch"],
+      "message": "Expected branch to point to \"0000000000000000000000000000000000000000\" but it did not. Pull and try again."
+    }
+  ]
+}
