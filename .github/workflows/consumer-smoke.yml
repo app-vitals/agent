@@ -2,13 +2,16 @@ name: Consumer smoke
 
 # Post-release smoke layer: proves the PUBLISHED artifacts (three npm packages
 # and both container images) are consumable without the monorepo.
-#   - workflow_run: after a successful Release run for a vX.Y.Z tag push (the
-#     publish run; the semantic-release dispatch run has no images yet).
+#   - workflow_call: from release.yml after a non-dry-run publish succeeds
+#     (a workflow_run trigger is disallowed by zizmor dangerous-triggers).
 #   - workflow_dispatch: any version (empty = latest GitHub release).
 on:
-  workflow_run:
-    workflows: ["Release"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      version:
+        description: "Released version to smoke test (X.Y.Z)"
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       version:
@@ -23,7 +26,6 @@ permissions:
 jobs:
   consumer-smoke:
     name: Consumer smoke
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
@@ -31,13 +33,9 @@ jobs:
         id: resolve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EVENT: ${{ github.event_name }}
           INPUT_VERSION: ${{ inputs.version }}
-          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
-          if [ "$EVENT" = "workflow_run" ]; then
-            TAG="$RUN_TAG"
-          elif [ -n "$INPUT_VERSION" ]; then
+          if [ -n "$INPUT_VERSION" ]; then
             TAG="v${INPUT_VERSION#v}"
           else
             TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)

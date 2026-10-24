@@ -22,7 +22,7 @@ bun test                # single file: bun test path/to/file.test.ts
 
 `bun test --filter` is not a real flag; pass file paths.
 
-Post-release consumer smoke (`.github/workflows/consumer-smoke.yml`): `bun scripts/consumer-smoke.ts --version X.Y.Z` installs the published packages in a scratch dir and imports every `exports` entry; `--pack` uses locally packed tarballs instead (no release needed, skips the docker boot checks).
+Post-release consumer smoke (`.github/workflows/consumer-smoke.yml`, a reusable workflow called from `release.yml` after a non-dry-run publish, or dispatched manually with a version): `bun scripts/consumer-smoke.ts --version X.Y.Z` installs the published packages in a scratch dir and imports every `exports` entry; `--pack` uses locally packed tarballs instead (no release needed, skips the docker boot checks).
 
 ## Conventions
 

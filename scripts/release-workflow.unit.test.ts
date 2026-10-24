@@ -31,7 +31,10 @@ describe("release workflow", () => {
   });
 
   test("every action is pinned to a full commit SHA", () => {
-    const uses = [...raw.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((m) => m[1]);
+    // Local reusable-workflow calls (./...) are in-repo, not third-party.
+    const uses = [...raw.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)]
+      .map((m) => m[1])
+      .filter((u) => !u.startsWith("./"));
     expect(uses.length).toBeGreaterThan(0);
     for (const u of uses) expect(u).toMatch(/@[0-9a-f]{40}$/);
   });
@@ -133,13 +136,20 @@ describe("consumer-smoke workflow", () => {
   const cSteps: Step[] = Object.values<Step>(cwf.jobs).flatMap((j) => j.steps);
   const cRun = cSteps.map((s) => s.run ?? "").join("\n");
 
-  test("runs after a successful Release workflow, or manually with a version", () => {
-    expect(cwf.on.workflow_run.workflows).toEqual(["Release"]);
-    expect(cwf.on.workflow_run.types).toEqual(["completed"]);
+  test("is reusable and manually dispatchable with a version, no workflow_run", () => {
+    expect(cwf.on.workflow_run).toBeUndefined();
+    expect(cwf.on.workflow_call.inputs.version.type).toBe("string");
+    expect(cwf.on.workflow_call.inputs.version.required).toBe(true);
     expect(cwf.on.workflow_dispatch.inputs.version.type).toBe("string");
-    for (const job of Object.values<Step>(cwf.jobs)) {
-      expect(job.if).toContain("workflow_run.conclusion == 'success'");
-    }
+  });
+
+  test("release.yml calls it after publishing, never on dry runs", () => {
+    const job = wf.jobs["consumer-smoke"];
+    expect(job.uses).toBe("./.github/workflows/consumer-smoke.yml");
+    expect(job.needs).toEqual(["resolve", "publish-npm", "publish-image"]);
+    expect(job.if).toContain("needs.resolve.outputs.dry_run != 'true'");
+    expect(job.with.version).toContain("needs.resolve.outputs.version");
+    expect(job.permissions).toEqual({ contents: "read", packages: "read" });
   });
 
   test("least privilege, pinned actions, bun 1.4.3 with no cache", () => {
