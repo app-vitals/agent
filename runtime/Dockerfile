@@ -211,7 +211,7 @@ ENV HOME=/home/bun
 
 # mise workspace tool shims first on PATH; /app/scripts/bin holds the
 # git-credential helper (runtime/entrypoint-main.ts resolves it relative to
-# the repository root).
+# the repository root) and the gh owner-routing wrapper.
 ENV PATH="/home/bun/.local/share/mise/shims:/app/scripts/bin:${PATH}"
 
 COPY --from=build --chown=1000:1000 /app/node_modules ./node_modules
@@ -223,7 +223,8 @@ COPY --from=build --chown=1000:1000 /app/index.ts ./index.ts
 COPY --from=build --chown=1000:1000 /app/scripts ./scripts
 COPY --from=build --chown=1000:1000 /app/package.json ./package.json
 
-RUN chmod +x /app/scripts/bin/git-credential-shipwright.sh
+RUN chmod +x /app/scripts/bin/git-credential-shipwright.sh \
+    && chmod +x /app/scripts/bin/gh
 
 # ─── Playwright chromium-headless-shell (runtime/browser.ts) ──────────────────
 # Installed as the already-active USER 1000 under /home/bun, so nothing lands
