@@ -121,4 +121,28 @@ describe("release workflow", () => {
       expect(pkg.repository.url).toContain("github.com/app-vitals/agent");
     }
   });
+
+  test("notifies shipwright with a platform-release dispatch carrying the version, after publishing", () => {
+    const job = wf.jobs["notify-shipwright"];
+    expect(job.needs).toEqual(["resolve", "publish-npm", "publish-image"]);
+    expect(job.if).toContain("dry_run != 'true'");
+    const dispatch = job.steps.find((s: Step) => s.id === "dispatch");
+    expect(dispatch.env.GH_TOKEN).toBe("${{ secrets.DISPATCH_TOKEN }}");
+    expect(dispatch.run).toContain("repos/app-vitals/shipwright/dispatches");
+    expect(dispatch.run).toContain("event_type=platform-release");
+    expect(dispatch.run).toContain("client_payload[version]=$VERSION");
+    expect(job.env.VERSION).toBe("${{ needs.resolve.outputs.version }}");
+  });
+
+  test("a failed dispatch fails the workflow (no continue-on-error) and opens an issue", () => {
+    const job = wf.jobs["notify-shipwright"];
+    expect(job.permissions.issues).toBe("write");
+    expect(job["continue-on-error"]).toBeUndefined();
+    const dispatch = job.steps.find((s: Step) => s.id === "dispatch");
+    expect(dispatch["continue-on-error"]).toBeUndefined();
+    const alert = job.steps.find((s: Step) => s.run?.includes("gh issue create"));
+    expect(alert.if).toContain("failure()");
+    expect(alert.if).toContain("steps.dispatch.outcome == 'failure'");
+    expect(alert.run).toContain("$VERSION");
+  });
 });

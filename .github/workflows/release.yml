@@ -273,3 +273,38 @@ jobs:
       - name: Push image
         if: ${{ needs.resolve.outputs.dry_run != 'true' && steps.exists.outputs.exists != 'true' }}
         run: docker push "$IMAGE:$VERSION"
+
+  # Tell Shipwright a new platform version exists so it can bump and rebuild
+  # without waiting for Renovate. Failures must be loud: the 2026-10-02..10-09
+  # poller stall went unnoticed for a week because it failed silently. A failed
+  # dispatch fails this job (and so the workflow) and opens an issue.
+  notify-shipwright:
+    name: Notify Shipwright
+    needs: [resolve, publish-npm, publish-image]
+    if: ${{ needs.resolve.outputs.dry_run != 'true' }}
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - name: Dispatch platform-release to app-vitals/shipwright
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+        run: |
+          gh api --method POST repos/app-vitals/shipwright/dispatches \
+            -f event_type=platform-release \
+            -f "client_payload[version]=$VERSION"
+
+      - name: Open an issue when the dispatch failed
+        if: ${{ failure() && steps.dispatch.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Shipwright dispatch failed for platform release $VERSION" \
+            --body "The \`platform-release\` repository_dispatch to app-vitals/shipwright failed for version $VERSION, so Shipwright was not told to bump and rebuild. Check that the \`DISPATCH_TOKEN\` secret is valid, then re-run the failed job: $RUN_URL"
