@@ -37,19 +37,19 @@ const {
 // ─── Stream-json fixtures (hand-authored per the public CLI schema) ───────────
 
 const cleanMultiTurn = await import(
-  "../fixtures/stream-json/clean-multi-turn.ts"
+  "./fixtures/stream-json/clean-multi-turn.ts"
 );
 const truncatedNoResult = await import(
-  "../fixtures/stream-json/truncated-no-result.ts"
+  "./fixtures/stream-json/truncated-no-result.ts"
 );
 const cleanExitNoResult = await import(
-  "../fixtures/stream-json/clean-exit-no-result.ts"
+  "./fixtures/stream-json/clean-exit-no-result.ts"
 );
 const progressPhases = await import(
-  "../fixtures/stream-json/progress-phases.ts"
+  "./fixtures/stream-json/progress-phases.ts"
 );
 const skillAttribution = await import(
-  "../fixtures/stream-json/skill-attribution.ts"
+  "./fixtures/stream-json/skill-attribution.ts"
 );
 
 // ─── Shared test session store ────────────────────────────────────────────────

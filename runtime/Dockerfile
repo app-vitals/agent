@@ -1,4 +1,6 @@
-# Shipwright Agent — container image
+# Agent runtime — container image (ghcr.io/app-vitals/agent)
+#
+# Build from the repository root:  docker build -f runtime/Dockerfile .
 #
 # Environment variables:
 #   AGENT_HOME              — persistent storage root (default: /data/agent-home)
@@ -144,7 +146,7 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # Anthropic's container guidance for reproducible builds: pin the version above
 # and disable the in-container auto-updater. Self-update can't work here anyway
 # (root-owned npm global dir, uid 1000 runtime, ephemeral pods). Set in the base
-# stage so it carries into runtime; agent/src/runtime/claude.ts builds the child env
+# stage so it carries into runtime; runtime/claude.ts builds the child env
 # from process.env, so spawned claude processes inherit it.
 ENV DISABLE_AUTOUPDATER=1
 
@@ -152,64 +154,42 @@ ENV DISABLE_AUTOUPDATER=1
 
 FROM base AS build
 
-# Bare semver (no "agent-v" prefix) for the tag this image is being built
-# for — passed via --build-arg from build-agent.yml. Stamped into the
-# plugin's version files below so the deployed image always matches the tag
-# it was built for, independent of scripts/sync-version.ts's separate,
-# asynchronous git-commit path (.github/workflows/sync-plugin-version.yml).
-# Defaulted so ci.yml's PR-time `docker build` (no --build-arg passed) still
-# succeeds — sync-version.ts requires valid semver and would fail on empty.
-ARG AGENT_VERSION=0.0.0-dev
-
 WORKDIR /app
 
-# Copy workspace manifests first (layer caching for deps)
-COPY package.json bunfig.toml* bun.lock ./
-COPY agent/package.json ./agent/
-COPY metrics/package.json ./metrics/
+# Workspace manifests first (layer caching for deps). admin/prisma is needed
+# because admin's postinstall runs `prisma generate`. bun.lock is copied when
+# the repository has one.
+COPY package.json bunfig.toml bun.lock* ./
+COPY runtime/package.json ./runtime/
 COPY admin/package.json ./admin/
 COPY admin/prisma ./admin/prisma/
-COPY task-store/package.json ./task-store/
-COPY task-store/prisma ./task-store/prisma/
-COPY chat/package.json ./chat/
-COPY chat/prisma ./chat/prisma/
-COPY plugins/shipwright/package.json ./plugins/shipwright/
+COPY admin/prisma.config.ts ./admin/
 COPY lib/package.json ./lib/
-COPY agent/src/runtime/package.json ./agent/src/runtime/
-COPY mcp-server/package.json ./mcp-server/
 COPY patches/ ./patches/
 
-# Install all dependencies (including devDependencies for typecheck)
-RUN bun install --frozen-lockfile
+RUN if [ -f bun.lock ]; then bun install --frozen-lockfile; else bun install; fi
 
-# Copy the rest of the agent source
-COPY agent/ ./agent/
-# Copy the shared lib source — @app-vitals/agent-lib is a workspace symlink; only its
-# package.json was copied above (for install caching), so without this the
-# symlink resolves but re-exports like @app-vitals/agent-lib/pricing are missing.
+# Workspace sources. @app-vitals/agent-lib / -runtime / -admin are workspace
+# symlinks; only their package.json files were copied above, so the sources
+# must exist for the symlinks to resolve.
+COPY runtime/ ./runtime/
+COPY admin/ ./admin/
 COPY lib/ ./lib/
-# Copy the plugin source so the local marketplace is available at runtime
-COPY plugins/ ./plugins/
-COPY .claude-plugin/ ./.claude-plugin/
-# Specialty manifests — setup.ts reads identity.templatesDir from them (ARD-6.1)
-COPY specialties/ ./specialties/
-# Copy the version-sync script so the version stamp below can run.
+# Agent-type definitions (setup.ts reads identity.templatesDir from them).
+COPY agent-types/ ./agent-types/
+# Composition root spawned by runtime/entrypoint.ts (../index.ts).
+COPY index.ts ./index.ts
 COPY scripts/ ./scripts/
 
-# Stamp AGENT_VERSION into the plugin's version files inside the image only
-# (no git commit, no git operations) — see ARG AGENT_VERSION above for why.
-RUN bun run scripts/sync-version.ts "${AGENT_VERSION}"
-
-# Module-resolution guard: bundle every agent source file as its own entry
+# Module-resolution guard: bundle every runtime source file as its own entry
 # point so an unresolvable import fails the build itself, rather than only
 # surfacing as a runtime crash after the image ships. A plain `docker build`
-# succeeding is not proof the image runs — this bundles the whole agent/src
-# tree (not just entrypoint-main.ts's reachable graph) so an import missed
-# by that one entry point, like the lib/ omission above, still gets caught.
+# succeeding is not proof the image runs; this bundles the whole runtime tree,
+# not just entrypoint-main.ts's reachable graph.
 # playwright/playwright-core are externalized: bun's bundler eagerly resolves
 # playwright-core's internal optional chromium-bidi requires, which aren't
 # actually installed or used by our CDP-based launch path.
-RUN find agent/src -name "*.ts" | xargs bun build --target=bun --external playwright --external playwright-core --outdir=/tmp/module-check
+RUN find runtime -name "*.ts" | xargs bun build --target=bun --external playwright --external playwright-core --outdir=/tmp/module-check
 
 # ─── Runtime stage (non-root) ─────────────────────────────────────────────────
 
@@ -219,74 +199,42 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Set AGENT_HOME — the PVC should be mounted here in Kubernetes
+# AGENT_HOME: mount a persistent volume here.
 ENV AGENT_HOME=/data/agent-home
 
 # Create the persistent-volume mount point and hand it to uid 1000 so the agent
-# can write when no PVC is mounted. A mounted PVC needs `fsGroup: 1000` in the
-# pod securityContext to be writable.
+# can write when no volume is mounted. A mounted PVC needs `fsGroup: 1000`.
 RUN mkdir -p /data/agent-home && chown 1000:1000 /data/agent-home
 
-# Switch to the non-root `bun` user (uid 1000, baked into the oven/bun base) for
-# all tool installs below, so mise, node, and Claude Code land under /home/bun
-# (owned by uid 1000) and are usable at runtime. The GKE deployment sets
-# `runAsNonRoot: true`, which the kubelet can only verify against a numeric UID.
 USER 1000
 ENV HOME=/home/bun
 
-# mise runtime *workspace* tool shims live under the user's data dir, first on
-# PATH. node + claude are system-wide (installed in the base stage) and resolve
-# via the inherited /usr/bin — they are intentionally NOT mise shims.
-# /app/agent/scripts/bin holds the git-credential-shipwright.sh and gh wrappers.
-ENV PATH="/home/bun/.local/share/mise/shims:/app/agent/scripts/bin:${PATH}"
+# mise workspace tool shims first on PATH; /app/scripts/bin holds the
+# git-credential helper (runtime/entrypoint-main.ts resolves it relative to
+# the repository root).
+ENV PATH="/home/bun/.local/share/mise/shims:/app/scripts/bin:${PATH}"
 
-# Copy installed node_modules + agent source from the build stage, owned by the
-# runtime user. (The agent dir carries its own workspace node_modules symlinks;
-# the root node_modules holds bun's content-addressed store they point into.)
 COPY --from=build --chown=1000:1000 /app/node_modules ./node_modules
-COPY --from=build --chown=1000:1000 /app/agent ./agent
-# agent/node_modules/@app-vitals/agent-lib is a relative symlink to /app/lib — the
-# workspace source itself, not just its package.json, must exist here too.
+COPY --from=build --chown=1000:1000 /app/runtime ./runtime
+COPY --from=build --chown=1000:1000 /app/admin ./admin
 COPY --from=build --chown=1000:1000 /app/lib ./lib
-# Plugin source + marketplace manifest — needed for local `claude plugin marketplace add`
-COPY --from=build --chown=1000:1000 /app/plugins ./plugins
-COPY --from=build --chown=1000:1000 /app/.claude-plugin ./.claude-plugin
-COPY --from=build --chown=1000:1000 /app/specialties ./specialties
+COPY --from=build --chown=1000:1000 /app/agent-types ./agent-types
+COPY --from=build --chown=1000:1000 /app/index.ts ./index.ts
+COPY --from=build --chown=1000:1000 /app/scripts ./scripts
+COPY --from=build --chown=1000:1000 /app/package.json ./package.json
 
-# Make the credential helper and gh wrapper executable
-RUN chmod +x /app/agent/scripts/bin/git-credential-shipwright.sh \
-    && chmod +x /app/agent/scripts/bin/gh
+RUN chmod +x /app/scripts/bin/git-credential-shipwright.sh
 
-# ─── Playwright chromium-headless-shell (agent/src/runtime/browser.ts, PW-1.2) ────────
-# Installed as the already-active USER 1000, under /home/bun — mirrors mise's
-# non-root-first pattern above rather than Piper's root-then-chown below, so no
-# chown step is needed and nothing lands root-owned. PLAYWRIGHT_BROWSERS_PATH is
-# an ENV (not just a build-time var), so it stays set for the running container
-# too — Playwright's launch API resolves the browser path from this same var.
-# `playwright` is pinned to 1.61.1 in agent/package.json: site's @playwright/test
-# is ^1.61.1 and metrics' is ^1.49.0 — these diverge, but bun's resolver already
-# hoists metrics' range up to 1.61.1 (the newest version satisfying both ranges),
-# so 1.61.1 is the version already present in this repo's bun.lock; the agent's
-# own `playwright` runtime dep is pinned to match rather than introducing a third
-# version. No --with-deps here (that would `apt-get install` as non-root and
-# fail) — the OS-level deps were already installed as root in the base stage.
+# ─── Playwright chromium-headless-shell (runtime/browser.ts) ──────────────────
+# Installed as the already-active USER 1000 under /home/bun, so nothing lands
+# root-owned. No --with-deps: the OS-level deps were installed as root in the
+# base stage.
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/bun/.cache/ms-playwright
-RUN ./agent/node_modules/.bin/playwright install chromium-headless-shell
+RUN bunx playwright install chromium-headless-shell
 
 # ─── Piper offline TTS (voice-out) ────────────────────────────────────────────
-# Bundle the Piper binary + the default voice so the agent can synthesize voice
-# replies with no external TTS key. When voice is enabled (agent.voice.enabled) and
-# no ElevenLabs key is set, synthesizeSpeech() (agent/src/runtime/voice.ts) falls back to
-# spawning a bare `piper` on PATH. piper-voice.ts hardcodes the model dir to
-# /app/agent/voices/ and the default voice en_US-hfc_female-medium, so the model
-# MUST live at that exact path. The release tarball is self-contained — its shared
-# libs + espeak-ng-data sit beside the binary with an $ORIGIN rpath — so putting
-# /opt/piper on PATH is all that's needed (no ffmpeg: Piper writes WAV directly, and
-# Slack's files.uploadV2 accepts WAV). curl + tar come from the base stage.
-# Installed as root (the runtime user is uid 1000); the voice dir is chowned back so
-# the non-root user can read it. This runs AFTER the /app/agent COPY above so the
-# voices aren't clobbered by that layer. amd64 only — the harness image is built
-# single-arch; an arm64 build would need the aarch64 asset.
+# runtime/piper-voice.ts hardcodes the model dir to /app/agent/voices/, so the
+# model MUST live at that exact path. amd64 only.
 USER root
 ARG PIPER_VERSION=2023.11.14-2
 RUN curl -fsSL -o /tmp/piper.tar.gz \
@@ -304,8 +252,11 @@ USER 1000
 
 VOLUME ["/data/agent-home"]
 
-# Expose the health probe port (always active)
+# Health probe port
 EXPOSE 3459
 
-# Entrypoint: run the startup sequence then hand off to the agent server
-ENTRYPOINT ["bun", "run", "/app/agent/src/entrypoint-main.ts"]
+# Base-image contract (downstream images build FROM this one):
+#   - marketplaces COPYed to /opt/shipwright/marketplaces/<name>/ are registered
+#     at boot by installPlugins() (runtime/setup.ts)
+#   - the entrypoint path below is stable
+ENTRYPOINT ["bun", "run", "/app/runtime/entrypoint-main.ts"]
