@@ -28,7 +28,8 @@
  *   bun scripts/consumer-smoke.ts --version 1.2.3 [--dir SCRATCH]
  *   bun scripts/consumer-smoke.ts --version 1.2.3 --pack          # no release needed
  *   bun scripts/consumer-smoke.ts --version 1.2.3 --tarballs DIR  # prebuilt tgz
- * --no-admin-boot boots only the agent image (the admin image is built in a
+ * --no-import-probe skips step 2 (admin's entries need a generated Prisma
+ * client, absent in the docker CI job). --no-admin-boot boots only the agent image (the admin image is built in a
  * separate CI job). Env: CONSUMER_SMOKE_VERSION, CONSUMER_SMOKE_DIR. Boot checks need docker and
  * are on by default for registry installs, off for --pack/--tarballs
  * (override with --boot / --no-boot).
@@ -157,6 +158,7 @@ export type Args = {
   agentImage: string;
   adminImage: string;
   bootAdmin: boolean;
+  importProbe: boolean;
 };
 
 export function parseArgs(
@@ -190,6 +192,7 @@ export function parseArgs(
     pack,
     boot,
     agentImage: flag("agent-image") ?? `ghcr.io/app-vitals/agent:${version}`,
+    importProbe: !argv.includes("--no-import-probe"),
     bootAdmin: !argv.includes("--no-admin-boot"),
     adminImage:
       flag("admin-image") ?? `ghcr.io/app-vitals/agent-admin:${version}`,
@@ -325,8 +328,12 @@ async function bootImage(
   image: string,
 ): Promise<boolean> {
   const name = `consumer-smoke-${kind}-${process.pid}`;
-  const pull = run(["docker", "pull", image], process.cwd());
-  if (pull.exitCode !== 0) return false;
+  // A locally built image (CI's agent:ci) is not on any registry: only pull when absent.
+  const local = run(["docker", "image", "inspect", image], process.cwd(), true);
+  if (local.exitCode !== 0) {
+    const pull = run(["docker", "pull", image], process.cwd());
+    if (pull.exitCode !== 0) return false;
+  }
   const start = run(buildDockerRunArgs(kind, image, name), process.cwd());
   if (start.exitCode !== 0) return false;
   let logs = "";
@@ -384,7 +391,7 @@ async function main(): Promise<void> {
     packLocal(repoRoot, args.version, args.tarballs);
   }
   await install(args, scratch);
-  let ok = importProbe(repoRoot, scratch);
+  let ok = args.importProbe ? importProbe(repoRoot, scratch) : true;
   if (args.boot) {
     const results = [
       await bootImage("agent", args.agentImage),

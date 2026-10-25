@@ -196,5 +196,9 @@ describe("parseArgs --no-admin-boot", () => {
     expect(
       parseArgs(["--version", "1.0.0", "--no-admin-boot"], {}).bootAdmin,
     ).toBe(false);
+    expect(parseArgs(["--version", "1.0.0"], {}).importProbe).toBe(true);
+    expect(
+      parseArgs(["--version", "1.0.0", "--no-import-probe"], {}).importProbe,
+    ).toBe(false);
   });
 });
