@@ -41,3 +41,11 @@ describe("callerLabel — undefined caller", () => {
     );
   });
 });
+
+describe("callerLabel — scope kind", () => {
+  test("appends the scope kind when given", () => {
+    expect(
+      callerLabel({ name: "svc", scope: "platform.read" }, "platform-read"),
+    ).toBe("svc (platform.read) [platform-read]");
+  });
+});

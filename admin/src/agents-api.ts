@@ -68,8 +68,12 @@ import {
   AnthropicCredentialsBlockedError,
   anthropicCredentialKeysIn,
 } from "./anthropic-credential-guard.ts";
-import type { AdminApiKey, AdminAuthEnv } from "./api-auth.ts";
-import { createAdminAuthMiddleware, parseAdminApiKeys } from "./api-auth.ts";
+import type { AdminApiKey, AdminAuthEnv, AdminScope } from "./api-auth.ts";
+import {
+  createAdminAuthMiddleware,
+  parseAdminApiKeys,
+  requireScope,
+} from "./api-auth.ts";
 import {
   type CallerScopeResolver,
   memberOnlyCallerScopeResolver,
@@ -1308,7 +1312,7 @@ export function createAdminApiHono(
     }
     captureUnhandled(err);
     console.error(
-      `[agents-api] unhandled error (caller: ${callerLabel(c.get("caller"))}):`,
+      `[agents-api] unhandled error (caller: ${callerLabel(c.get("caller"), c.get("scope")?.kind)}):`,
       err,
     );
     return c.json({ error: "Internal server error" }, 500);
@@ -1356,11 +1360,23 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     callerScopeResolver,
   });
 
-  // Admin, or a session-cookie caller (membership of the route's agent already
-  // enforced by the auth middleware). Bearer non-admins stay denied.
+  // Platform readers/operators (platform.read / platform.ops admin keys): the
+  // auth middleware has already enforced the method and PLATFORM_OPS_ROUTES
+  // allowlist, so handlers only widen their reader checks for them.
+  const isPlatformCaller = (c: { get: (k: "scope") => unknown }) => {
+    const kind = (c.get("scope") as AdminScope | undefined)?.kind;
+    return kind === "platform-read" || kind === "platform-ops";
+  };
+
+  // Admin, a platform reader/operator, or a session-cookie caller (membership
+  // of the route's agent already enforced by the auth middleware). Bearer
+  // non-admins stay denied.
   const isAdminOrSessionMember = (c: {
-    get: (k: "isAdmin" | "callerEmail") => unknown;
-  }) => c.get("isAdmin") === true || c.get("callerEmail") !== undefined;
+    get: (k: "isAdmin" | "callerEmail" | "scope") => unknown;
+  }) =>
+    c.get("isAdmin") === true ||
+    c.get("callerEmail") !== undefined ||
+    isPlatformCaller(c);
 
   // Apply combined auth (bearer token OR session cookie) to all /agents/* routes.
   app.use("/agents/*", authMiddleware);
@@ -1462,6 +1478,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     if (!isAdminOrSessionMember(c)) {
       throw new ForbiddenError("Admin access required to update agent");
     }
+    requireScope(c, "ops");
     const { id: agentId } = c.req.valid("param");
     const body = c.req.valid("json");
 
@@ -1585,7 +1602,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
   // GET /agents — list all agents (id + name + selfHosted) for metrics name resolution.
   app.openapi(listAgentsRoute, async (c) => {
     const email = c.get("callerEmail");
-    if (c.get("isAdmin") !== true && email === undefined) {
+    if (!isAdminOrSessionMember(c)) {
       throw new ForbiddenError("Admin access required to list agents");
     }
     // list() also selects the owner and identity IDs for reconcile targets;

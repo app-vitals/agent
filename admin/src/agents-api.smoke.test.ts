@@ -22,6 +22,7 @@ import type { SpecialtyManifest } from "./specialty-registry.ts";
 import type { AdminDeps } from "./agents-api.ts";
 import { getSelfServeSpecialty } from "./account-agent-create.ts";
 import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
+import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
 import { identityCrypto } from "./token-crypto.ts";
 
 // ─── Fake SpecialtyManifestResolver ────────────────────────────────────────
@@ -5596,5 +5597,102 @@ describe("admin API — Anthropic credential guards (WIF-2.1)", () => {
       });
       expect((await res).status).toBe(200);
     });
+  });
+});
+
+// ─── Platform scopes (COS-28.1) ─────────────────────────────────────────────
+
+describe("platform.read / platform.ops keys over the real route table", () => {
+  const READ = "platform-read-token";
+  const OPS = "platform-ops-token";
+  const makeApp = () =>
+    createAdminApp({
+      ...makeMockDeps(),
+      adminApiKeys: parseAdminApiKeys(
+        `reader:${READ}:platform.read,operator:${OPS}:platform.ops`,
+      ),
+    });
+  const send = (
+    app: ReturnType<typeof makeApp>,
+    token: string,
+    method: string,
+    path: string,
+    body: unknown = {},
+  ) =>
+    app.request(path, {
+      method,
+      body: method === "GET" ? undefined : JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  const fill = (path: string) =>
+    path
+      .replace("{id}", AGENT_ID)
+      .replace("{cronId}", CRON_ID)
+      .replace(/\{[^}]+\}/g, "x");
+
+  it("platform.read lists and reads agents but cannot mutate", async () => {
+    const app = makeApp();
+    expect((await send(app, READ, "GET", "/agents")).status).toBe(200);
+    expect((await send(app, READ, "GET", `/agents/${AGENT_ID}`)).status).toBe(
+      200,
+    );
+    expect(
+      (await send(app, READ, "PATCH", `/agents/${AGENT_ID}`, { repos: [] }))
+        .status,
+    ).toBe(403);
+  });
+
+  it("platform.ops can patch repos but not accountId, envs, or delete", async () => {
+    const app = makeApp();
+    expect(
+      (await send(app, OPS, "PATCH", `/agents/${AGENT_ID}`, { repos: [] }))
+        .status,
+    ).toBe(200);
+    expect(
+      (
+        await send(app, OPS, "PATCH", `/agents/${AGENT_ID}`, {
+          accountId: "acct-1",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await send(app, OPS, "PATCH", `/agents/${AGENT_ID}/envs`, {
+          env: { A: "b" },
+        })
+      ).status,
+    ).toBe(403);
+    expect((await send(app, OPS, "DELETE", `/agents/${AGENT_ID}`)).status).toBe(
+      403,
+    );
+  });
+
+  it("every mounted PLATFORM_OPS_ROUTES entry is reachable with platform.ops and 403 with platform.read", async () => {
+    const app = makeApp();
+    for (const r of PLATFORM_OPS_ROUTES) {
+      const path = fill(r.path);
+      const ops = await send(app, OPS, r.method, path);
+      // Not mounted yet: the auth middleware passes, the router 404s. The
+      // repos, ask and chat-credentials routes are mounted by their own
+      // follow-up tasks (later COS-28.x / ask-scopes tasks).
+      const mounted = ops.status !== 404 || r.path === "/agents/{id}";
+      if (mounted) {
+        expect(ops.status).not.toBe(403);
+      }
+      expect((await send(app, READ, r.method, path)).status).toBe(403);
+    }
+  });
+
+  it("an off-list mutating route (POST /agents/{id}/envs) is 403 for both scopes", async () => {
+    const app = makeApp();
+    for (const token of [READ, OPS]) {
+      const res = await send(app, token, "POST", `/agents/${AGENT_ID}/envs`, {
+        env: { A: "b" },
+      });
+      expect(res.status).toBe(403);
+    }
   });
 });

@@ -13,9 +13,11 @@ export interface Caller {
 /**
  * Produce a stable, readable label for a caller, suitable for log lines.
  * Returns "anonymous" when no caller is present (e.g. unauthenticated or
- * not-yet-resolved requests).
+ * not-yet-resolved requests). When the auth middleware's scope kind is
+ * known, it is appended in brackets (e.g. "svc (platform.read) [platform-read]").
  */
-export function callerLabel(caller?: Caller): string {
+export function callerLabel(caller?: Caller, scopeKind?: string): string {
   if (!caller) return "anonymous";
-  return `${caller.name} (${caller.scope})`;
+  const label = `${caller.name} (${caller.scope})`;
+  return scopeKind ? `${label} [${scopeKind}]` : label;
 }
