@@ -7,6 +7,9 @@
       "@semantic-release/release-notes-generator",
       { "preset": "conventionalcommits" }
     ],
-    "@semantic-release/github"
+    [
+      "@semantic-release/github",
+      { "successComment": false, "failComment": false, "releasedLabels": false }
+    ]
   ]
 }
