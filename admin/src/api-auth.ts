@@ -19,13 +19,32 @@ import {
   memberOnlyCallerScopeResolver,
   scopeIncludesAgent,
 } from "./caller-scope.ts";
+import { ForbiddenError } from "./errors.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+/**
+ * What kind of credential authenticated the request.
+ * admin → `*` key; agent → `<agentId>` key or DB agent token;
+ * platform-read / platform-ops → `platform.read` / `platform.ops` keys.
+ * Not set for session cookies (they are described by isAdmin/callerEmail).
+ */
+export type AdminScopeKind =
+  | "admin"
+  | "agent"
+  | "platform-read"
+  | "platform-ops";
+
+export interface AdminScope {
+  kind: AdminScopeKind;
+  agentId?: string;
+}
 
 export type AdminAuthEnv = {
   Variables: {
     isAdmin: boolean;
     caller: Caller;
+    scope?: AdminScope;
     /**
      * Lowercased session email. Set only for session-cookie callers (admin or
      * member) — never for bearer callers. For a non-admin cookie, the
@@ -62,12 +81,71 @@ export function extractAgentId(path: string): string | null {
   return AGENT_ROUTE_RE.exec(path)?.[1] ?? null;
 }
 
+// ─── Platform scopes ──────────────────────────────────────────────────────────
+
+export const PLATFORM_READ_SCOPE = "platform.read";
+export const PLATFORM_OPS_SCOPE = "platform.ops";
+
+export interface PlatformOpsRoute {
+  method: string;
+  /** Path template; `{name}` matches exactly one segment. */
+  path: string;
+  /** Also match any deeper path below `path` (e.g. /agents/{id}/repos/{repo}). */
+  subpaths?: boolean;
+}
+
+/**
+ * The only mutating routes a `platform.ops` key may call (everything else
+ * mutating is 403, as is every mutating method for `platform.read`).
+ * PATCH /agents/{id} additionally refuses `accountId` in its handler.
+ * Entries whose routes are not mounted yet are wired by their own tasks.
+ */
+export const PLATFORM_OPS_ROUTES: readonly PlatformOpsRoute[] = [
+  { method: "PATCH", path: "/agents/{id}" },
+  { method: "POST", path: "/agents/{id}/repos", subpaths: true },
+  { method: "DELETE", path: "/agents/{id}/repos", subpaths: true },
+  { method: "PATCH", path: "/agents/{id}/crons/{cronId}" },
+  { method: "POST", path: "/agents/{id}/ask" },
+  { method: "POST", path: "/agents/{id}/chat-credentials", subpaths: true },
+  { method: "DELETE", path: "/agents/{id}/chat-credentials", subpaths: true },
+];
+
+const PLATFORM_OPS_MATCHERS = PLATFORM_OPS_ROUTES.map((r) => ({
+  method: r.method,
+  re: new RegExp(
+    `^${r.path.replace(/\{[^}]+\}/g, "[^/]+")}${r.subpaths ? "(?:/.*)?" : ""}/?$`,
+  ),
+}));
+
+function isPlatformOpsRoute(method: string, path: string): boolean {
+  return PLATFORM_OPS_MATCHERS.some(
+    (m) => m.method === method && m.re.test(path),
+  );
+}
+
+/**
+ * Handler-side guard for routes on PLATFORM_OPS_ROUTES. The middleware already
+ * 403s other callers' methods; this keeps a `platform.read` caller out even if
+ * a handler is mounted behind a different method. Admin, agent and session
+ * callers are unaffected.
+ */
+export function requireScope(
+  c: { get: (k: "scope") => unknown },
+  need: "ops",
+): void {
+  const kind = (c.get("scope") as AdminScope | undefined)?.kind;
+  if (need === "ops" && kind === "platform-read") {
+    throw new ForbiddenError("Platform ops scope required");
+  }
+}
+
 // ─── Admin API key parsing ────────────────────────────────────────────────────
 
 /**
  * Represents a parsed admin API key entry.
  * scope === "*" → admin (bypasses all per-agent scope checks)
  * scope === "<agentId>" → scoped to a single agent
+ * scope === "platform.read" | "platform.ops" → platform reader / operator
  */
 export interface AdminApiKey {
   name: string;
@@ -77,7 +155,11 @@ export interface AdminApiKey {
 /**
  * Parse the SHIPWRIGHT_ADMIN_API_KEYS env var into a Map<token, AdminApiKey>.
  * Format: comma-separated "name:token:scope" tuples.
- * Example: "bodhi:sk_bodhi_abc:*,svc:sk_svc_xyz:agent-id-123"
+ * Example: "bodhi:sk_bodhi_abc:*,svc:sk_svc_xyz:agent-id-123,ro:tok:platform.read"
+ *
+ * Scope names must not contain a colon: the last colon-separated segment IS
+ * the scope, so a colon would corrupt the token. Hence the dot-spelled
+ * `platform.read` / `platform.ops`.
  *
  * Tokens may contain embedded colons — first segment is name, last is scope,
  * everything in between is the token.
@@ -182,6 +264,27 @@ export function createAdminAuthMiddleware(deps: {
             // Admin key — bypass all scope checks.
             c.set("isAdmin", true);
             c.set("caller", { name: envKey.name, scope: "*" });
+            c.set("scope", { kind: "admin" });
+            return next();
+          }
+          if (
+            envKey.scope === PLATFORM_READ_SCOPE ||
+            envKey.scope === PLATFORM_OPS_SCOPE
+          ) {
+            const method = c.req.method;
+            const read = method === "GET" || method === "HEAD";
+            const ops =
+              envKey.scope === PLATFORM_OPS_SCOPE &&
+              isPlatformOpsRoute(method, c.req.path);
+            if (!read && !ops) return c.json({ error: "Forbidden" }, 403);
+            c.set("isAdmin", false);
+            c.set("caller", { name: envKey.name, scope: envKey.scope });
+            c.set("scope", {
+              kind:
+                envKey.scope === PLATFORM_OPS_SCOPE
+                  ? "platform-ops"
+                  : "platform-read",
+            });
             return next();
           }
           // Scoped key — enforce route agentId matches key scope.
@@ -193,6 +296,7 @@ export function createAdminAuthMiddleware(deps: {
           // All current /agents/* routes match AGENT_ROUTE_RE — revisit if that changes.
           c.set("isAdmin", false);
           c.set("caller", { name: envKey.name, scope: envKey.scope });
+          c.set("scope", { kind: "agent", agentId: envKey.scope });
           return next();
         }
       }
@@ -214,6 +318,7 @@ export function createAdminAuthMiddleware(deps: {
       // DB token path — per-agent bearer, not an admin.
       c.set("isAdmin", false);
       c.set("caller", { name: result.agentId, scope: result.agentId });
+      c.set("scope", { kind: "agent", agentId: result.agentId });
       return next();
     }
 
