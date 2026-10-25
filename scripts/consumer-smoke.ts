@@ -254,10 +254,11 @@ async function install(args: Args, scratch: string): Promise<void> {
         tarballFor(args.tarballs as string, p.name),
       ]),
     );
-    // agent-admin depends on agent-lib@VERSION: point it at the local tarball too.
-    pkg.overrides = {
-      "@app-vitals/agent-lib": `file:${tgz["@app-vitals/agent-lib"]}`,
-    };
+    // Inter-package deps (admin -> lib, runtime -> lib + admin) are pinned to
+    // VERSION, which is not on the registry: point each at its local tarball.
+    pkg.overrides = Object.fromEntries(
+      Object.entries(tgz).map(([n, t]) => [n, `file:${t}`]),
+    );
     specs = Object.values(tgz).map((t) => `file:${t}`);
   } else {
     specs = PACKAGES.map((p) => `${p.name}@${args.version}`);
