@@ -273,3 +273,16 @@ jobs:
       - name: Push image
         if: ${{ needs.resolve.outputs.dry_run != 'true' && steps.exists.outputs.exists != 'true' }}
         run: docker push "$IMAGE:$VERSION"
+
+  # Post-publish smoke of the released artifacts. Never on dry runs (nothing
+  # was pushed). Publish steps stay in this file for npm Trusted Publishing.
+  consumer-smoke:
+    name: Consumer smoke
+    if: ${{ needs.resolve.outputs.dry_run != 'true' }}
+    needs: [resolve, publish-npm, publish-image]
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/consumer-smoke.yml
+    with:
+      version: ${{ needs.resolve.outputs.version }}

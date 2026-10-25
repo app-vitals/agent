@@ -15,7 +15,9 @@ import type { AdminAuthEnv } from "./api-auth.ts";
 import {
   createAdminAuthMiddleware,
   extractAgentId,
+  PLATFORM_OPS_ROUTES,
   parseAdminApiKeys,
+  requireScope,
 } from "./api-auth.ts";
 import { createCallerScopeResolver } from "./caller-scope.ts";
 
@@ -642,5 +644,139 @@ describe("extractAgentId", () => {
   it("returns null when there is no agent segment", () => {
     expect(extractAgentId("/agents")).toBeNull();
     expect(extractAgentId("/other/abc")).toBeNull();
+  });
+});
+
+// ─── Platform scopes (COS-28.1) ──────────────────────────────────────────────
+
+describe("parseAdminApiKeys — platform scopes", () => {
+  it("parses svc:tok:platform.read with scope platform.read and token tok", () => {
+    const keys = parseAdminApiKeys("svc:tok:platform.read");
+    expect(keys.get("tok")).toEqual({ name: "svc", scope: "platform.read" });
+  });
+
+  it("parses platform.ops", () => {
+    expect(parseAdminApiKeys("ops:tok2:platform.ops").get("tok2")?.scope).toBe(
+      "platform.ops",
+    );
+  });
+});
+
+describe("createAdminAuthMiddleware — platform scopes", () => {
+  const READ = "read-token";
+  const OPS = "ops-token";
+
+  function buildPlatformApp(): Hono<AdminAuthEnv> {
+    const app = buildApp(
+      async () => null,
+      parseAdminApiKeys(`r:${READ}:platform.read,o:${OPS}:platform.ops`),
+    );
+    app.patch("/agents/:id", (c) => {
+      requireScope(c, "ops");
+      return c.json({ scope: c.get("scope"), isAdmin: c.get("isAdmin") });
+    });
+    app.delete("/agents/:id", (c) => c.json({ ok: true }));
+    app.patch("/agents/:id/envs", (c) => c.json({ ok: true }));
+    app.get("/agents", (c) => c.json({ scope: c.get("scope") }));
+    return app;
+  }
+
+  const call = (
+    app: Hono<AdminAuthEnv>,
+    token: string,
+    method: string,
+    path: string,
+  ) =>
+    app.request(path, {
+      method,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+  it("platform.read: 200 on GET /agents, scope kind platform-read, isAdmin false", async () => {
+    const res = await call(buildPlatformApp(), READ, "GET", "/agents");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { scope: unknown }).scope).toEqual({
+      kind: "platform-read",
+    });
+  });
+
+  it("platform.read: 200 on GET of an agent-scoped route", async () => {
+    const res = await call(
+      buildPlatformApp(),
+      READ,
+      "GET",
+      `/agents/${AGENT_ID}/envs`,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("platform.read: 403 on PATCH /agents/{id}", async () => {
+    const res = await call(
+      buildPlatformApp(),
+      READ,
+      "PATCH",
+      `/agents/${AGENT_ID}`,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("platform.ops: 200 on PATCH /agents/{id} with isAdmin false and scope platform-ops", async () => {
+    const res = await call(
+      buildPlatformApp(),
+      OPS,
+      "PATCH",
+      `/agents/${AGENT_ID}`,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      scope: { kind: "platform-ops" },
+      isAdmin: false,
+    });
+  });
+
+  it("platform.ops: 403 on PATCH /agents/{id}/envs and DELETE /agents/{id}", async () => {
+    const app = buildPlatformApp();
+    expect(
+      (await call(app, OPS, "PATCH", `/agents/${AGENT_ID}/envs`)).status,
+    ).toBe(403);
+    expect((await call(app, OPS, "DELETE", `/agents/${AGENT_ID}`)).status).toBe(
+      403,
+    );
+  });
+
+  it("platform.ops: subpath entries match deeper paths but not look-alike prefixes", async () => {
+    const app = buildApp(
+      async () => null,
+      parseAdminApiKeys(`o:${OPS}:platform.ops`),
+    );
+    app.delete("/agents/:id/repos/:repo", (c) => c.json({ ok: true }));
+    app.delete("/agents/:id/reposx", (c) => c.json({ ok: true }));
+    expect(
+      (await call(app, OPS, "DELETE", `/agents/${AGENT_ID}/repos/r`)).status,
+    ).toBe(200);
+    expect(
+      (await call(app, OPS, "DELETE", `/agents/${AGENT_ID}/reposx`)).status,
+    ).toBe(403);
+  });
+
+  it("agent and admin keys get scope kinds agent / admin", async () => {
+    const app = buildApp(
+      async () => null,
+      parseAdminApiKeys(`a:adm:*,s:svc:${AGENT_ID}`),
+    );
+    app.get("/who", (c) => c.json(c.get("scope")));
+    expect(await (await call(app, "adm", "GET", "/who")).json()).toEqual({
+      kind: "admin",
+    });
+    expect(await (await call(app, "svc", "GET", "/who")).json()).toEqual({
+      kind: "agent",
+      agentId: AGENT_ID,
+    });
+  });
+
+  it("PLATFORM_OPS_ROUTES lists the allowlisted mutating routes", () => {
+    expect(PLATFORM_OPS_ROUTES.map((r) => `${r.method} ${r.path}`)).toContain(
+      "PATCH /agents/{id}",
+    );
   });
 });

@@ -31,7 +31,7 @@ The service listens on `http://localhost:3000` by default. Visit `/admin` for th
 | `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth 2.0 client secret |
 | `SHIPWRIGHT_ADMIN_ALLOWED_EMAILS` | Yes | Comma-separated list of emails permitted to log in |
 | `SHIPWRIGHT_ADMIN_APP_BASE_URL` | Yes | Public base URL used for OAuth redirect (defaults to `http://localhost:3000`) |
-| `SHIPWRIGHT_ADMIN_API_KEYS` | No | Comma-separated `name:token:scope` tuples for bearer token auth |
+| `SHIPWRIGHT_ADMIN_API_KEYS` | No | Comma-separated `name:token:scope` tuples for bearer token auth. Scope is `*`, an agent id, `platform.read` or `platform.ops` (no colons in scopes) — see [docs/agent-api.md](../docs/agent-api.md) |
 | `SHIPWRIGHT_ENCRYPTION_KEY` | Recommended | 64-char hex key for AES-256-GCM encryption of stored secrets |
 | `PORT` | No | HTTP server port (defaults to `3000`) |
 
