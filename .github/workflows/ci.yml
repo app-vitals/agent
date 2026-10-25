@@ -57,6 +57,11 @@ jobs:
       - name: Import-boundary gate
         run: bun run check:boundary
 
+      # Every third-party import in runtime/, lib/ and admin/src must be
+      # declared in the owning package's dependencies.
+      - name: Declared-dependencies gate
+        run: bun run check:deps
+
       # Every process.env.* in runtime/ and admin/ must be documented in
       # docs/configuration-agent.md (or allowlisted in the script).
       - name: Config-docs gate
