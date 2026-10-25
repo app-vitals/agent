@@ -8,11 +8,14 @@ name: Release
 #      or workflow_dispatch with `tag`: publish the three npm packages and both
 #      container images for that tag. Re-running is idempotent: versions and
 #      image tags that already exist are skipped.
+#   3. workflow_dispatch with `version` and dry_run=true, no tag: rehearse the
+#      publish at the dispatched commit (github.sha) before any tag exists.
+#      Nothing is pushed; without dry_run this fails fast.
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Preview only: semantic-release --dry-run, or npm publish --dry-run and unpushed image builds when `tag` is set"
+        description: "Preview only: semantic-release --dry-run, or npm publish --dry-run and unpushed image builds when `tag` or `version` is set"
         type: boolean
         required: false
         default: false
@@ -21,9 +24,16 @@ on:
         type: string
         required: false
         default: ""
+      version:
+        description: "Rehearse the publish at the dispatched commit as X.Y.Z with no tag (requires dry_run=true)"
+        type: string
+        required: false
+        default: ""
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+      # Reserved baseline tag for semantic-release; never publishes.
+      - "!v0.0.0"
 
 # Least privilege at the workflow level; each job asks for what it needs.
 permissions:
@@ -49,7 +59,7 @@ jobs:
 
   release:
     name: semantic-release
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.tag == '' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.tag == '' && inputs.version == '' }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
     needs: guard
@@ -87,13 +97,14 @@ jobs:
     name: Resolve release tag
     # `guard` is skipped on tag pushes, so `!cancelled()` replaces the implicit
     # `success()`; a failed guard (non-admin dispatch) still blocks publishing.
-    if: ${{ !cancelled() && needs.guard.result != 'failure' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')) }}
+    if: ${{ !cancelled() && needs.guard.result != 'failure' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.tag != '' || inputs.version != ''))) }}
     needs: guard
     timeout-minutes: 5
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
+      ref: ${{ steps.resolve.outputs.ref }}
       dry_run: ${{ steps.resolve.outputs.dry_run }}
     steps:
       - name: Validate tag
@@ -102,30 +113,51 @@ jobs:
           EVENT: ${{ github.event_name }}
           PUSHED_TAG: ${{ github.ref_name }}
           INPUT_TAG: ${{ inputs.tag }}
+          INPUT_VERSION: ${{ inputs.version }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          SHA: ${{ github.sha }}
         run: |
           if [ "$EVENT" = "push" ]; then TAG="$PUSHED_TAG"; else TAG="$INPUT_TAG"; fi
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: '$TAG' is not a vX.Y.Z release tag" >&2
-            exit 1
-          fi
           DRY_RUN=false
           if [ "$EVENT" = "workflow_dispatch" ] && [ "$INPUT_DRY_RUN" = "true" ]; then DRY_RUN=true; fi
+          if [ -z "$TAG" ]; then
+            # Tagless rehearsal: only a dry run, at the dispatched commit.
+            if [ "$DRY_RUN" != "true" ]; then
+              echo "Error: dispatching with version and no tag requires dry_run=true; a real publish needs an existing vX.Y.Z tag" >&2
+              exit 1
+            fi
+            if ! [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: '$INPUT_VERSION' is not an X.Y.Z version" >&2
+              exit 1
+            fi
+            VERSION="$INPUT_VERSION"
+            REF="$SHA"
+          else
+            if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: '$TAG' is not a vX.Y.Z release tag" >&2
+              exit 1
+            fi
+            VERSION="${TAG#v}"
+            REF="refs/tags/$TAG"
+          fi
           {
             echo "tag=$TAG"
-            echo "version=${TAG#v}"
+            echo "version=$VERSION"
+            echo "ref=$REF"
             echo "dry_run=$DRY_RUN"
           } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ steps.resolve.outputs.tag }}
+          ref: ${{ steps.resolve.outputs.ref }}
           fetch-depth: 0
           persist-credentials: false
 
       # Anyone with write access can push a tag at any commit; only publish
       # commits that landed on main through the normal review path.
       - name: Verify tag commit is on main
+        # A tagless dry-run rehearsal has no tag to verify and publishes nothing.
+        if: ${{ steps.resolve.outputs.tag != '' }}
         env:
           TAG: ${{ steps.resolve.outputs.tag }}
         run: |
@@ -152,7 +184,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+          ref: ${{ needs.resolve.outputs.ref }}
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -224,7 +256,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ needs.resolve.outputs.tag }}
+          ref: ${{ needs.resolve.outputs.ref }}
           persist-credentials: false
 
       - name: Log in to ghcr.io
@@ -273,6 +305,41 @@ jobs:
       - name: Push image
         if: ${{ needs.resolve.outputs.dry_run != 'true' && steps.exists.outputs.exists != 'true' }}
         run: docker push "$IMAGE:$VERSION"
+
+  # Tell Shipwright a new platform version exists so it can bump and rebuild
+  # without waiting for Renovate. Failures must be loud: the 2026-10-02..10-09
+  # poller stall went unnoticed for a week because it failed silently. A failed
+  # dispatch fails this job (and so the workflow) and opens an issue.
+  notify-shipwright:
+    name: Notify Shipwright
+    needs: [resolve, publish-npm, publish-image]
+    if: ${{ needs.resolve.outputs.dry_run != 'true' }}
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - name: Dispatch platform-release to app-vitals/shipwright
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+        run: |
+          gh api --method POST repos/app-vitals/shipwright/dispatches \
+            -f event_type=platform-release \
+            -f "client_payload[version]=$VERSION"
+
+      - name: Open an issue when the dispatch failed
+        if: ${{ failure() && steps.dispatch.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Shipwright dispatch failed for platform release $VERSION" \
+            --body "The \`platform-release\` repository_dispatch to app-vitals/shipwright failed for version $VERSION, so Shipwright was not told to bump and rebuild. Check that the \`DISPATCH_TOKEN\` secret is valid, then re-run the failed job: $RUN_URL"
 
   # Post-publish smoke of the released artifacts. Never on dry runs (nothing
   # was pushed). Publish steps stay in this file for npm Trusted Publishing.

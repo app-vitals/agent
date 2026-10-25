@@ -16,9 +16,33 @@ const runText = (job: string) =>
 
 describe("release workflow", () => {
   test("triggers on release tags and manual dispatch with dry_run and tag inputs", () => {
-    expect(wf.on.push.tags).toEqual(["v[0-9]+.[0-9]+.[0-9]+"]);
+    expect(wf.on.push.tags[0]).toBe("v[0-9]+.[0-9]+.[0-9]+");
     expect(wf.on.workflow_dispatch.inputs.dry_run.type).toBe("boolean");
     expect(wf.on.workflow_dispatch.inputs.tag.type).toBe("string");
+  });
+
+  test("a tagless version dispatch is a dry run only, and the reserved v0.0.0 tag never publishes", () => {
+    expect(wf.on.push.tags).toContain("!v0.0.0");
+    expect(wf.on.workflow_dispatch.inputs.version.type).toBe("string");
+    // semantic-release must not also fire for a version-only dispatch.
+    expect(wf.jobs.release.if).toContain("inputs.version == ''");
+    expect(wf.jobs.resolve.if).toContain("inputs.version != ''");
+    const run = runText("resolve");
+    expect(run).toContain("requires dry_run=true");
+    expect(run).toMatch(/\^\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/);
+    const checkout = stepsOf("resolve").find((s) =>
+      String(s.uses).includes("checkout"),
+    );
+    expect(checkout?.with.ref).toBe("${{ steps.resolve.outputs.ref }}");
+    const verify = stepsOf("resolve").find(
+      (s) => s.name === "Verify tag commit is on main",
+    );
+    expect(verify?.if).toContain("steps.resolve.outputs.tag != ''");
+    for (const job of ["publish-npm", "publish-image"]) {
+      const co = stepsOf(job).find((s) => String(s.uses).includes("checkout"));
+      expect(co?.with.ref).toBe("${{ needs.resolve.outputs.ref }}");
+    }
+    expect(wf.jobs["consumer-smoke"].if).toContain("dry_run != 'true'");
   });
 
   test("publish path is gated: resolve depends on guard and requires the tag be on main", () => {
@@ -123,6 +147,30 @@ describe("release workflow", () => {
       expect(pkg.publishConfig.access).toBe("public");
       expect(pkg.repository.url).toContain("github.com/app-vitals/agent");
     }
+  });
+
+  test("notifies shipwright with a platform-release dispatch carrying the version, after publishing", () => {
+    const job = wf.jobs["notify-shipwright"];
+    expect(job.needs).toEqual(["resolve", "publish-npm", "publish-image"]);
+    expect(job.if).toContain("dry_run != 'true'");
+    const dispatch = job.steps.find((s: Step) => s.id === "dispatch");
+    expect(dispatch.env.GH_TOKEN).toBe("${{ secrets.DISPATCH_TOKEN }}");
+    expect(dispatch.run).toContain("repos/app-vitals/shipwright/dispatches");
+    expect(dispatch.run).toContain("event_type=platform-release");
+    expect(dispatch.run).toContain("client_payload[version]=$VERSION");
+    expect(job.env.VERSION).toBe("${{ needs.resolve.outputs.version }}");
+  });
+
+  test("a failed dispatch fails the workflow (no continue-on-error) and opens an issue", () => {
+    const job = wf.jobs["notify-shipwright"];
+    expect(job.permissions.issues).toBe("write");
+    expect(job["continue-on-error"]).toBeUndefined();
+    const dispatch = job.steps.find((s: Step) => s.id === "dispatch");
+    expect(dispatch["continue-on-error"]).toBeUndefined();
+    const alert = job.steps.find((s: Step) => s.run?.includes("gh issue create"));
+    expect(alert.if).toContain("failure()");
+    expect(alert.if).toContain("steps.dispatch.outcome == 'failure'");
+    expect(alert.run).toContain("$VERSION");
   });
 });
 

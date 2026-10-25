@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# git — wrapper that routes `git push` through scripts/signed-push.ts when
+# $SHIPWRIGHT_SIGNED_COMMITS=1, so commits made by a GitHub App agent land
+# signed. Every other subcommand, and push with the flag unset or set to any
+# other value (e.g. `off`), execs the real git unchanged.
+#
+# Global options (-C <dir>, -c <k=v>) are parsed to find the subcommand. For an
+# intercepted push they are applied to the helper (cd / GIT_CONFIG_*), since the
+# helper takes plain `git push` arguments.
+#
+# GitHub App auth ($GH_TOKEN_FILE points at an existing file): an intercepted
+# push needs $SHIPWRIGHT_GH_OWNER to pick the org token; an unset hint fails
+# with a teaching error. PAT auth (no $GH_TOKEN_FILE, or the file is missing)
+# has no signing path, so push passes through to the real git.
+#
+# This script's own directory is stripped from PATH before exec'ing git or the
+# helper, so neither can resolve back to this wrapper.
+
+set -euo pipefail
+
+source="${BASH_SOURCE[0]}"
+while [[ -L "$source" ]]; do
+  dir=$(cd -P "$(dirname "$source")" && pwd)
+  source=$(readlink "$source")
+  [[ "$source" != /* ]] && source="$dir/$source"
+done
+self_dir=$(cd -P "$(dirname "$source")" && pwd)
+
+new_path=""
+IFS=':' read -r -a path_entries <<< "${PATH:-}"
+for entry in "${path_entries[@]}"; do
+  if [[ "$entry" != "$self_dir" ]]; then
+    if [[ -z "$new_path" ]]; then
+      new_path="$entry"
+    else
+      new_path="$new_path:$entry"
+    fi
+  fi
+done
+export PATH="$new_path"
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "git wrapper: no real \`git\` found on PATH after stripping $self_dir" >&2
+  exit 127
+fi
+
+# Walk the global options up to the subcommand.
+chdirs=()
+confs=()
+rest=("$@")
+i=0
+while (( i < ${#rest[@]} )); do
+  arg=${rest[i]}
+  case "$arg" in
+    -C) chdirs+=("${rest[i+1]:-}"); i=$((i + 2)) ;;
+    -c) confs+=("${rest[i+1]:-}"); i=$((i + 2)) ;;
+    --git-dir|--work-tree|--namespace|--super-prefix|--config-env) i=$((i + 2)) ;;
+    -*) i=$((i + 1)) ;;
+    *) break ;;
+  esac
+done
+subcommand=${rest[i]:-}
+
+if [[ "${SHIPWRIGHT_SIGNED_COMMITS:-}" != "1" || "$subcommand" != "push" ]]; then
+  exec git "$@"
+fi
+
+# PAT auth: nothing to sign with, push as usual.
+if [[ -z "${GH_TOKEN_FILE:-}" || ! -f "$GH_TOKEN_FILE" ]]; then
+  exec git "$@"
+fi
+
+if [[ -z "${SHIPWRIGHT_GH_OWNER:-}" ]]; then
+  cat >&2 <<'MSG'
+git wrapper: SHIPWRIGHT_GH_OWNER is not set.
+This agent serves several GitHub orgs and each org has its own token, so every
+git push must say which org it targets via SHIPWRIGHT_GH_OWNER (the org that
+owns the repo, e.g. app-vitals).
+Retry with: SHIPWRIGHT_GH_OWNER=<org> git ...
+Prefix each command with it, because shell state does not persist between
+commands.
+To push this once without signing: SHIPWRIGHT_SIGNED_COMMITS=off git ...
+MSG
+  exit 1
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "git wrapper: \`bun\` is required for signed pushes but was not found on PATH" >&2
+  exit 127
+fi
+
+# Apply -C (in order, as git does) and -c to the helper's process.
+for d in "${chdirs[@]+"${chdirs[@]}"}"; do
+  cd "$d" || exit 1
+done
+if (( ${#confs[@]} > 0 )); then
+  n=${GIT_CONFIG_COUNT:-0}
+  for kv in "${confs[@]}"; do
+    export "GIT_CONFIG_KEY_$n=${kv%%=*}"
+    if [[ "$kv" == *=* ]]; then
+      export "GIT_CONFIG_VALUE_$n=${kv#*=}"
+    else
+      export "GIT_CONFIG_VALUE_$n=true"
+    fi
+    n=$((n + 1))
+  done
+  export GIT_CONFIG_COUNT=$n
+fi
+
+exec bun "$(dirname "$self_dir")/signed-push.ts" "${rest[@]:i+1}"

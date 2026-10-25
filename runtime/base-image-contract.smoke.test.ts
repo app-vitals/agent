@@ -6,6 +6,7 @@
  * test builds such a derived image the same way and asserts the contract:
  *   - a marketplace at the convention root registers at boot via installPlugins()
  *   - /app/runtime/entrypoint-main.ts exists and runs under `bun run`
+ *   - /app/scripts/bin/gh, git and the git-credential helper are executable, ahead of the real ones on PATH
  *
  * Needs a Docker daemon and an already-built base image, so it is image-level
  * smoke and opt-in: set SHIPWRIGHT_CONTRACT_BASE_IMAGE (CI sets it to the image
@@ -127,5 +128,22 @@ describe.skipIf(!BASE_IMAGE)("agent base-image contract", () => {
     ]);
     expect(run.exitCode).toBe(1);
     expect(run.stdout + run.stderr).toContain("SHIPWRIGHT_AGENT_ID");
+  }, 60_000);
+
+  test("scripts/bin holds executable gh, git and git-credential wrappers ahead of the real gh and git on PATH", () => {
+    const run = docker([
+      "run",
+      "--rm",
+      "--entrypoint",
+      "bash",
+      DERIVED_TAG,
+      "-c",
+      "test -x /app/scripts/bin/gh && test -x /app/scripts/bin/git && test -x /app/scripts/bin/git-credential-shipwright.sh && command -v gh git",
+    ]);
+    expect(run.exitCode, run.stderr).toBe(0);
+    expect(run.stdout.trim().split("\n")).toEqual([
+      "/app/scripts/bin/gh",
+      "/app/scripts/bin/git",
+    ]);
   }, 60_000);
 });

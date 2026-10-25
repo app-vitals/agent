@@ -83,6 +83,7 @@ import { AgentToolService } from "./agent-tools.ts";
 import { AgentService } from "./agents.ts";
 import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
 import { createAgentRuntimeApp } from "./api.ts";
+import { createAdminAuthMiddleware } from "./api-auth.ts";
 import {
   callerScopeDepsFromServices,
   createCallerScopeResolver,
@@ -94,6 +95,7 @@ import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-clien
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";
+import { mountPlatformDoc } from "./platform-doc-route.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
 import { isPushEnabled } from "./push-sender.ts";
 import { PushService } from "./push-service.ts";
@@ -436,6 +438,18 @@ export async function startAdmin(
     ...resolvedExtensions.apiDeps,
   });
   root.route("/", adminApiApp);
+
+  // 3a. Platform OpenAPI document — GET /doc, flag-gated (not mounted when off)
+  mountPlatformDoc(root, {
+    env: process.env,
+    auth: createAdminAuthMiddleware({
+      sessionSecret,
+      agentTokenService,
+      adminApiKeys,
+      agentMemberService,
+      callerScopeResolver,
+    }),
+  });
 
   // 3b. Accounts API — /accounts/* — admin-only, flag-gated (SSP-5.1)
   root.route(
