@@ -36,8 +36,11 @@ optional.
 
 The schema file is generated from the Zod source (`buildSpecialtyJsonSchema()`), never
 hand-edited. `admin/src/specialty-registry.schema.unit.test.ts` deep-compares the
-committed file with the regenerated one, so changing the Zod schema means
-regenerating and committing `specialty.schema.json`. For field-level detail read the
+committed file with the regenerated one, so changing the Zod schema means updating
+`specialty.schema.json` to match. The generator script that comments in the code refer
+to (`scripts/generate-specialty-schema.ts`) does not exist in this repo yet, so there is
+no regenerate command: the test only calls `buildSpecialtyJsonSchema()`, and the file has
+to be updated by hand from its output. For field-level detail read the
 schema rather than this doc.
 
 ## Templates
@@ -78,6 +81,13 @@ The `specialist` manifest and some loader comments still spell paths as
 `specialties/specialist/...` (the monorepo layout), while the files live under
 `agent-types/`. The loader's built-in default directory is likewise `<repo>/specialties`,
 so in this repository point `SHIPWRIGHT_SPECIALTIES_DIR` at `agent-types/`.
+
+That alone does not make the specialist templates load. The manifest's
+`identity.templatesDir` is `specialties/specialist/templates/`, and `resolveTemplatesDir()`
+tries it against the repo root and then against the manifest's own directory. Neither path
+exists here, so the lookup throws, warns, and falls back to the built-in `workspace/`
+templates. For the type to seed its own identity files, change the manifest's
+`templatesDir` to `agent-types/specialist/templates/`.
 
 ## Adding a type
 
