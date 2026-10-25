@@ -403,3 +403,19 @@ describe("collectDocumentedVars", () => {
     expect(() => collectDocumentedVars([missingPath])).toThrow();
   });
 });
+
+describe("collectTsFiles generated prisma client", () => {
+  test("skips a prisma/ directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "ccd-prisma-"));
+    try {
+      mkdirSync(join(root, "prisma", "client"), { recursive: true });
+      writeFileSync(join(root, "prisma", "client", "client.ts"), "x");
+      writeFileSync(join(root, "a.ts"), "x");
+      const out: string[] = [];
+      collectTsFiles(root, out);
+      expect(out).toEqual([join(root, "a.ts")]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

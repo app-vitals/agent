@@ -145,7 +145,7 @@ export function collectDocumentedVars(paths: string[]): Set<string> {
 
 /**
  * Recursively collects all *.ts files from `dir` (excluding test files).
- * Skips node_modules, .git, dist, and worktrees directories.
+ * Skips node_modules, .git, dist, build, worktrees and prisma (generated client) directories.
  *
  * Exported (alongside the other pure functions in this file) so it can be
  * unit-tested directly against a real scratch directory tree, without
@@ -158,6 +158,8 @@ export function collectTsFiles(dir: string, out: string[]): void {
     "dist",
     "worktrees",
     "build",
+    // admin/prisma/client is generated (never committed) and reads DATABASE_URL
+    "prisma",
   ]);
   let entries: string[];
   try {
