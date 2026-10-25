@@ -229,6 +229,10 @@ jobs:
   publish-npm:
     name: Publish ${{ matrix.package }}
     needs: resolve
+    # `guard` is skipped on tag pushes, which would fail the implicit
+    # `success()`; `!cancelled()` replaces it. A failed guard still blocks
+    # publishing because `resolve` is then skipped, not successful.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
     # Publish in dependency order: agent-admin depends on agent-lib.
@@ -296,6 +300,10 @@ jobs:
   publish-image:
     name: Image ghcr.io/app-vitals/${{ matrix.image }}
     needs: resolve
+    # `guard` is skipped on tag pushes, which would fail the implicit
+    # `success()`; `!cancelled()` replaces it. A failed guard still blocks
+    # publishing because `resolve` is then skipped, not successful.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     strategy:
@@ -373,7 +381,9 @@ jobs:
   notify-shipwright:
     name: Notify Shipwright
     needs: [resolve, publish-npm, publish-image]
-    if: ${{ needs.resolve.outputs.dry_run != 'true' }}
+    # `!cancelled()` replaces the implicit `success()`, which fails when `guard`
+    # was skipped (tag push); each publish job must still have succeeded.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-image.result == 'success' && needs.resolve.outputs.dry_run != 'true' }}
     timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:
@@ -405,7 +415,9 @@ jobs:
   # was pushed). Publish steps stay in this file for npm Trusted Publishing.
   consumer-smoke:
     name: Consumer smoke
-    if: ${{ needs.resolve.outputs.dry_run != 'true' }}
+    # `!cancelled()` replaces the implicit `success()`, which fails when `guard`
+    # was skipped (tag push); each publish job must still have succeeded.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-image.result == 'success' && needs.resolve.outputs.dry_run != 'true' }}
     needs: [resolve, publish-npm, publish-image]
     permissions:
       contents: read

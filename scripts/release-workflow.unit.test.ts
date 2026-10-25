@@ -167,7 +167,9 @@ describe("release workflow", () => {
     expect(job["continue-on-error"]).toBeUndefined();
     const dispatch = job.steps.find((s: Step) => s.id === "dispatch");
     expect(dispatch["continue-on-error"]).toBeUndefined();
-    const alert = job.steps.find((s: Step) => s.run?.includes("gh issue create"));
+    const alert = job.steps.find((s: Step) =>
+      s.run?.includes("gh issue create"),
+    );
     expect(alert.if).toContain("failure()");
     expect(alert.if).toContain("steps.dispatch.outcome == 'failure'");
     expect(alert.run).toContain("$VERSION");
@@ -253,6 +255,45 @@ describe("automatic release on merge to main", () => {
       ].sort(),
     );
     expect(raw).not.toMatch(/slack/i);
+  });
+});
+
+describe("tag-push publish gating", () => {
+  // `guard` is skipped on a tag push, and the default success() condition
+  // fails when any ancestor was skipped, so every downstream job must opt out
+  // with !cancelled() and gate on the results it actually depends on.
+  const downstream = [
+    "publish-npm",
+    "publish-image",
+    "notify-shipwright",
+    "consumer-smoke",
+  ];
+
+  test.each(downstream)(
+    "%s runs when guard is skipped but not when resolve fails or the run is cancelled",
+    (name) => {
+      const cond: string = wf.jobs[name].if ?? "";
+      expect(cond).toContain("!cancelled()");
+      expect(cond).toContain("needs.resolve.result == 'success'");
+    },
+  );
+
+  test.each(["notify-shipwright", "consumer-smoke"])(
+    "%s also requires both publish jobs to succeed",
+    (name) => {
+      const cond: string = wf.jobs[name].if;
+      expect(cond).toContain("needs.publish-npm.result == 'success'");
+      expect(cond).toContain("needs.publish-image.result == 'success'");
+      expect(cond).toContain("needs.resolve.outputs.dry_run != 'true'");
+    },
+  );
+
+  test("a failed guard still blocks publishing through resolve", () => {
+    expect(wf.jobs.resolve.needs).toBe("guard");
+    expect(wf.jobs.resolve.if).toContain("needs.guard.result != 'failure'");
+    for (const name of ["publish-npm", "publish-image"]) {
+      expect(wf.jobs[name].needs).toBe("resolve");
+    }
   });
 });
 
