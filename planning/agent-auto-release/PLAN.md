@@ -99,3 +99,75 @@ Every task is safe to deploy standalone: the automatic trigger ships disabled
   already depends on `AGR-4.1`.
 - Out of scope: shipwright's own `.releaserc` and package versions carry the same
   preset mismatch but its release job is dormant.
+
+---
+
+# Phase 3: the 0.1.1 fix release
+
+0.1.0 shipped, but the post-publish consumer smoke failed and caught real defects.
+0.1.0 cannot be changed, so these ship as 0.1.1.
+
+## Findings
+
+1. `lib/package.json` exports five modules that are not in `lib/`: `agent-default-tools`,
+   `chat-notify`, `claim-ttl`, `http`, `default-account`. Four exist in shipwright's `lib/`
+   and shipwright imports them (task-store, admin coding UI); AGR-4.1 moves shipwright onto
+   the registry package. `agent-default-tools` exists nowhere. Restore four, drop one.
+2. `runtime/package.json` has no `dependencies`. The runtime imports `node-cron`,
+   `playwright`, `@octokit/auth-app`, `openapi-fetch`, `@slack/bolt`, `@slack/web-api`,
+   `@sentry/bun`, `hono`, `@app-vitals/agent-lib` and `@app-vitals/agent-admin`; they only
+   resolve in the monorepo through the root manifest.
+3. The `agent` image "fails to boot" most likely because of the smoke, not the image. The
+   `ENTRYPOINT` is `runtime/entrypoint-main.ts`, which exits 1 without the `SHIPWRIGHT_*`
+   variables before spawning `index.ts`; the marker `[agent] agent home initialized` is
+   logged by `startAgent()` in `runtime/boot.ts`. The smoke passes only `AGENT_HOME`.
+   Unverified (no docker in the planning sandbox): the fix PR must prove it in CI.
+4. Tag-push publishes are skipped: `publish-npm`, `publish-image`, `notify-shipwright` and
+   `consumer-smoke` use the default `success()`, which fails when an ancestor (`guard`,
+   always skipped on a tag push) was skipped.
+5. `@semantic-release/github` `success` step fails commenting on issue numbers inherited
+   from shipwright's squash history (e.g. #443), so every release ends red.
+
+## Tasks
+
+| Task | Title | Depends on | Branch | Cx / model | HITL |
+|------|-------|-----------|--------|-----------|------|
+| ARL-3.1 | ci: let tag-push publish jobs run when guard is skipped | — | ci/arl-3-release-pipeline | 3 / sonnet | |
+| ARL-3.2 | ci: stop semantic-release commenting on stale issue numbers | — | ci/arl-3-release-pipeline | 1 / sonnet (bundle) | |
+| ARL-3.3 | fix: restore the four missing agent-lib modules and drop the phantom export | — | fix/arl-3-publish-defects | 3 / sonnet | |
+| ARL-3.4 | fix: declare the agent-runtime runtime dependencies | — | fix/arl-3-publish-defects | 3 / sonnet | |
+| ARL-3.5 | fix: boot the agent image in the consumer smoke past the entrypoint env check | — | fix/arl-3-publish-defects | 3 / sonnet | |
+| ARL-3.6 | ci: run the packed consumer smoke on every PR | 3.3, 3.4, 3.5 | ci/arl-3-pack-smoke | 3 / sonnet | |
+| ARL-3.7 | chore: cut 0.1.1, verify, enable automatic releases | 3.1–3.6 | — | 2 / haiku | ⚠ HITL |
+
+```
+[START]
+  ├─ ARL-3.1, ARL-3.2   (PR A, ci:, releases nothing)
+  └─ ARL-3.3, ARL-3.4, ARL-3.5   (PR B, fix: => semantic-release computes 0.1.1)
+        └─ ARL-3.6 (needs 3.3, 3.4, 3.5 merged, else the new job is red)
+              └─ ARL-3.7 (needs 3.1–3.6)  ⚠ HITL
+```
+
+PR A and PR B are independent. `AUTO_RELEASE` stays off until ARL-3.7, so merging either
+cuts no release.
+
+## Breaking Change Safety
+
+- ARL-3.3 only adds modules and removes `./agent-default-tools`, which has no file in any
+  published tarball and no importer in this repo, shipwright, specialists or vitals-os
+  (grep verified).
+- ARL-3.4 only adds `dependencies`. Safe to deploy standalone.
+- ARL-3.1/3.2/3.5/3.6 touch the release pipeline and its checks. The pipeline's external
+  consumer is shipwright's `platform-release` repository_dispatch; no event, tag format or
+  artifact name changes, and ARL-3.1 is what makes the dispatch fire on tag pushes again.
+
+## Decision Log
+
+- Restore four lib modules rather than removing all five — shipwright imports them and
+  AGR-4.1 is moving it onto the registry package (agreed by Dan).
+- Reuse session `agent-auto-release`, IDs `ARL-3.x` (agreed by Dan).
+- ARL-3.7 includes enabling `AUTO_RELEASE`, since ARL-2.1 is `done` without it being set
+  (agreed by Dan).
+- Turn off semantic-release issue/PR comments and labels permanently (agreed by Dan).
+- Optional `npm deprecate @app-vitals/agent-runtime@0.1.0` needs Dan's npm auth; it is a
+  human step in ARL-3.7.
