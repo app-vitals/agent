@@ -174,6 +174,88 @@ describe("release workflow", () => {
   });
 });
 
+describe("automatic release on merge to main", () => {
+  test("a push to main starts the workflow, but only the AUTO_RELEASE variable lets it release", () => {
+    expect(wf.on.push.branches).toEqual(["main"]);
+    for (const job of ["wait", "release"]) {
+      expect(wf.jobs[job].if).toContain("vars.AUTO_RELEASE == 'true'");
+      expect(wf.jobs[job].if).toContain("github.ref_type == 'branch'");
+    }
+    // Nothing else may start on a branch push.
+    expect(wf.jobs.guard.if).toContain("workflow_dispatch");
+    expect(wf.jobs.resolve.if).not.toContain("AUTO_RELEASE");
+  });
+
+  test("tag-path conditions key off ref_type so a branch push is never validated as a tag", () => {
+    expect(wf.jobs.resolve.if).toContain("github.ref_type == 'tag'");
+    expect(wf.jobs.resolve.if).not.toMatch(/event_name == 'push' \|\|/);
+    expect(wf.on.push.tags[0]).toBe("v[0-9]+.[0-9]+.[0-9]+");
+  });
+
+  test("version cuts are serialized and never cancelled, without queueing tag publishes behind them", () => {
+    // A workflow-level group keeps one pending run, so a later main push would
+    // cancel a queued tag-push publish and the wait job would block manual runs.
+    expect(wf.concurrency).toBeUndefined();
+    expect(wf.jobs.release.concurrency).toEqual({
+      group: "release",
+      "cancel-in-progress": false,
+    });
+    for (const job of ["wait", "resolve", "publish-npm", "publish-image"]) {
+      expect(wf.jobs[job].concurrency).toBeUndefined();
+    }
+  });
+
+  test("the release job waits for CI and a red wait blocks it", () => {
+    expect(wf.jobs.release.needs).toEqual(["guard", "wait"]);
+    expect(wf.jobs.release.if).toContain("needs.wait.result != 'failure'");
+    expect(wf.jobs.release.if).toContain("needs.guard.result != 'failure'");
+    expect(wf.jobs.release.if).toContain("!cancelled()");
+  });
+
+  test("the wait job requires all three CI check-runs and fails on red, missing or timeout", () => {
+    const job = wf.jobs.wait;
+    expect(job.permissions.checks).toBe("read");
+    expect(job["timeout-minutes"]).toBeGreaterThan(25);
+    const run = runText("wait");
+    for (const name of [
+      "lint / typecheck / boundary / test",
+      "runtime docker build",
+      "admin docker build",
+    ]) {
+      expect(run).toContain(name);
+      // Must match the job names CI actually reports.
+      expect(
+        readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"),
+      ).toContain(`name: ${name}`);
+    }
+    expect(run).toContain("commits/$SHA/check-runs");
+    // red: any completed conclusion other than success exits 1
+    expect(run).toMatch(/success\) ;;/);
+    expect(run).toMatch(/not releasing \$SHA" >&2\s+exit 1/);
+    // missing and still-running checks keep waiting, then time out red
+    expect(run).toContain("missing | pending) PENDING=1");
+    expect(run).toContain("DEADLINE=$((SECONDS + 25 * 60))");
+    expect(run).toMatch(/after 25 minutes[^\n]*>&2\n\s+exit 1/);
+  });
+
+  test("no job or step uses continue-on-error and no alert job was added", () => {
+    expect(raw).not.toContain("continue-on-error");
+    expect(Object.keys(wf.jobs).sort()).toEqual(
+      [
+        "consumer-smoke",
+        "guard",
+        "notify-shipwright",
+        "publish-image",
+        "publish-npm",
+        "release",
+        "resolve",
+        "wait",
+      ].sort(),
+    );
+    expect(raw).not.toMatch(/slack/i);
+  });
+});
+
 describe("consumer-smoke workflow", () => {
   const cRaw = readFileSync(
     join(root, ".github/workflows/consumer-smoke.yml"),

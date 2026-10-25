@@ -11,6 +11,11 @@ name: Release
 #   3. workflow_dispatch with `version` and dry_run=true, no tag: rehearse the
 #      publish at the dispatched commit (github.sha) before any tag exists.
 #      Nothing is pushed; without dry_run this fails fast.
+#   4. push to main, only when the repo variable AUTO_RELEASE is 'true' (unset
+#      means off, and clearing it is the kill switch): wait for the commit's CI
+#      to go green, then run step 1. A commit with no feat/fix/perf produces no
+#      release and the run stays green. Every failure path fails the run; a red
+#      build is the alert.
 on:
   workflow_dispatch:
     inputs:
@@ -30,6 +35,8 @@ on:
         required: false
         default: ""
   push:
+    branches:
+      - main
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
       # Reserved baseline tag for semantic-release; never publishes.
@@ -57,12 +64,65 @@ jobs:
             exit 1
           fi
 
+  # Push-to-main path only: hold the release until the commit's CI is green.
+  wait:
+    name: Wait for CI
+    if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && vars.AUTO_RELEASE == 'true' }}
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - name: Wait for the CI check-runs on this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+        run: |
+          REQUIRED=("lint / typecheck / boundary / test" "runtime docker build" "admin docker build")
+          DEADLINE=$((SECONDS + 25 * 60))
+          while true; do
+            RUNS=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?per_page=100" --paginate --jq '.check_runs[] | {name, status, conclusion}' | jq -s '.')
+            PENDING=0
+            for NAME in "${REQUIRED[@]}"; do
+              # Latest run wins when a check was re-run.
+              STATE=$(jq -r --arg n "$NAME" '[.[] | select(.name == $n)] | if length == 0 then "missing" elif .[-1].status != "completed" then "pending" else .[-1].conclusion end' <<<"$RUNS")
+              case "$STATE" in
+                success) ;;
+                missing | pending) PENDING=1 ;;
+                *)
+                  echo "Error: check '$NAME' finished '$STATE'; not releasing $SHA" >&2
+                  exit 1
+                  ;;
+              esac
+            done
+            if [ "$PENDING" -eq 0 ]; then
+              echo "All required checks are green on $SHA"
+              exit 0
+            fi
+            if [ "$SECONDS" -ge "$DEADLINE" ]; then
+              echo "Error: required checks missing or still running after 25 minutes; not releasing $SHA" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+
   release:
     name: semantic-release
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.tag == '' && inputs.version == '' }}
+    # `guard` is skipped on a push to main and `wait` on a dispatch, so
+    # `!cancelled()` replaces the implicit `success()`; a failed guard or wait
+    # still blocks the release.
+    if: ${{ !cancelled() && needs.guard.result != 'failure' && needs.wait.result != 'failure' && ((github.event_name == 'workflow_dispatch' && inputs.tag == '' && inputs.version == '') || (github.event_name == 'push' && github.ref_type == 'branch' && vars.AUTO_RELEASE == 'true')) }}
+    # One version cut at a time, queued rather than cancelled. Scoped to this job
+    # (not the workflow) so the 25-minute `wait` and the tag-publish jobs never
+    # hold or replace a pending slot: GitHub keeps one pending run per group, so a
+    # workflow-wide group let a later main push cancel a queued tag publish.
+    concurrency:
+      group: release
+      cancel-in-progress: false
     timeout-minutes: 15
     runs-on: ubuntu-latest
-    needs: guard
+    needs: [guard, wait]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,7 +157,7 @@ jobs:
     name: Resolve release tag
     # `guard` is skipped on tag pushes, so `!cancelled()` replaces the implicit
     # `success()`; a failed guard (non-admin dispatch) still blocks publishing.
-    if: ${{ !cancelled() && needs.guard.result != 'failure' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.tag != '' || inputs.version != ''))) }}
+    if: ${{ !cancelled() && needs.guard.result != 'failure' && ((github.event_name == 'push' && github.ref_type == 'tag') || (github.event_name == 'workflow_dispatch' && (inputs.tag != '' || inputs.version != ''))) }}
     needs: guard
     timeout-minutes: 5
     runs-on: ubuntu-latest

@@ -41,12 +41,13 @@ Everything in `runtime/`, `admin/`, `lib/` and `agent-types/` must resolve insid
 
 ## Release process
 
-Releases are on demand and driven by semantic-release through the `Release` workflow.
+Releases are driven by semantic-release through the `Release` workflow, on demand or automatically on merge to main.
 
 1. Go to **Actions, Release** and click **Run workflow** (leave `tag` empty).
 2. Run with `dry_run` set to `true` first to preview the next version and release notes.
 3. Re-run with `dry_run` unchecked. semantic-release tags `vX.Y.Z`; the tag push publishes `@app-vitals/agent-lib`, `agent-runtime` and `agent-admin` to npm (Trusted Publishing, provenance on) and `ghcr.io/app-vitals/agent` and `agent-admin` images tagged `X.Y.Z`.
 4. To re-run or dry-run a publish for an existing tag, run the workflow with `tag` set (and `dry_run` if previewing). Versions and image tags that already exist are skipped.
 5. To rehearse the publish before any tag exists, run the workflow on your branch with `dry_run` set and `version` set to `X.Y.Z` (no `tag`). It checks out the dispatched commit, runs `npm publish --dry-run` and builds both images without logging in or pushing. A `version` dispatch without `dry_run` fails fast.
+6. Automatic release: set the repo variable `AUTO_RELEASE` to `true` and every push to main waits for the three CI checks (lint / typecheck / boundary / test, runtime docker build, admin docker build) for up to 25 minutes, then runs semantic-release. Commits with no `feat`, `fix` or `perf` produce no release. A red, missing or timed-out check fails the run; the red build is the alert. Unset or clear the variable to turn it off.
 
 Release notes live on the GitHub release; there is no committed changelog (main is protected, so semantic-release does not push commits).
