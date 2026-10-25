@@ -111,7 +111,7 @@ describe("buildProbeScript", () => {
 
 describe("buildDockerRunArgs", () => {
   test("agent bypasses the env-checking entrypoint and runs index.ts", () => {
-    const args = buildDockerRunArgs("agent", "agent:ci", "n");
+    const args = buildDockerRunArgs("agent", "agent:ci", "n", "/fx");
     expect(args.slice(args.indexOf("--entrypoint"))).toEqual([
       "--entrypoint",
       "bun",
@@ -120,11 +120,14 @@ describe("buildDockerRunArgs", () => {
       "index.ts",
     ]);
     expect(args).toContain("AGENT_HOME=/tmp/agent-home");
+    expect(args).toContain("/fx:/fixture-specialties:ro");
+    expect(args).toContain("SHIPWRIGHT_DEFAULT_AGENT_TYPE=fixture");
   });
 
   test("admin keeps its image entrypoint", () => {
-    const args = buildDockerRunArgs("admin", "admin:ci", "n");
+    const args = buildDockerRunArgs("admin", "admin:ci", "n", "/fx");
     expect(args).not.toContain("--entrypoint");
+    expect(args.join(" ")).not.toContain("SPECIALTIES");
     expect(args.at(-1)).toBe("admin:ci");
   });
 });

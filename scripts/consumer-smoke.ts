@@ -300,14 +300,26 @@ function importProbe(repoRoot: string, scratch: string): boolean {
  * `docker run` args for a boot check. The agent image ENTRYPOINT is
  * runtime/entrypoint-main.ts, which exits 1 on missing SHIPWRIGHT_AGENT_ID /
  * SHIPWRIGHT_API_URL / SHIPWRIGHT_AGENT_API_KEY before spawning index.ts, so
- * the agent check bypasses it and runs startAgent([]) directly. The admin
+ * the agent check bypasses it and runs startAgent([]) directly. The runtime
+ * image ships no workspace templates, so startAgent throws "Missing workspace
+ * template" unless a specialty is supplied: the fixture specialty is mounted
+ * from the checkout (what the unit/integration suites use). The admin
  * ENTRYPOINT (`bun run admin/src/main.ts`) is startAdmin([]) already. No
  * platform config is provided in either case.
  */
+const FIXTURE_SPECIALTIES = resolve(
+  import.meta.dir,
+  "..",
+  "runtime",
+  "fixtures",
+  "specialties",
+);
+
 export function buildDockerRunArgs(
   kind: keyof typeof BOOT_MARKERS,
   image: string,
   name: string,
+  fixtureSpecialties: string,
 ): string[] {
   return [
     "docker",
@@ -317,6 +329,16 @@ export function buildDockerRunArgs(
     name,
     "-e",
     "AGENT_HOME=/tmp/agent-home",
+    ...(kind === "agent"
+      ? [
+          "-v",
+          `${fixtureSpecialties}:/fixture-specialties:ro`,
+          "-e",
+          "SHIPWRIGHT_SPECIALTIES_DIR=/fixture-specialties",
+          "-e",
+          "SHIPWRIGHT_DEFAULT_AGENT_TYPE=fixture",
+        ]
+      : []),
     ...(kind === "agent"
       ? ["--entrypoint", "bun", image, "run", "index.ts"]
       : [image]),
@@ -334,7 +356,10 @@ async function bootImage(
     const pull = run(["docker", "pull", image], process.cwd());
     if (pull.exitCode !== 0) return false;
   }
-  const start = run(buildDockerRunArgs(kind, image, name), process.cwd());
+  const start = run(
+    buildDockerRunArgs(kind, image, name, FIXTURE_SPECIALTIES),
+    process.cwd(),
+  );
   if (start.exitCode !== 0) return false;
   let logs = "";
   let exitCode: number | null = null;
