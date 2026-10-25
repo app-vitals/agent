@@ -258,7 +258,7 @@ jobs:
 
       # Trusted Publishing needs npm >= 11.5.1.
       - name: Upgrade npm
-        run: npm install --global npm@^11.5.1 && npm --version
+        run: sudo npm install --global npm@^11.5.1 && npm --version
 
       - name: Stamp the release version
         env:
