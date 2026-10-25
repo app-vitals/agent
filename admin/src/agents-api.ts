@@ -40,6 +40,11 @@ import {
   isAccountCreateErrorCode,
 } from "./account-agent-create.ts";
 import { reconcileAgentAfterAccountChange } from "./agent-account-assignment.ts";
+import {
+  type AgentAskDeps,
+  type AskChatClient,
+  registerAgentAskRoutes,
+} from "./agent-ask.ts";
 import type { AgentChatTokenService } from "./agent-chat-tokens.ts";
 import type {
   AgentCronJobService,
@@ -85,6 +90,7 @@ import {
   NotFoundError,
 } from "./errors.ts";
 import {
+  AddAgentReposBodySchema,
   AgentChatTokenUsageDailySchema,
   AgentCronJobSchema,
   AgentCronRunSchema,
@@ -94,6 +100,7 @@ import {
   AgentGitHubInstallationsSnapshotSchema,
   AgentIdParamSchema,
   AgentPluginSchema,
+  AgentRepoParamSchema,
   AgentSummarySchema,
   AgentTokenSchema,
   AgentToolSchema,
@@ -122,8 +129,6 @@ import {
   type ModelBreakdownEntry,
   OkSchema,
   PatchAgentBodySchema,
-  AddAgentReposBodySchema,
-  AgentRepoParamSchema,
   PatchAgentCronJobBodySchema,
   PatchAgentCronRunBodySchema,
   PatchAgentPluginBodySchema,
@@ -274,6 +279,18 @@ export interface AdminDeps {
   >;
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
   anthropicFederationEnabled?: boolean;
+  /**
+   * Agent-to-agent ask (COS-31.1): flag + allowlist config, the AgentAsk
+   * audit store and an injectable clock. Absent or flag off → the ask routes
+   * 404. See agent-ask.ts.
+   */
+  agentAsk?: AgentAskDeps;
+  /**
+   * Chat-service thread/message client behind POST /agents/:id/ask
+   * (admin-boot wires the HttpChatClient the chat UI uses). Absent → the ask
+   * route 503s, even with the flag on.
+   */
+  chatClient?: AskChatClient;
 }
 
 export type { AdminApiKey };
@@ -2308,6 +2325,14 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       }),
     );
     return c.body(null, 204);
+  });
+
+  // ─── Agent ask (COS-31.1) ─────────────────────────────────────────────────
+
+  registerAgentAskRoutes(app, {
+    agentAsk: deps.agentAsk,
+    chatClient: deps.chatClient,
+    agentService,
   });
 
   // ─── Plugins ───────────────────────────────────────────────────────────────

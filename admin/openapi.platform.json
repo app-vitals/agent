@@ -1821,6 +1821,179 @@
           "agentId"
         ]
       },
+      "AgentAskResponse": {
+        "type": "object",
+        "properties": {
+          "askId": {
+            "type": "string",
+            "example": "clx1111111111"
+          },
+          "threadId": {
+            "type": "string",
+            "example": "clx2222222222"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "replied",
+              "pending"
+            ],
+            "example": "pending"
+          },
+          "reply": {
+            "type": "string",
+            "description": "The agent's reply body; present only when status is `replied`.",
+            "example": "acme/web is deployed and green."
+          }
+        },
+        "required": [
+          "askId",
+          "threadId",
+          "status"
+        ]
+      },
+      "AgentAskBody": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the asking agent. An agent key may only ask as itself (`from` must equal its own id).",
+            "example": "clx0987654321"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000,
+            "description": "The question, posted as the thread's user message. Never stored or logged by admin.",
+            "example": "What is the deploy status of acme/web?"
+          },
+          "waitMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60000,
+            "default": 0,
+            "description": "How long to wait for the reply, polling once per second. 0 (default) returns `pending` immediately.",
+            "example": 0
+          },
+          "depth": {
+            "type": "integer",
+            "default": 1,
+            "description": "Ask chain depth. Capped at 1: any other value is a 400.",
+            "example": 1
+          },
+          "ttlSeconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 3600,
+            "default": 600,
+            "description": "How long the ask stays relevant, in seconds. Recorded on the audit row.",
+            "example": 600
+          }
+        },
+        "required": [
+          "from",
+          "question"
+        ]
+      },
+      "AgentAskList": {
+        "type": "object",
+        "properties": {
+          "asks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentAskRecord"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 50
+          },
+          "offset": {
+            "type": "integer",
+            "example": 0
+          }
+        },
+        "required": [
+          "asks",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "AgentAskRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "clx1111111111"
+          },
+          "fromAgentId": {
+            "type": "string",
+            "example": "clx0987654321"
+          },
+          "toAgentId": {
+            "type": "string",
+            "example": "clx1234567890"
+          },
+          "threadId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "clx2222222222"
+          },
+          "depth": {
+            "type": "integer",
+            "example": 1
+          },
+          "waitMs": {
+            "type": "integer",
+            "example": 0
+          },
+          "ttlSeconds": {
+            "type": "integer",
+            "example": 600
+          },
+          "status": {
+            "type": "string",
+            "description": "created | pending | replied | failed",
+            "example": "pending"
+          },
+          "callerLabel": {
+            "type": "string",
+            "example": "ops (platform.ops) [platform-ops]"
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "repliedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": null
+          }
+        },
+        "required": [
+          "id",
+          "fromAgentId",
+          "toAgentId",
+          "threadId",
+          "depth",
+          "waitMs",
+          "ttlSeconds",
+          "status",
+          "callerLabel",
+          "createdAt",
+          "repliedAt"
+        ]
+      },
       "PluginWrapper": {
         "type": "object",
         "properties": {
@@ -4404,6 +4577,169 @@
           },
           "503": {
             "description": "Chat service not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}/ask": {
+      "post": {
+        "summary": "Ask another agent a question",
+        "description": "Posts `question` from agent `from` into a new `kind: ask` chat thread of agent `{id}` (always created with `askDepth: 1`), then, when `waitMs > 0`, polls once per second until the agent replies or the budget ends. Callers: `*`, `platform.ops`, or the agent key whose id equals `from` (never impersonation). The `from>{id}` pair must be on SHIPWRIGHT_AGENT_ASK_ALLOWLIST. Every ask writes an AgentAsk audit row (no question text). 404 unless SHIPWRIGHT_AGENT_ASK_ENABLED is `enabled`; 503 when the chat service is not configured.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx1234567890"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentAskBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Ask posted; `replied` with the reply, or `pending`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAskResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request (including depth other than 1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller not allowed, or the pair is not allowlisted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found, or agent ask disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Chat service not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}/asks": {
+      "get": {
+        "summary": "List agent asks",
+        "description": "Lists the AgentAsk audit rows the agent sent or received, newest first. `*`, `platform.read` and `platform.ops` callers only. 404 unless SHIPWRIGHT_AGENT_ASK_ENABLED is `enabled`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx1234567890"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "example": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "default": 0,
+              "example": 0
+            },
+            "required": false,
+            "name": "offset",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit rows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAskList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent ask disabled",
             "content": {
               "application/json": {
                 "schema": {

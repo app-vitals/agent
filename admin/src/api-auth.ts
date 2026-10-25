@@ -110,18 +110,29 @@ export const PLATFORM_OPS_ROUTES: readonly PlatformOpsRoute[] = [
   { method: "DELETE", path: "/agents/{id}/chat-credentials", subpaths: true },
 ];
 
-const PLATFORM_OPS_MATCHERS = PLATFORM_OPS_ROUTES.map((r) => ({
-  method: r.method,
-  re: new RegExp(
-    `^${r.path.replace(/\{[^}]+\}/g, "[^/]+")}${r.subpaths ? "(?:/.*)?" : ""}/?$`,
-  ),
-}));
+/**
+ * Routes an agent-scoped key may call on ANOTHER agent's path. The middleware
+ * skips its path-agent check for them; the handler binds the caller to a body
+ * field instead (POST /agents/{id}/ask: `from` must equal the key's agent, so
+ * an agent can only ask as itself — never impersonate another).
+ */
+export const AGENT_CROSS_ROUTES: readonly PlatformOpsRoute[] = [
+  { method: "POST", path: "/agents/{id}/ask" },
+];
 
-function isPlatformOpsRoute(method: string, path: string): boolean {
-  return PLATFORM_OPS_MATCHERS.some(
-    (m) => m.method === method && m.re.test(path),
-  );
+function routeMatchers(routes: readonly PlatformOpsRoute[]) {
+  const matchers = routes.map((r) => ({
+    method: r.method,
+    re: new RegExp(
+      `^${r.path.replace(/\{[^}]+\}/g, "[^/]+")}${r.subpaths ? "(?:/.*)?" : ""}/?$`,
+    ),
+  }));
+  return (method: string, path: string): boolean =>
+    matchers.some((m) => m.method === method && m.re.test(path));
 }
+
+const isPlatformOpsRoute = routeMatchers(PLATFORM_OPS_ROUTES);
+const isAgentCrossRoute = routeMatchers(AGENT_CROSS_ROUTES);
 
 /**
  * Handler-side guard for routes on PLATFORM_OPS_ROUTES. The middleware already
@@ -289,7 +300,11 @@ export function createAdminAuthMiddleware(deps: {
           }
           // Scoped key — enforce route agentId matches key scope.
           const match = AGENT_ROUTE_RE.exec(c.req.path);
-          if (match && envKey.scope !== match[1]) {
+          if (
+            match &&
+            envKey.scope !== match[1] &&
+            !isAgentCrossRoute(c.req.method, c.req.path)
+          ) {
             return c.json({ error: "Forbidden" }, 403);
           }
           // Non-agent routes: scoped keys are permitted (no agentId to enforce against).
@@ -312,7 +327,11 @@ export function createAdminAuthMiddleware(deps: {
       // c.req.param() is not available in global middleware (params resolve only at
       // handler dispatch), so we extract the agent ID directly from the URL path.
       const match = AGENT_ROUTE_RE.exec(c.req.path);
-      if (match && result.agentId !== match[1]) {
+      if (
+        match &&
+        result.agentId !== match[1] &&
+        !isAgentCrossRoute(c.req.method, c.req.path)
+      ) {
         return c.json({ error: "Forbidden" }, 403);
       }
       // DB token path — per-agent bearer, not an admin.
