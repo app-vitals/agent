@@ -216,3 +216,40 @@ The routes are off by default: they return 404 unless
 `SHIPWRIGHT_CHAT_TOKEN_MINT_ENABLED=enabled`. They return 503 when the chat
 service client is not configured (`SHIPWRIGHT_CHAT_SERVICE_URL` and
 `SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN`).
+
+
+---
+
+## Agent ask
+
+One agent asks another a question through admin. The question lands as the
+user message of a new chat thread on the target agent (`kind: "ask"`,
+`askFromAgentId`, `askDepth: 1`, title `ask from <from> - <ISO time>`).
+
+- `POST /agents/{id}/ask` with `{from, question, waitMs?, depth?, ttlSeconds?}` →
+  `201 {askId, threadId, status, reply?}`.
+  - `question`: 1-8000 chars. `waitMs`: 0-60000, default 0. `ttlSeconds`:
+    60-3600, default 600. `depth`: only 1 is accepted (`400 {error: "depth is capped at 1"}`).
+  - `waitMs > 0` polls the thread once per second until the agent replies
+    (`status: "replied"` with `reply`) or the budget ends (`status: "pending"`).
+    `waitMs: 0` returns `pending` right away.
+  - Callers: `*`, `platform.ops`, or the agent key whose id equals `from`.
+    An agent key may call another agent's `/ask` path, but only as itself;
+    any other `from` is a 403.
+  - The `from>{id}` pair must be on `SHIPWRIGHT_AGENT_ASK_ALLOWLIST`, else
+    `403 {error: "ask not allowed for this pair"}` and nothing reaches the chat service.
+- `GET /agents/{id}/asks?limit&offset` → `{asks, total, limit, offset}`: the
+  AgentAsk audit rows the agent sent or received, newest first. `*`,
+  `platform.read` and `platform.ops` only.
+
+Every ask writes an AgentAsk audit row (`fromAgentId`, `toAgentId`, `threadId`,
+`depth`, `waitMs`, `ttlSeconds`, `status`, `callerLabel`, `createdAt`,
+`repliedAt`) before the chat call and updates it after (`status` ends as
+`pending`, `replied` or `failed`). The question text is never stored. Each ask
+also logs one structured line `{event: "agent-ask", askId, from, to, status, callerLabel}`
+(never the question).
+
+The routes return `404 {error: "Not found"}` unless
+`SHIPWRIGHT_AGENT_ASK_ENABLED=enabled`, and the ask route returns
+`503 {error: "chat service not configured"}` when `SHIPWRIGHT_CHAT_SERVICE_URL`
+and `SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN` are not both set.

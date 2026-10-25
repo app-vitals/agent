@@ -398,6 +398,30 @@ model AgentChatTokenUsageDailyByModel {
   @@unique([agentId, date, model])
 }
 
+// ─── Agent Ask ──────────────────────────────────────────────────────────────
+// Audit row per agent-to-agent ask (COS-31.1, POST /agents/:id/ask). Written
+// before the chat call and updated after it. The question text is never
+// stored. No relation to Agent on purpose: the audit trail outlives either
+// agent. threadId is null until the chat thread is created (and stays null
+// when that call fails). status: created | pending | replied | failed.
+
+model AgentAsk {
+  id          String    @id @default(cuid())
+  fromAgentId String
+  toAgentId   String
+  threadId    String?
+  depth       Int
+  waitMs      Int
+  ttlSeconds  Int
+  status      String
+  callerLabel String
+  createdAt   DateTime  @default(now())
+  repliedAt   DateTime?
+
+  @@index([toAgentId, createdAt])
+  @@index([fromAgentId, createdAt])
+}
+
 // ─── Agent GitHub Installations Snapshot ────────────────────────────────────
 // One row per agent holding the agent's most recently reported GitHub App
 // installations (owner, installation id, state, sanitized lastError). PUT

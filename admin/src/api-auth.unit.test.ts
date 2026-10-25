@@ -13,6 +13,7 @@ import { sign } from "hono/jwt";
 import type { AgentTokenService, AgentTokenValidated } from "./agent-tokens.ts";
 import type { AdminAuthEnv } from "./api-auth.ts";
 import {
+  AGENT_CROSS_ROUTES,
   createAdminAuthMiddleware,
   extractAgentId,
   PLATFORM_OPS_ROUTES,
@@ -779,4 +780,58 @@ describe("createAdminAuthMiddleware — platform scopes", () => {
       "PATCH /agents/{id}",
     );
   });
+});
+
+// ─── Agent cross routes (COS-31.1) ──────────────────────────────────────────
+
+describe("createAdminAuthMiddleware — agent cross routes", () => {
+  function crossApp() {
+    const app = new Hono<AdminAuthEnv>();
+    app.use(
+      "*",
+      createAdminAuthMiddleware({
+        sessionSecret: SESSION_SECRET,
+        agentTokenService: {
+          validate: async (raw) =>
+            raw === VALID_RAW_TOKEN ? { agentId: AGENT_ID } : null,
+        },
+        adminApiKeys: new Map([
+          [SCOPED_TOKEN, { name: "svc", scope: AGENT_ID }],
+        ]),
+      }),
+    );
+    app.post("/agents/:id/ask", (c) => c.json({ scope: c.get("scope") }));
+    app.post("/agents/:id/envs", (c) => c.json({ ok: true }));
+    return app;
+  }
+
+  it("lists POST /agents/{id}/ask", () => {
+    expect(AGENT_CROSS_ROUTES).toEqual([
+      { method: "POST", path: "/agents/{id}/ask" },
+    ]);
+  });
+
+  for (const [label, token] of [
+    ["env-scoped key", SCOPED_TOKEN],
+    ["DB token", VALID_RAW_TOKEN],
+  ] as const) {
+    it(`${label} may POST another agent's /ask (handler binds from)`, async () => {
+      const res = await crossApp().request("/agents/other-agent/ask", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        scope: { kind: "agent", agentId: AGENT_ID },
+      });
+    });
+
+    it(`${label} is still 403 on another agent's other routes`, async () => {
+      const res = await crossApp().request("/agents/other-agent/envs", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(403);
+    });
+  }
 });

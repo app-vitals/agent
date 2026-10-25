@@ -13,6 +13,14 @@ export interface ChatThread {
   agentId: string;
   title: string | null;
   memberId: string | null;
+  /**
+   * Agent-to-agent ask threads (COS-31.1): `kind: "ask"`, the asking agent's
+   * id and the ask depth. Optional so threads from a chat service that
+   * predates these columns deserialize cleanly.
+   */
+  kind?: string | null;
+  askFromAgentId?: string | null;
+  askDepth?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,6 +109,12 @@ interface ListMessagesOptions {
 interface CreateThreadOptions {
   title?: string;
   memberId?: string;
+  /** Thread kind; "ask" marks an agent-to-agent ask thread (COS-31.1). */
+  kind?: "ask";
+  /** Id of the agent that asked (ask threads only). */
+  askFromAgentId?: string;
+  /** Ask chain depth (ask threads only; admin always sends 1). */
+  askDepth?: number;
 }
 
 interface UpdateThreadOptions {
@@ -267,6 +281,11 @@ export class HttpChatClient implements ChatClient {
         agentId,
         ...(opts?.title ? { title: opts.title } : {}),
         ...(opts?.memberId ? { memberId: opts.memberId } : {}),
+        ...(opts?.kind ? { kind: opts.kind } : {}),
+        ...(opts?.askFromAgentId
+          ? { askFromAgentId: opts.askFromAgentId }
+          : {}),
+        ...(opts?.askDepth !== undefined ? { askDepth: opts.askDepth } : {}),
       }),
     });
     if (!res.ok) {

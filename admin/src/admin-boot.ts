@@ -70,6 +70,8 @@ import {
   startBackgroundPasses,
 } from "./admin-extension.ts";
 import { createAdminUIApp } from "./admin-ui.ts";
+import { AgentAskService } from "./agent-ask.ts";
+import { parseAgentAskConfig } from "./agent-ask-config.ts";
 import { AgentChatTokenService } from "./agent-chat-tokens.ts";
 import { AgentCronJobService } from "./agent-cron-jobs.ts";
 import { AgentCronRunStatsService } from "./agent-cron-run-stats.ts";
@@ -274,6 +276,21 @@ export async function startAdmin(
         )
       : undefined;
 
+  // Thread/message chat client, shared by the /admin/chat UI and the agent
+  // ask route (POST /agents/:id/ask). Built only when both
+  // SHIPWRIGHT_CHAT_SERVICE_URL and SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN are
+  // set; when absent the /admin/chat routes render in degraded mode and the
+  // ask route 503s.
+  const chatServiceUrl = process.env.SHIPWRIGHT_CHAT_SERVICE_URL;
+  const chatServiceAdminToken = process.env.SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN;
+  const chatClient =
+    chatServiceUrl && chatServiceAdminToken
+      ? new HttpChatClient(chatServiceUrl, chatServiceAdminToken)
+      : undefined;
+
+  // Agent-to-agent ask (COS-31.1). Throws at boot on a malformed allowlist.
+  const agentAskConfig = parseAgentAskConfig(process.env);
+
   // Web Push (CFB-4.2). Enabled ONLY when public + private + subject are all
   // set — a partial config must not half-enable the feature. When disabled,
   // pushService is undefined, the push routes 503, and the toggle renders "".
@@ -435,6 +452,11 @@ export async function startAdmin(
     ...(chatCredentialsClient
       ? { chatCredentials: chatCredentialsClient }
       : {}),
+    agentAsk: {
+      config: agentAskConfig,
+      store: new AgentAskService(prisma),
+    },
+    ...(chatClient ? { chatClient } : {}),
     ...resolvedExtensions.apiDeps,
   });
   root.route("/", adminApiApp);
@@ -481,16 +503,6 @@ export async function startAdmin(
       process.exit(1);
     }
   }
-
-  // Build chat client when both SHIPWRIGHT_CHAT_SERVICE_URL and
-  // SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN are set. When absent the /admin/chat
-  // routes render in degraded mode (notice, no table/messages).
-  const chatServiceUrl = process.env.SHIPWRIGHT_CHAT_SERVICE_URL;
-  const chatServiceAdminToken = process.env.SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN;
-  const chatClient =
-    chatServiceUrl && chatServiceAdminToken
-      ? new HttpChatClient(chatServiceUrl, chatServiceAdminToken)
-      : undefined;
 
   const adminUIApp = createAdminUIApp({
     prisma: prisma as never,

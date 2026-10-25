@@ -2743,6 +2743,158 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask another agent a question
+         * @description Posts `question` from agent `from` into a new `kind: ask` chat thread of agent `{id}` (always created with `askDepth: 1`), then, when `waitMs > 0`, polls once per second until the agent replies or the budget ends. Callers: `*`, `platform.ops`, or the agent key whose id equals `from` (never impersonation). The `from>{id}` pair must be on SHIPWRIGHT_AGENT_ASK_ALLOWLIST. Every ask writes an AgentAsk audit row (no question text). 404 unless SHIPWRIGHT_AGENT_ASK_ENABLED is `enabled`; 503 when the chat service is not configured.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["AgentAskBody"];
+                };
+            };
+            responses: {
+                /** @description Ask posted; `replied` with the reply, or `pending` */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentAskResponse"];
+                    };
+                };
+                /** @description Bad request (including depth other than 1) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Caller not allowed, or the pair is not allowlisted */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found, or agent ask disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Chat service not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/asks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List agent asks
+         * @description Lists the AgentAsk audit rows the agent sent or received, newest first. `*`, `platform.read` and `platform.ops` callers only. 404 unless SHIPWRIGHT_AGENT_ASK_ENABLED is `enabled`.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Audit rows */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentAskList"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent ask disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3851,6 +4003,88 @@ export interface components {
             label: string | null;
             /** @example clx1234567890 */
             agentId: string;
+        };
+        AgentAskResponse: {
+            /** @example clx1111111111 */
+            askId: string;
+            /** @example clx2222222222 */
+            threadId: string;
+            /**
+             * @example pending
+             * @enum {string}
+             */
+            status: "replied" | "pending";
+            /**
+             * @description The agent's reply body; present only when status is `replied`.
+             * @example acme/web is deployed and green.
+             */
+            reply?: string;
+        };
+        AgentAskBody: {
+            /**
+             * @description Id of the asking agent. An agent key may only ask as itself (`from` must equal its own id).
+             * @example clx0987654321
+             */
+            from: string;
+            /**
+             * @description The question, posted as the thread's user message. Never stored or logged by admin.
+             * @example What is the deploy status of acme/web?
+             */
+            question: string;
+            /**
+             * @description How long to wait for the reply, polling once per second. 0 (default) returns `pending` immediately.
+             * @default 0
+             * @example 0
+             */
+            waitMs: number;
+            /**
+             * @description Ask chain depth. Capped at 1: any other value is a 400.
+             * @default 1
+             * @example 1
+             */
+            depth: number;
+            /**
+             * @description How long the ask stays relevant, in seconds. Recorded on the audit row.
+             * @default 600
+             * @example 600
+             */
+            ttlSeconds: number;
+        };
+        AgentAskList: {
+            asks: components["schemas"]["AgentAskRecord"][];
+            /** @example 1 */
+            total: number;
+            /** @example 50 */
+            limit: number;
+            /** @example 0 */
+            offset: number;
+        };
+        AgentAskRecord: {
+            /** @example clx1111111111 */
+            id: string;
+            /** @example clx0987654321 */
+            fromAgentId: string;
+            /** @example clx1234567890 */
+            toAgentId: string;
+            /** @example clx2222222222 */
+            threadId: string | null;
+            /** @example 1 */
+            depth: number;
+            /** @example 0 */
+            waitMs: number;
+            /** @example 600 */
+            ttlSeconds: number;
+            /**
+             * @description created | pending | replied | failed
+             * @example pending
+             */
+            status: string;
+            /** @example ops (platform.ops) [platform-ops] */
+            callerLabel: string;
+            /** @example 2026-10-25T12:00:00.000Z */
+            createdAt: string;
+            /** @example null */
+            repliedAt: string | null;
         };
     };
     responses: never;

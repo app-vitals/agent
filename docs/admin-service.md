@@ -32,6 +32,7 @@ All paths are under `admin/src/`. Most modules have sibling `*.unit.test.ts`,
 | `service-integration.ts` | Interface for per-agent service integrations (token mint/revoke, Secret key, URL/token env) supplied by extensions; chat-service stays built in. |
 | `server.ts` | Package entry (`exports["."]`): re-exports app factories, services, error classes and clients. It does not start a server. |
 | `self-serve-config.ts` | Parses `SHIPWRIGHT_SELF_SERVE_*` into `{enabled, defaultMaxAgents, contactEmail}`. |
+| `agent-ask-config.ts` | Parses `SHIPWRIGHT_AGENT_ASK_ENABLED` and the `SHIPWRIGHT_AGENT_ASK_ALLOWLIST` `from>to` pairs into `{enabled, allowlist}`; a malformed pair throws. |
 | `startup-policy-reconcile.ts` | One-shot, never-throwing policy-only reconcile of managed agents after `Bun.serve`. Also exports `managedReconcileTargets`, shared with `POST /agents/reconcile`. |
 | `prisma-client.ts`, `prisma-tx.ts`, `clock.ts`, `errors.ts` | Prisma 7 driver-adapter client (pool observability hook), optional-transaction param type, injectable `Clock`, typed `ApiError` subclasses. |
 | `crypto.ts`, `token-crypto.ts` | AES-256-GCM (`iv:ciphertext:authTag`, hex). `makeTokenCrypto()` reads `SHIPWRIGHT_ENCRYPTION_KEY`; unset means identity functions (plaintext). |
@@ -42,6 +43,7 @@ All paths are under `admin/src/`. Most modules have sibling `*.unit.test.ts`,
 |---|---|
 | `api.ts` | `createAgentRuntimeApp`: `GET /agents/:id/config` and `GET /agents/:id/crons`, used by deployed agents. |
 | `agents-api.ts` | `createAdminApp` and `parseAdminApiKeys`: admin CRUD under `/agents` (agents, envs, crons and runs, tools, tokens, plugins, repos, provision, reconcile, federation strip-credentials, chat-token and cron-run stats, GitHub installations). Also wires the delete flow. |
+| `agent-ask.ts` | `registerAgentAskRoutes` (`POST /agents/{id}/ask`, `GET /agents/{id}/asks`, flag gated) and `AgentAskService`, the AgentAsk audit store. |
 | `accounts-api.ts` | `createAccountsApp`: `/accounts` list/get/create/patch, admin-only and self-serve-flag gated. |
 | `api-auth.ts` | Combined bearer-or-session-cookie middleware, scope kinds, `PLATFORM_OPS_ROUTES`. |
 | `caller-scope.ts` | Resolves which agents a caller may see (`all` vs `scoped`), per request from the caller's email. Account membership counts only when self-serve is on. |
@@ -169,6 +171,7 @@ Read at startup in `admin-boot.ts` and `admin-boot-config.ts`. Highlights; see
 | Core | `DATABASE_URL_SHIPWRIGHT_ADMIN`, `PORT` (3000), `SHIPWRIGHT_SESSION_SECRET`, `SHIPWRIGHT_ENCRYPTION_KEY`, `SHIPWRIGHT_ADMIN_API_KEYS`, `SHIPWRIGHT_ADMIN_APP_BASE_URL`, `SHIPWRIGHT_ADMIN_TZ` (validated; invalid exits), `SENTRY_DSN` |
 | Login | `GOOGLE_CLIENT_ID/SECRET`, `OKTA_ISSUER/CLIENT_ID/CLIENT_SECRET` (Okta only when issuer set), `SHIPWRIGHT_ADMIN_ALLOWED_EMAILS`, `ADMIN_DEV_AUTH` |
 | Self-serve | `SHIPWRIGHT_SELF_SERVE_ENABLED=enabled`, `_DEFAULT_MAX_AGENTS`, `_CONTACT_EMAIL`, `_AGENT_TYPE` |
+| Agent ask | `SHIPWRIGHT_AGENT_ASK_ENABLED=enabled`, `SHIPWRIGHT_AGENT_ASK_ALLOWLIST` (`from>to` pairs; empty denies all, malformed throws at boot); also needs the chat service vars |
 | K8s provisioning | `SHIPWRIGHT_K8S_PROVISIONING=enabled`, `SHIPWRIGHT_K8S_NAMESPACE`, `SHIPWRIGHT_AGENT_IMAGE`/`_IMAGE_TAG`/`_REPLICAS`/`_PVC_*`, `SHIPWRIGHT_API_URL`, `SHIPWRIGHT_K8S_AGENT_*` (resources, service account, Claude policy configmap/hash) |
 | Anthropic federation | `SHIPWRIGHT_K8S_AGENT_ANTHROPIC_FEDERATION_*` (identity mode `shared` or `perAgent`; partial config throws at boot); admin pod's own sign-in via `ANTHROPIC_IDENTITY_TOKEN_FILE`, `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID` |
 | Chat service | `SHIPWRIGHT_CHAT_SERVICE_URL` and `SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN` (both needed; otherwise chat pages degrade and deletion uses a no-op client) |

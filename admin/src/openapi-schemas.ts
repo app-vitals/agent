@@ -698,6 +698,89 @@ export const ChatCredentialsWrapperSchema = z
   .object({ credentials: z.array(ChatCredentialSchema) })
   .openapi("ChatCredentialsWrapper");
 
+// ─── Agent ask (COS-31.1) ─────────────────────────────────────────────────────
+
+export const AgentAskBodySchema = z
+  .object({
+    from: z.string().min(1).openapi({
+      description:
+        "Id of the asking agent. An agent key may only ask as itself (`from` must equal its own id).",
+      example: "clx0987654321",
+    }),
+    question: z.string().min(1).max(8000).openapi({
+      description:
+        "The question, posted as the thread's user message. Never stored or logged by admin.",
+      example: "What is the deploy status of acme/web?",
+    }),
+    waitMs: z.number().int().min(0).max(60000).default(0).openapi({
+      description:
+        "How long to wait for the reply, polling once per second. 0 (default) returns `pending` immediately.",
+      example: 0,
+    }),
+    depth: z.number().int().default(1).openapi({
+      description: "Ask chain depth. Capped at 1: any other value is a 400.",
+      example: 1,
+    }),
+    ttlSeconds: z.number().int().min(60).max(3600).default(600).openapi({
+      description:
+        "How long the ask stays relevant, in seconds. Recorded on the audit row.",
+      example: 600,
+    }),
+  })
+  .openapi("AgentAskBody");
+
+export const AgentAskResponseSchema = z
+  .object({
+    askId: z.string().openapi({ example: "clx1111111111" }),
+    threadId: z.string().openapi({ example: "clx2222222222" }),
+    status: z.enum(["replied", "pending"]).openapi({ example: "pending" }),
+    reply: z.string().optional().openapi({
+      description:
+        "The agent's reply body; present only when status is `replied`.",
+      example: "acme/web is deployed and green.",
+    }),
+  })
+  .openapi("AgentAskResponse");
+
+export const AgentAskRecordSchema = z
+  .object({
+    id: z.string().openapi({ example: "clx1111111111" }),
+    fromAgentId: z.string().openapi({ example: "clx0987654321" }),
+    toAgentId: z.string().openapi({ example: "clx1234567890" }),
+    threadId: z.string().nullable().openapi({ example: "clx2222222222" }),
+    depth: z.number().int().openapi({ example: 1 }),
+    waitMs: z.number().int().openapi({ example: 0 }),
+    ttlSeconds: z.number().int().openapi({ example: 600 }),
+    status: z.string().openapi({
+      description: "created | pending | replied | failed",
+      example: "pending",
+    }),
+    callerLabel: z
+      .string()
+      .openapi({ example: "ops (platform.ops) [platform-ops]" }),
+    createdAt: z.string().openapi({ example: "2026-10-25T12:00:00.000Z" }),
+    repliedAt: z.string().nullable().openapi({ example: null }),
+  })
+  .openapi("AgentAskRecord");
+
+export const AgentAskListSchema = z
+  .object({
+    asks: z.array(AgentAskRecordSchema),
+    total: z.number().int().openapi({ example: 1 }),
+    limit: z.number().int().openapi({ example: 50 }),
+    offset: z.number().int().openapi({ example: 0 }),
+  })
+  .openapi("AgentAskList");
+
+export const ListAgentAsksQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(200).default(50).openapi({
+      example: 50,
+    }),
+    offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
+  })
+  .openapi("ListAgentAsksQuery");
+
 // ─── AgentPlugin ──────────────────────────────────────────────────────────────
 
 export const AgentPluginSchema = z
