@@ -9,6 +9,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { sign } from "hono/jwt";
 import type { Prisma } from "../prisma/client/client.ts";
+import { getSelfServeSpecialty } from "./account-agent-create.ts";
 import type { PatchAgentCronRunInput } from "./agent-cron-runs.ts";
 import { AgentEnvService } from "./agent-envs.ts";
 import type {
@@ -18,11 +19,10 @@ import type {
   ReconcileTarget,
 } from "./agent-provisioner.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
-import type { SpecialtyManifest } from "./specialty-registry.ts";
 import type { AdminDeps } from "./agents-api.ts";
-import { getSelfServeSpecialty } from "./account-agent-create.ts";
 import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
 import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
+import type { SpecialtyManifest } from "./specialty-registry.ts";
 import { identityCrypto } from "./token-crypto.ts";
 
 // ─── Fake SpecialtyManifestResolver ────────────────────────────────────────
@@ -5694,5 +5694,163 @@ describe("platform.read / platform.ops keys over the real route table", () => {
       });
       expect(res.status).toBe(403);
     }
+  });
+});
+
+// ─── Chat credentials (COS-32.1) ────────────────────────────────────────────
+
+describe("chat-credentials routes", () => {
+  const ADMIN = "admin-key";
+  const READ = "platform-read-token";
+  const OPS = "platform-ops-token";
+  const OWN = AGENT_ID; // an agent's own key is its id
+
+  function fakeClient() {
+    const revoked: string[] = [];
+    const minted: Array<{ label: string; agentId?: string }> = [];
+    return {
+      revoked,
+      minted,
+      client: {
+        async mintToken(label: string, agentId?: string) {
+          minted.push({ label, agentId });
+          return { id: "tok-1", rawToken: "ct_secret" };
+        },
+        async revokeToken(id: string) {
+          revoked.push(id);
+        },
+        async listTokensForAgent(agentId: string) {
+          return agentId === AGENT_ID
+            ? [{ id: "tok-1", label: "ask-caller" }]
+            : [];
+        },
+      },
+    };
+  }
+
+  const makeApp = (over: Partial<AdminDeps> = {}) =>
+    createAdminApp({
+      ...makeMockDeps(),
+      adminApiKeys: parseAdminApiKeys(
+        `root:${ADMIN}:*,reader:${READ}:platform.read,operator:${OPS}:platform.ops,own:${OWN}:${AGENT_ID}`,
+      ),
+      chatCredentialsEnabled: true,
+      chatCredentials: fakeClient().client,
+      ...over,
+    });
+  const send = (
+    app: ReturnType<typeof makeApp>,
+    token: string,
+    method: string,
+    path = `/agents/${AGENT_ID}/chat-credentials`,
+    body: unknown = { label: "ask-caller" },
+  ) =>
+    app.request(path, {
+      method,
+      body:
+        method === "GET" || method === "DELETE"
+          ? undefined
+          : JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  const revokePath = `/agents/${AGENT_ID}/chat-credentials/tok-1`;
+
+  it("flag off → 404 on every route", async () => {
+    const app = makeApp({ chatCredentialsEnabled: false });
+    expect((await send(app, ADMIN, "POST")).status).toBe(404);
+    expect((await send(app, ADMIN, "GET")).status).toBe(404);
+    expect((await send(app, ADMIN, "DELETE", revokePath)).status).toBe(404);
+  });
+
+  it("platform.read → 403", async () => {
+    const app = makeApp();
+    expect((await send(app, READ, "POST")).status).toBe(403);
+    expect((await send(app, READ, "GET")).status).toBe(403);
+    expect((await send(app, READ, "DELETE", revokePath)).status).toBe(403);
+  });
+
+  it("the agent's own key → 403", async () => {
+    const app = makeApp();
+    expect((await send(app, OWN, "POST")).status).toBe(403);
+    expect((await send(app, OWN, "GET")).status).toBe(403);
+    expect((await send(app, OWN, "DELETE", revokePath)).status).toBe(403);
+  });
+
+  it("* and platform.ops → 201 with rawToken and agentId === {id}", async () => {
+    const { client, minted } = fakeClient();
+    const app = makeApp({ chatCredentials: client });
+    for (const token of [ADMIN, OPS]) {
+      const res = await send(app, token, "POST");
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({
+        tokenId: "tok-1",
+        rawToken: "ct_secret",
+        label: "ask-caller",
+        agentId: AGENT_ID,
+      });
+    }
+    expect(minted.every((m) => m.agentId === AGENT_ID)).toBe(true);
+  });
+
+  it("GET lists credentials without raw values", async () => {
+    const res = await send(makeApp(), OPS, "GET");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      credentials: [
+        { tokenId: "tok-1", label: "ask-caller", agentId: AGENT_ID },
+      ],
+    });
+    expect(JSON.stringify(body)).not.toContain("rawToken");
+  });
+
+  it("DELETE → 204 and the client saw revokeToken(tokenId)", async () => {
+    const { client, revoked } = fakeClient();
+    const res = await send(
+      makeApp({ chatCredentials: client }),
+      ADMIN,
+      "DELETE",
+      revokePath,
+    );
+    expect(res.status).toBe(204);
+    expect(revoked).toEqual(["tok-1"]);
+  });
+
+  it("DELETE of a token not scoped to the agent → 404, no revoke", async () => {
+    const { client, revoked } = fakeClient();
+    const res = await send(
+      makeApp({ chatCredentials: client }),
+      ADMIN,
+      "DELETE",
+      `/agents/${AGENT_ID}/chat-credentials/other-agents-token`,
+    );
+    expect(res.status).toBe(404);
+    expect(revoked).toEqual([]);
+  });
+
+  it("client absent → 503", async () => {
+    const app = makeApp({ chatCredentials: undefined });
+    expect((await send(app, ADMIN, "POST")).status).toBe(503);
+    expect((await send(app, ADMIN, "GET")).status).toBe(503);
+    expect((await send(app, ADMIN, "DELETE", revokePath)).status).toBe(503);
+  });
+
+  it("a body containing agentId → 400, nothing minted", async () => {
+    const { client, minted } = fakeClient();
+    const res = await send(
+      makeApp({ chatCredentials: client }),
+      ADMIN,
+      "POST",
+      undefined,
+      {
+        label: "x",
+        agentId: "someone-else",
+      },
+    );
+    expect(res.status).toBe(400);
+    expect(minted).toEqual([]);
   });
 });

@@ -207,7 +207,7 @@ describe("HttpChatServiceProvisioningClient — listTokensForAgent", () => {
     expect(req.method).toBe("GET");
     expect(req.url).toBe("https://chat.example.com/tokens");
     expect(req.headers.get("authorization")).toBe("Bearer admin-token-xyz");
-    expect(result).toEqual([{ id: "tok_1" }, { id: "tok_3" }]);
+    expect(result.map((t) => t.id)).toEqual(["tok_1", "tok_3"]);
   });
 
   it("returns an empty array when no tokens exist", async () => {

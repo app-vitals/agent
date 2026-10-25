@@ -1452,6 +1452,120 @@ export interface paths {
         };
         trace?: never;
     };
+    "/agents/{id}/phase-methodology": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List phase-methodology overrides
+         * @description Returns every phase-methodology override configured for the agent — which subagent type handles each pipeline phase (prd, plan-session, review, patch, deploy, dev-task). A phase with no explicit override is simply absent from this list; see GET /agents/:id/config's `phaseMethodology` map for the full six-phase view with defaults filled in.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of phase-methodology overrides */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PhaseMethodologyListWrapper"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/phase-methodology/{phase}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a phase's subagent-type override
+         * @description Upserts the `subagentType` override for one pipeline phase. Passing `subagentType: null` clears the override (the phase falls back to its default methodology). `phase` must be one of prd, plan-session, review, patch, deploy, dev-task.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    phase: "prd" | "plan-session" | "review" | "patch" | "deploy" | "dev-task";
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PutAgentPhaseMethodologyBody"];
+                };
+            };
+            responses: {
+                /** @description Phase-methodology override upserted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PhaseMethodologyWrapper"];
+                    };
+                };
+                /** @description Bad request — invalid phase */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/all/cron-runs/stats": {
         parameters: {
             query?: never;
@@ -1696,6 +1810,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/all/cron-runs/dev-task-adherence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get dev-task adherence report
+         * @description Admin-only. Per dev-task run, compares skill-usage subagent dispatches against the required-steps table and reports per-step ran/skipped, with per-step adherence rates overall, per variant (contextFingerprint) and per commandVariant (default vs alternate). Rates cover task-bearing runs only (dispatched against a work item); `counts` separates them from silent no-ready-task ticks. A dispatch proves a step started, not that it was done well. Optional `from`/`to` ISO datetime params bound startedAt.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Dev-task adherence report */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden — requires admin scope */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Adherence reporting not configured */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/dev-task-adherence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get this agent's dev-task adherence report
+         * @description Self-serve variant of the fleet-wide dev-task adherence report, scoped to the agent in the path. Access is gated by the generic agent-route auth (an agent's own bearer token, an admin, or a member session) — no admin scope required. Same report shape and optional `from`/`to` params as GET /agents/all/cron-runs/dev-task-adherence.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Dev-task adherence report for this agent's runs only */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Adherence reporting not configured */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/chat-tokens/daily/stats": {
         parameters: {
             query?: never;
@@ -1866,6 +2124,94 @@ export interface paths {
                 };
                 /** @description Agent not found */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/work-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the latest work-queue snapshot
+         * @description Returns the most recently pushed work-queue snapshot, or 404 if the agent has never pushed one.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Latest work-queue snapshot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkQueueSnapshotWrapper"];
+                    };
+                };
+                /** @description No snapshot pushed yet */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Push a work-queue snapshot
+         * @description Upserts the agent's single ranked work-queue snapshot (tasks/PRs across pipeline phases), overwriting any prior snapshot — there is no history.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PushWorkQueueSnapshotBody"];
+                };
+            };
+            responses: {
+                /** @description Snapshot upserted (overwrites any prior snapshot for this agent) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkQueueSnapshotWrapper"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2059,6 +2405,206 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/chat-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List chat credentials
+         * @description Lists the chat-service tokens scoped to the agent (id and label only — raw values are never returned). `*` or `platform.ops` callers only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Chat credential metadata */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatCredentialsWrapper"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found, or chat-credential minting disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Chat service not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Mint a chat credential
+         * @description Mints a chat-service token scoped to the agent in the path. `*` or `platform.ops` callers only — never the agent's own key. The body is closed: an `agentId` field is rejected with 400, so an unrestricted chat admin token cannot be minted here. The raw token is returned once and is never logged or stored by admin. 404 unless SHIPWRIGHT_CHAT_TOKEN_MINT_ENABLED is `enabled`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CreateChatCredentialBody"];
+                };
+            };
+            responses: {
+                /** @description Credential minted (raw token returned once) */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreateChatCredentialResponse"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found, or chat-credential minting disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Chat service not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/chat-credentials/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a chat credential
+         * @description Revokes a chat-service token. 404 when the token is not scoped to the agent in the path. `*` or `platform.ops` callers only.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    tokenId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Credential revoked */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found, or chat-credential minting disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Chat service not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -2764,6 +3310,34 @@ export interface components {
             /** @example 1.3.0 */
             version?: string | null;
         };
+        PhaseMethodologyListWrapper: {
+            phaseMethodology: components["schemas"]["AgentPhaseMethodology"][];
+        };
+        AgentPhaseMethodology: {
+            /** @example clx1234567890 */
+            id: string;
+            /** @example clx1234567890 */
+            agentId: string;
+            /**
+             * @example review
+             * @enum {string}
+             */
+            phase: "prd" | "plan-session" | "review" | "patch" | "deploy" | "dev-task";
+            /** @example shipwright:code-reviewer */
+            subagentType: string | null;
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            updatedAt: string;
+        };
+        PhaseMethodologyWrapper: {
+            phaseMethodology: components["schemas"]["AgentPhaseMethodology"];
+        };
+        PutAgentPhaseMethodologyBody: {
+            /** @example shipwright:code-reviewer */
+            subagentType: string | null;
+        };
         CronRunTokenStats: {
             totals: components["schemas"]["TokenAggregate"];
             byAgent: components["schemas"]["KeyedTokenAggregate"][];
@@ -2933,6 +3507,55 @@ export interface components {
             /** @example 0.0012 */
             costUsd: number;
         };
+        WorkQueueSnapshotWrapper: {
+            snapshot: components["schemas"]["AgentWorkQueueSnapshot"];
+        };
+        AgentWorkQueueSnapshot: {
+            /** @example clx1234567890 */
+            id: string;
+            /** @example clx1234567890 */
+            agentId: string;
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            computedAt: string;
+            items: components["schemas"]["RankedWorkItem"][];
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            createdAt: string;
+        };
+        RankedWorkItem: {
+            /**
+             * @example task
+             * @enum {string}
+             */
+            type: "task" | "pr";
+            /** @example WLS-2.2 */
+            id: string;
+            /** @example Add work queue snapshot endpoints */
+            title?: string;
+            /**
+             * @example dev-task
+             * @enum {string}
+             */
+            phase: "dev-task" | "plan" | "review" | "patch" | "deploy";
+            /**
+             * @description ISO timestamp
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            age: string;
+        };
+        PushWorkQueueSnapshotBody: {
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            computedAt: string;
+            items: components["schemas"]["RankedWorkItem"][];
+        };
         GitHubInstallationsSnapshotWrapper: {
             snapshot: components["schemas"]["AgentGitHubInstallationsSnapshot"];
         };
@@ -3062,6 +3685,31 @@ export interface components {
         RuntimeError: {
             /** @example Not found */
             error: string;
+        };
+        CreateChatCredentialResponse: {
+            /** @example clx0987654321 */
+            tokenId: string;
+            /** @example ct_xxxxxxxxxxxxxxxxxxxxxxxx */
+            rawToken: string;
+            /** @example ask-caller */
+            label: string;
+            /** @example clx1234567890 */
+            agentId: string;
+        };
+        CreateChatCredentialBody: {
+            /** @example ask-caller */
+            label: string;
+        };
+        ChatCredentialsWrapper: {
+            credentials: components["schemas"]["ChatCredential"][];
+        };
+        ChatCredential: {
+            /** @example clx0987654321 */
+            tokenId: string;
+            /** @example ask-caller */
+            label: string | null;
+            /** @example clx1234567890 */
+            agentId: string;
         };
     };
     responses: never;

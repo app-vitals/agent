@@ -667,6 +667,37 @@ export const CreateAgentTokenBodySchema = z
   })
   .openapi("CreateAgentTokenBody");
 
+// ─── Chat credentials ─────────────────────────────────────────────────────────
+
+/** Strict: an `agentId` (or any other) field is rejected with 400. */
+export const CreateChatCredentialBodySchema = z
+  .object({
+    label: z.string().min(1).openapi({ example: "ask-caller" }),
+  })
+  .strict()
+  .openapi("CreateChatCredentialBody");
+
+export const CreateChatCredentialResponseSchema = z
+  .object({
+    tokenId: z.string().openapi({ example: "clx0987654321" }),
+    rawToken: z.string().openapi({ example: "ct_xxxxxxxxxxxxxxxxxxxxxxxx" }),
+    label: z.string().openapi({ example: "ask-caller" }),
+    agentId: z.string().openapi({ example: "clx1234567890" }),
+  })
+  .openapi("CreateChatCredentialResponse");
+
+export const ChatCredentialSchema = z
+  .object({
+    tokenId: z.string().openapi({ example: "clx0987654321" }),
+    label: z.string().nullable().openapi({ example: "ask-caller" }),
+    agentId: z.string().openapi({ example: "clx1234567890" }),
+  })
+  .openapi("ChatCredential");
+
+export const ChatCredentialsWrapperSchema = z
+  .object({ credentials: z.array(ChatCredentialSchema) })
+  .openapi("ChatCredentialsWrapper");
+
 // ─── AgentPlugin ──────────────────────────────────────────────────────────────
 
 export const AgentPluginSchema = z
