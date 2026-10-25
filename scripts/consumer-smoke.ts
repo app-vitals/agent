@@ -28,7 +28,9 @@
  *   bun scripts/consumer-smoke.ts --version 1.2.3 [--dir SCRATCH]
  *   bun scripts/consumer-smoke.ts --version 1.2.3 --pack          # no release needed
  *   bun scripts/consumer-smoke.ts --version 1.2.3 --tarballs DIR  # prebuilt tgz
- * Env: CONSUMER_SMOKE_VERSION, CONSUMER_SMOKE_DIR. Boot checks need docker and
+ * --no-import-probe skips step 2 (admin's entries need a generated Prisma
+ * client, absent in the docker CI job). --no-admin-boot boots only the agent image (the admin image is built in a
+ * separate CI job). Env: CONSUMER_SMOKE_VERSION, CONSUMER_SMOKE_DIR. Boot checks need docker and
  * are on by default for registry installs, off for --pack/--tarballs
  * (override with --boot / --no-boot).
  */
@@ -155,6 +157,8 @@ export type Args = {
   boot: boolean;
   agentImage: string;
   adminImage: string;
+  bootAdmin: boolean;
+  importProbe: boolean;
 };
 
 export function parseArgs(
@@ -188,6 +192,8 @@ export function parseArgs(
     pack,
     boot,
     agentImage: flag("agent-image") ?? `ghcr.io/app-vitals/agent:${version}`,
+    importProbe: !argv.includes("--no-import-probe"),
+    bootAdmin: !argv.includes("--no-admin-boot"),
     adminImage:
       flag("admin-image") ?? `ghcr.io/app-vitals/agent-admin:${version}`,
   };
@@ -251,10 +257,11 @@ async function install(args: Args, scratch: string): Promise<void> {
         tarballFor(args.tarballs as string, p.name),
       ]),
     );
-    // agent-admin depends on agent-lib@VERSION: point it at the local tarball too.
-    pkg.overrides = {
-      "@app-vitals/agent-lib": `file:${tgz["@app-vitals/agent-lib"]}`,
-    };
+    // Inter-package deps (admin -> lib, runtime -> lib + admin) are pinned to
+    // VERSION, which is not on the registry: point each at its local tarball.
+    pkg.overrides = Object.fromEntries(
+      Object.entries(tgz).map(([n, t]) => [n, `file:${t}`]),
+    );
     specs = Object.values(tgz).map((t) => `file:${t}`);
   } else {
     specs = PACKAGES.map((p) => `${p.name}@${args.version}`);
@@ -289,26 +296,68 @@ function importProbe(repoRoot: string, scratch: string): boolean {
   return !failed;
 }
 
+/**
+ * `docker run` args for a boot check. The agent image ENTRYPOINT is
+ * runtime/entrypoint-main.ts, which exits 1 on missing SHIPWRIGHT_AGENT_ID /
+ * SHIPWRIGHT_API_URL / SHIPWRIGHT_AGENT_API_KEY before spawning index.ts, so
+ * the agent check bypasses it and runs startAgent([]) directly. The runtime
+ * image ships no workspace templates, so startAgent throws "Missing workspace
+ * template" unless a specialty is supplied: the fixture specialty is mounted
+ * from the checkout (what the unit/integration suites use). The admin
+ * ENTRYPOINT (`bun run admin/src/main.ts`) is startAdmin([]) already. No
+ * platform config is provided in either case.
+ */
+const FIXTURE_SPECIALTIES = resolve(
+  import.meta.dir,
+  "..",
+  "runtime",
+  "fixtures",
+  "specialties",
+);
+
+export function buildDockerRunArgs(
+  kind: keyof typeof BOOT_MARKERS,
+  image: string,
+  name: string,
+  fixtureSpecialties: string,
+): string[] {
+  return [
+    "docker",
+    "run",
+    "-d",
+    "--name",
+    name,
+    "-e",
+    "AGENT_HOME=/tmp/agent-home",
+    ...(kind === "agent"
+      ? [
+          "-v",
+          `${fixtureSpecialties}:/fixture-specialties:ro`,
+          "-e",
+          "SHIPWRIGHT_SPECIALTIES_DIR=/fixture-specialties",
+          "-e",
+          "SHIPWRIGHT_DEFAULT_AGENT_TYPE=fixture",
+        ]
+      : []),
+    ...(kind === "agent"
+      ? ["--entrypoint", "bun", image, "run", "index.ts"]
+      : [image]),
+  ];
+}
+
 async function bootImage(
   kind: keyof typeof BOOT_MARKERS,
   image: string,
 ): Promise<boolean> {
   const name = `consumer-smoke-${kind}-${process.pid}`;
-  const pull = run(["docker", "pull", image], process.cwd());
-  if (pull.exitCode !== 0) return false;
-  // The image ENTRYPOINT is `bun run index.ts` (agent) / `bun run admin/src/main.ts` (admin),
-  // i.e. startAgent([]) / startAdmin([]). No platform config is provided.
+  // A locally built image (CI's agent:ci) is not on any registry: only pull when absent.
+  const local = run(["docker", "image", "inspect", image], process.cwd(), true);
+  if (local.exitCode !== 0) {
+    const pull = run(["docker", "pull", image], process.cwd());
+    if (pull.exitCode !== 0) return false;
+  }
   const start = run(
-    [
-      "docker",
-      "run",
-      "-d",
-      "--name",
-      name,
-      "-e",
-      "AGENT_HOME=/tmp/agent-home",
-      image,
-    ],
+    buildDockerRunArgs(kind, image, name, FIXTURE_SPECIALTIES),
     process.cwd(),
   );
   if (start.exitCode !== 0) return false;
@@ -367,11 +416,11 @@ async function main(): Promise<void> {
     packLocal(repoRoot, args.version, args.tarballs);
   }
   await install(args, scratch);
-  let ok = importProbe(repoRoot, scratch);
+  let ok = args.importProbe ? importProbe(repoRoot, scratch) : true;
   if (args.boot) {
     const results = [
       await bootImage("agent", args.agentImage),
-      await bootImage("admin", args.adminImage),
+      ...(args.bootAdmin ? [await bootImage("admin", args.adminImage)] : []),
     ];
     ok = ok && results.every(Boolean);
   } else {

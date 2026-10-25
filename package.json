@@ -15,7 +15,8 @@
     "format": "bunx biome format --write .",
     "typecheck": "tsc --noEmit",
     "check:boundary": "bun scripts/check-import-boundary.ts",
-    "check:config-docs": "bun scripts/check-config-docs.ts"
+    "check:config-docs": "bun scripts/check-config-docs.ts",
+    "check:deps": "bun scripts/check-deps.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.13",

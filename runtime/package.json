@@ -38,5 +38,17 @@
     "./shipwright-runtime-client": "./shipwright-runtime-client.ts",
     "./spawn-env": "./spawn-env.ts",
     "./workspace-paths": "./workspace-paths.ts"
+  },
+  "dependencies": {
+    "@app-vitals/agent-admin": "workspace:*",
+    "@app-vitals/agent-lib": "workspace:*",
+    "@octokit/auth-app": "^8.2.0",
+    "@sentry/bun": "^10.63.0",
+    "@slack/bolt": "^5.0.0",
+    "@slack/web-api": "^8.1.0",
+    "hono": "^4.13.1",
+    "node-cron": "^4.6.0",
+    "openapi-fetch": "^0.17.0",
+    "playwright": "1.64.1"
   }
 }

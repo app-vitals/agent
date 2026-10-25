@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildDockerRunArgs,
   buildProbeScript,
   deriveEntries,
   evaluateBoot,
@@ -108,6 +109,29 @@ describe("buildProbeScript", () => {
   });
 });
 
+describe("buildDockerRunArgs", () => {
+  test("agent bypasses the env-checking entrypoint and runs index.ts", () => {
+    const args = buildDockerRunArgs("agent", "agent:ci", "n", "/fx");
+    expect(args.slice(args.indexOf("--entrypoint"))).toEqual([
+      "--entrypoint",
+      "bun",
+      "agent:ci",
+      "run",
+      "index.ts",
+    ]);
+    expect(args).toContain("AGENT_HOME=/tmp/agent-home");
+    expect(args).toContain("/fx:/fixture-specialties:ro");
+    expect(args).toContain("SHIPWRIGHT_DEFAULT_AGENT_TYPE=fixture");
+  });
+
+  test("admin keeps its image entrypoint", () => {
+    const args = buildDockerRunArgs("admin", "admin:ci", "n", "/fx");
+    expect(args).not.toContain("--entrypoint");
+    expect(args.join(" ")).not.toContain("SPECIALTIES");
+    expect(args.at(-1)).toBe("admin:ci");
+  });
+});
+
 describe("evaluateBoot", () => {
   test("passes when the readiness marker is logged", () => {
     expect(
@@ -131,6 +155,15 @@ describe("evaluateBoot", () => {
       "[agent] agent home initialized\nerror: Cannot find module '@app-vitals/agent-lib/http'";
     expect(RESOLUTION_ERROR.test(logs)).toBe(true);
     expect(evaluateBoot("agent", { logs, exitCode: 1 }).ok).toBe(false);
+  });
+
+  test("fails when the agent entrypoint exits on missing env before the marker", () => {
+    const r = evaluateBoot("agent", {
+      logs: "[entrypoint] SHIPWRIGHT_AGENT_ID is required",
+      exitCode: 1,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain("exit 1");
   });
 
   test("fails when the marker is never logged", () => {
@@ -157,5 +190,18 @@ describe("parseArgs", () => {
     expect(a.tarballs).toBe("/t");
     expect(a.boot).toBe(false);
     expect(parseArgs(["--version", "1.0.0"], {}).boot).toBe(true);
+  });
+});
+
+describe("parseArgs --no-admin-boot", () => {
+  test("defaults to booting admin and can be disabled", () => {
+    expect(parseArgs(["--version", "1.0.0"], {}).bootAdmin).toBe(true);
+    expect(
+      parseArgs(["--version", "1.0.0", "--no-admin-boot"], {}).bootAdmin,
+    ).toBe(false);
+    expect(parseArgs(["--version", "1.0.0"], {}).importProbe).toBe(true);
+    expect(
+      parseArgs(["--version", "1.0.0", "--no-import-probe"], {}).importProbe,
+    ).toBe(false);
   });
 });
