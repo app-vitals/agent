@@ -20,6 +20,12 @@ const DOCS = [
   "agent-api-resources.md",
   "anthropic-usage-by-agent.md",
   "self-serve.md",
+  "agent.md",
+  "agent-ops.md",
+  "agent-web-ui.md",
+  "agent-key-files.md",
+  "configuration-agent.md",
+  "observability.md",
 ];
 
 /** Remove fenced code blocks so links inside examples are not checked. */
