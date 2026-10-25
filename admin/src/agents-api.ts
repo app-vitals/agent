@@ -56,7 +56,6 @@ import type { AgentPluginService } from "./agent-plugins.ts";
 import type { AgentProvisioner } from "./agent-provisioner.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AgentToolService } from "./agent-tools.ts";
-import type { SpecialtyManifestResolver } from "./specialty-manifest-loader.ts";
 import type { AgentService } from "./agents.ts";
 import {
   createAgent,
@@ -78,6 +77,7 @@ import {
   type CallerScopeResolver,
   memberOnlyCallerScopeResolver,
 } from "./caller-scope.ts";
+import type { ChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
 import {
   ApiError,
   BadRequestError,
@@ -97,6 +97,7 @@ import {
   AgentSummarySchema,
   AgentTokenSchema,
   AgentToolSchema,
+  ChatCredentialsWrapperSchema,
   ChatTokenStatsSchema,
   CreateAgentBodySchema,
   CreateAgentCronJobBodySchema,
@@ -105,6 +106,8 @@ import {
   CreateAgentTokenBodySchema,
   CreateAgentTokenResponseSchema,
   CreateAgentToolBodySchema,
+  CreateChatCredentialBodySchema,
+  CreateChatCredentialResponseSchema,
   CronIdParamSchema,
   CronRunIdParamSchema,
   CronRunOutcomesSchema,
@@ -132,6 +135,7 @@ import {
   UpsertChatTokenDailyBodySchema,
 } from "./openapi-schemas.ts";
 import type { SelfServeConfig } from "./self-serve-config.ts";
+import type { SpecialtyManifestResolver } from "./specialty-manifest-loader.ts";
 import { managedReconcileTargets } from "./startup-policy-reconcile.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -253,6 +257,21 @@ export interface AdminDeps {
   pool?: PoolLike;
   /** Resolved self-serve provisioning config (SSP-1.3). No consumers yet. */
   selfServe?: SelfServeConfig;
+  /**
+   * Chat-credential mint flag (SHIPWRIGHT_CHAT_TOKEN_MINT_ENABLED === "enabled",
+   * see chat-credential-config.ts). Off (default) → the chat-credentials
+   * routes 404.
+   */
+  chatCredentialsEnabled?: boolean;
+  /**
+   * Chat-service client behind the chat-credentials routes. Absent (chat
+   * service not configured) → the routes 503. Distinct from `chatService`,
+   * which is the always-present (possibly no-op) deletion-cleanup client.
+   */
+  chatCredentials?: Pick<
+    ChatServiceProvisioningClient,
+    "mintToken" | "revokeToken" | "listTokensForAgent"
+  >;
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
   anthropicFederationEnabled?: boolean;
 }
@@ -983,6 +1002,72 @@ const deleteTokenRoute = createRoute({
   request: { params: TokenIdParamSchema },
   responses: {
     204: { description: "Token revoked" },
+  },
+});
+
+const chatCredentialErrors = {
+  403: { description: "Forbidden", ...jsonError },
+  404: {
+    description: "Not found, or chat-credential minting disabled",
+    ...jsonError,
+  },
+  503: { description: "Chat service not configured", ...jsonError },
+};
+
+const createChatCredentialRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/chat-credentials",
+  summary: "Mint a chat credential",
+  description:
+    "Mints a chat-service token scoped to the agent in the path. `*` or `platform.ops` callers only — never the agent's own key. The body is closed: an `agentId` field is rejected with 400, so an unrestricted chat admin token cannot be minted here. The raw token is returned once and is never logged or stored by admin. 404 unless SHIPWRIGHT_CHAT_TOKEN_MINT_ENABLED is `enabled`.",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      content: {
+        "application/json": { schema: CreateChatCredentialBodySchema },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Credential minted (raw token returned once)",
+      content: {
+        "application/json": { schema: CreateChatCredentialResponseSchema },
+      },
+    },
+    400: { description: "Bad request", ...jsonError },
+    ...chatCredentialErrors,
+  },
+});
+
+const listChatCredentialsRoute = createRoute({
+  method: "get",
+  path: "/agents/{id}/chat-credentials",
+  summary: "List chat credentials",
+  description:
+    "Lists the chat-service tokens scoped to the agent (id and label only — raw values are never returned). `*` or `platform.ops` callers only.",
+  request: { params: AgentIdParamSchema },
+  responses: {
+    200: {
+      description: "Chat credential metadata",
+      content: {
+        "application/json": { schema: ChatCredentialsWrapperSchema },
+      },
+    },
+    ...chatCredentialErrors,
+  },
+});
+
+const deleteChatCredentialRoute = createRoute({
+  method: "delete",
+  path: "/agents/{id}/chat-credentials/{tokenId}",
+  summary: "Revoke a chat credential",
+  description:
+    "Revokes a chat-service token. 404 when the token is not scoped to the agent in the path. `*` or `platform.ops` callers only.",
+  request: { params: TokenIdParamSchema },
+  responses: {
+    204: { description: "Credential revoked" },
+    ...chatCredentialErrors,
   },
 });
 
@@ -2137,6 +2222,91 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
   app.openapi(deleteTokenRoute, async (c) => {
     const { tokenId } = c.req.valid("param");
     await agentTokenService.revoke(tokenId);
+    return c.body(null, 204);
+  });
+
+  // ─── Chat credentials ──────────────────────────────────────────────────────
+
+  // Shared gate: flag (404 when off) → caller (`*` / platform.ops only, never
+  // an agent's own key) → client wired (503). Returns the client.
+  const chatCredentialClient = (c: {
+    get: (k: "isAdmin" | "scope") => unknown;
+  }) => {
+    if (!deps.chatCredentialsEnabled) throw new NotFoundError();
+    const kind = (c.get("scope") as AdminScope | undefined)?.kind;
+    if (c.get("isAdmin") !== true && kind !== "platform-ops") {
+      throw new ForbiddenError(
+        "Only * and platform.ops callers can manage chat credentials",
+      );
+    }
+    return deps.chatCredentials ?? null;
+  };
+  const chatCredentialsUnavailable = { error: "Chat service not configured" };
+
+  // POST /agents/:id/chat-credentials — mint a chat token scoped to the agent
+  app.openapi(createChatCredentialRoute, async (c) => {
+    const client = chatCredentialClient(c);
+    if (!client) return c.json(chatCredentialsUnavailable, 503);
+    const { id: agentId } = c.req.valid("param");
+    const { label } = c.req.valid("json");
+    if (!(await agentService.exists(agentId))) {
+      throw new NotFoundError(`agent ${agentId} not found`);
+    }
+    const { id: tokenId, rawToken } = await client.mintToken(label, agentId);
+    // Never log rawToken.
+    console.log(
+      JSON.stringify({
+        event: "chat-credential.mint",
+        agentId,
+        tokenId,
+        label,
+        callerLabel: callerLabel(c.get("caller"), c.get("scope")?.kind),
+      }),
+    );
+    return c.json({ tokenId, rawToken, label, agentId }, 201);
+  });
+
+  // GET /agents/:id/chat-credentials — list (no raw values)
+  app.openapi(listChatCredentialsRoute, async (c) => {
+    const client = chatCredentialClient(c);
+    if (!client) return c.json(chatCredentialsUnavailable, 503);
+    const { id: agentId } = c.req.valid("param");
+    const tokens = await client.listTokensForAgent(agentId);
+    return c.json(
+      {
+        credentials: tokens.map((t) => ({
+          tokenId: t.id,
+          label: t.label ?? null,
+          agentId,
+        })),
+      },
+      200,
+    );
+  });
+
+  // DELETE /agents/:id/chat-credentials/:tokenId — revoke
+  app.openapi(deleteChatCredentialRoute, async (c) => {
+    const client = chatCredentialClient(c);
+    if (!client) return c.json(chatCredentialsUnavailable, 503);
+    const { id: agentId, tokenId } = c.req.valid("param");
+    // Only tokens scoped to this agent may be revoked through its path.
+    const tokens = await client.listTokensForAgent(agentId);
+    const token = tokens.find((t) => t.id === tokenId);
+    if (!token) {
+      throw new NotFoundError(
+        `chat credential ${tokenId} not found for agent ${agentId}`,
+      );
+    }
+    await client.revokeToken(tokenId);
+    console.log(
+      JSON.stringify({
+        event: "chat-credential.revoke",
+        agentId,
+        tokenId,
+        label: token.label ?? null,
+        callerLabel: callerLabel(c.get("caller"), c.get("scope")?.kind),
+      }),
+    );
     return c.body(null, 204);
   });
 

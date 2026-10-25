@@ -28,7 +28,9 @@ export interface ChatServiceProvisioningClient {
    * client-side. Intended to be paired with `revokeToken` by the caller (e.g.
    * agent-deletion cleanup): list, then revoke each match.
    */
-  listTokensForAgent(agentId: string): Promise<{ id: string }[]>;
+  listTokensForAgent(
+    agentId: string,
+  ): Promise<{ id: string; label?: string | null }[]>;
 
   /**
    * Delete every chat Thread scoped to `agentId`. Deleting a thread cascades
@@ -106,7 +108,9 @@ export class HttpChatServiceProvisioningClient
     }
   }
 
-  async listTokensForAgent(agentId: string): Promise<{ id: string }[]> {
+  async listTokensForAgent(
+    agentId: string,
+  ): Promise<{ id: string; label?: string | null }[]> {
     const res = await this.fetchFn(`${this.baseUrl}/tokens`, {
       method: "GET",
       headers: {
@@ -120,11 +124,12 @@ export class HttpChatServiceProvisioningClient
     }
     const tokens = (await res.json()) as {
       id: string;
+      label?: string | null;
       agentId?: string | null;
     }[];
     return tokens
       .filter((token) => token.agentId === agentId)
-      .map((token) => ({ id: token.id }));
+      .map((token) => ({ id: token.id, label: token.label ?? null }));
   }
 
   async deleteThreadsForAgent(agentId: string): Promise<{ deleted: number }> {

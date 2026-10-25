@@ -88,6 +88,8 @@ import {
   callerScopeDepsFromServices,
   createCallerScopeResolver,
 } from "./caller-scope.ts";
+import { parseChatCredentialConfig } from "./chat-credential-config.ts";
+import { HttpChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
 import { isDevAuthAllowed } from "./dev-auth-guard.ts";
 import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-client.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
@@ -260,6 +262,18 @@ export async function startAdmin(
     process.env,
   );
 
+  // Chat-credential routes need a real chat-service client; the no-op
+  // deletion client would mint nothing, so it stays absent (→ 503) unless
+  // both env vars are set.
+  const chatCredentialsClient =
+    process.env.SHIPWRIGHT_CHAT_SERVICE_URL &&
+    process.env.SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN
+      ? new HttpChatServiceProvisioningClient(
+          process.env.SHIPWRIGHT_CHAT_SERVICE_URL,
+          process.env.SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN,
+        )
+      : undefined;
+
   // Web Push (CFB-4.2). Enabled ONLY when public + private + subject are all
   // set — a partial config must not half-enable the feature. When disabled,
   // pushService is undefined, the push routes 503, and the toggle renders "".
@@ -417,6 +431,10 @@ export async function startAdmin(
     pool: adminPool,
     selfServe,
     anthropicFederationEnabled,
+    chatCredentialsEnabled: parseChatCredentialConfig(process.env).enabled,
+    ...(chatCredentialsClient
+      ? { chatCredentials: chatCredentialsClient }
+      : {}),
     ...resolvedExtensions.apiDeps,
   });
   root.route("/", adminApiApp);
