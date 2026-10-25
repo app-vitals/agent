@@ -22,7 +22,9 @@ entries. The middleware exposes the result as `scope: {kind, agentId?}` beside
 (any field except `accountId`, which stays platform-admin only), `POST` and
 `DELETE /agents/{id}/repos...`, `PATCH /agents/{id}/crons/{cronId}`,
 `POST /agents/{id}/ask`, `POST` and `DELETE /agents/{id}/chat-credentials...`.
-Routes not mounted yet are listed so their own tasks only wire the handler.
+`PATCH /agents/{id}`, the `/repos` routes and `PATCH /agents/{id}/crons/{cronId}` are mounted;
+`POST /agents/{id}/ask` and the `chat-credentials` routes are listed but not mounted yet, so
+their own tasks only wire the handler.
 Every other mutating route (env writes, agent create/delete/provision, tokens,
 federation, accounts) stays 403 for both platform scopes.
 
