@@ -138,6 +138,12 @@ jobs:
       - name: Base-image contract smoke test
         run: SHIPWRIGHT_CONTRACT_BASE_IMAGE=agent:ci bun test runtime/base-image-contract.smoke.test.ts
 
+      # Boots the CI-built agent image through the consumer smoke's boot check
+      # (packed tarballs, no release needed). Proves the image reaches
+      # `[agent] agent home initialized` in this PR rather than only post-release.
+      - name: Consumer smoke agent image boot
+        run: bun scripts/consumer-smoke.ts --version 0.0.0-ci --pack --boot --no-admin-boot --agent-image agent:ci
+
       # Load-bearing: a green `bun test` in CI's unrestricted process does not
       # prove whether /sys/fs/cgroup is delegated under a restricted securityContext.
       # The built image may fall back to procfs descendant walk (a fully-handled

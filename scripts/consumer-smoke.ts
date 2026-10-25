@@ -28,7 +28,8 @@
  *   bun scripts/consumer-smoke.ts --version 1.2.3 [--dir SCRATCH]
  *   bun scripts/consumer-smoke.ts --version 1.2.3 --pack          # no release needed
  *   bun scripts/consumer-smoke.ts --version 1.2.3 --tarballs DIR  # prebuilt tgz
- * Env: CONSUMER_SMOKE_VERSION, CONSUMER_SMOKE_DIR. Boot checks need docker and
+ * --no-admin-boot boots only the agent image (the admin image is built in a
+ * separate CI job). Env: CONSUMER_SMOKE_VERSION, CONSUMER_SMOKE_DIR. Boot checks need docker and
  * are on by default for registry installs, off for --pack/--tarballs
  * (override with --boot / --no-boot).
  */
@@ -155,6 +156,7 @@ export type Args = {
   boot: boolean;
   agentImage: string;
   adminImage: string;
+  bootAdmin: boolean;
 };
 
 export function parseArgs(
@@ -188,6 +190,7 @@ export function parseArgs(
     pack,
     boot,
     agentImage: flag("agent-image") ?? `ghcr.io/app-vitals/agent:${version}`,
+    bootAdmin: !argv.includes("--no-admin-boot"),
     adminImage:
       flag("admin-image") ?? `ghcr.io/app-vitals/agent-admin:${version}`,
   };
@@ -289,6 +292,33 @@ function importProbe(repoRoot: string, scratch: string): boolean {
   return !failed;
 }
 
+/**
+ * `docker run` args for a boot check. The agent image ENTRYPOINT is
+ * runtime/entrypoint-main.ts, which exits 1 on missing SHIPWRIGHT_AGENT_ID /
+ * SHIPWRIGHT_API_URL / SHIPWRIGHT_AGENT_API_KEY before spawning index.ts, so
+ * the agent check bypasses it and runs startAgent([]) directly. The admin
+ * ENTRYPOINT (`bun run admin/src/main.ts`) is startAdmin([]) already. No
+ * platform config is provided in either case.
+ */
+export function buildDockerRunArgs(
+  kind: keyof typeof BOOT_MARKERS,
+  image: string,
+  name: string,
+): string[] {
+  return [
+    "docker",
+    "run",
+    "-d",
+    "--name",
+    name,
+    "-e",
+    "AGENT_HOME=/tmp/agent-home",
+    ...(kind === "agent"
+      ? ["--entrypoint", "bun", image, "run", "index.ts"]
+      : [image]),
+  ];
+}
+
 async function bootImage(
   kind: keyof typeof BOOT_MARKERS,
   image: string,
@@ -296,21 +326,7 @@ async function bootImage(
   const name = `consumer-smoke-${kind}-${process.pid}`;
   const pull = run(["docker", "pull", image], process.cwd());
   if (pull.exitCode !== 0) return false;
-  // The image ENTRYPOINT is `bun run index.ts` (agent) / `bun run admin/src/main.ts` (admin),
-  // i.e. startAgent([]) / startAdmin([]). No platform config is provided.
-  const start = run(
-    [
-      "docker",
-      "run",
-      "-d",
-      "--name",
-      name,
-      "-e",
-      "AGENT_HOME=/tmp/agent-home",
-      image,
-    ],
-    process.cwd(),
-  );
+  const start = run(buildDockerRunArgs(kind, image, name), process.cwd());
   if (start.exitCode !== 0) return false;
   let logs = "";
   let exitCode: number | null = null;
@@ -371,7 +387,7 @@ async function main(): Promise<void> {
   if (args.boot) {
     const results = [
       await bootImage("agent", args.agentImage),
-      await bootImage("admin", args.adminImage),
+      ...(args.bootAdmin ? [await bootImage("admin", args.adminImage)] : []),
     ];
     ok = ok && results.every(Boolean);
   } else {
