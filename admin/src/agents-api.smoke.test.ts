@@ -5600,6 +5600,136 @@ describe("admin API — Anthropic credential guards (WIF-2.1)", () => {
   });
 });
 
+// ─── repos add/remove (COS-30.1) ────────────────────────────────────────────
+
+describe("admin API — POST/DELETE /agents/:id/repos", () => {
+  const READ = "repos-read-token";
+  const OPS = "repos-ops-token";
+  const makeRepoApp = (initial: string[]) => {
+    let repos = [...initial];
+    const base = makeMockDeps();
+    const detail = () => ({
+      id: AGENT_ID,
+      name: "Existing Agent",
+      slackId: null,
+      selfHosted: false,
+      repos: [...repos],
+      reviewAuthorAllowlist: [],
+      patchAuthorAllowlist: [],
+      restrictSlackToMembers: false,
+      typeName: "coding",
+      createdAt: new Date("2024-01-01"),
+      updatedAt: new Date("2024-01-01"),
+      missingRequiredEnv: [],
+    });
+    return createAdminApp({
+      ...base,
+      adminApiKeys: parseAdminApiKeys(
+        `reader:${READ}:platform.read,operator:${OPS}:platform.ops`,
+      ),
+      agentService: {
+        ...base.agentService,
+        getDetail: async (id: string) => (id === AGENT_ID ? detail() : null),
+        updateSelfHosted: async (_id: string, input: { repos?: string[] }) => {
+          if (input.repos) repos = input.repos;
+          return detail();
+        },
+      },
+    });
+  };
+  const call = (
+    app: ReturnType<typeof makeRepoApp>,
+    method: string,
+    path: string,
+    body?: unknown,
+    token = OPS,
+  ) =>
+    app.request(path, {
+      method,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  const url = `/agents/${AGENT_ID}/repos`;
+
+  it("adds two repos to an agent with one, preserving order", async () => {
+    const app = makeRepoApp(["a/one"]);
+    const res = await call(app, "POST", url, { repos: ["b/two", "c/three"] });
+    expect(res.status).toBe(200);
+    expect((await res.json()).repos).toEqual(["a/one", "b/two", "c/three"]);
+  });
+
+  it("is idempotent when the repo is already present", async () => {
+    const app = makeRepoApp(["a/one", "b/two"]);
+    const res = await call(app, "POST", url, { repos: ["a/one"] });
+    expect(res.status).toBe(200);
+    expect((await res.json()).repos).toEqual(["a/one", "b/two"]);
+  });
+
+  it("400s on a basename collision with the same message as PATCH", async () => {
+    const app = makeRepoApp(["b/x"]);
+    const res = await call(app, "POST", url, { repos: ["a/x"] });
+    expect(res.status).toBe(400);
+    const patch = await call(app, "PATCH", `/agents/${AGENT_ID}`, {
+      repos: ["b/x", "a/x"],
+    });
+    expect(patch.status).toBe(400);
+    expect((await res.json()).error).toBe((await patch.json()).error);
+  });
+
+  it("400s on a malformed repo entry", async () => {
+    const app = makeRepoApp([]);
+    expect((await call(app, "POST", url, { repos: ["nope"] })).status).toBe(
+      400,
+    );
+  });
+
+  it("404s adding to an unknown agent", async () => {
+    const app = makeRepoApp([]);
+    const res = await call(app, "POST", "/agents/missing/repos", {
+      repos: ["a/b"],
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("deletes one repo, preserving the rest", async () => {
+    const app = makeRepoApp(["a/one", "b/two", "c/three"]);
+    const res = await call(app, "DELETE", `${url}/b/two`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).repos).toEqual(["a/one", "c/three"]);
+  });
+
+  it("404s deleting a repo the agent lacks", async () => {
+    const app = makeRepoApp(["a/one"]);
+    expect((await call(app, "DELETE", `${url}/z/nope`)).status).toBe(404);
+  });
+
+  it("platform.read is 403 and platform.ops is 200", async () => {
+    const app = makeRepoApp(["a/one"]);
+    expect(
+      (await call(app, "POST", url, { repos: ["b/two"] }, READ)).status,
+    ).toBe(403);
+    expect(
+      (await call(app, "DELETE", `${url}/a/one`, undefined, READ)).status,
+    ).toBe(403);
+    expect(
+      (await call(app, "POST", url, { repos: ["b/two"] }, OPS)).status,
+    ).toBe(200);
+    expect(
+      (await call(app, "DELETE", `${url}/a/one`, undefined, OPS)).status,
+    ).toBe(200);
+  });
+
+  it("does not shadow GET /agents/repos (resolves as /agents/{id}, not a repos route)", async () => {
+    const app = makeRepoApp([]);
+    const res = await call(app, "GET", "/agents/repos");
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toMatch(/agent repos not found/);
+  });
+});
+
 // ─── Platform scopes (COS-28.1) ─────────────────────────────────────────────
 
 describe("platform.read / platform.ops keys over the real route table", () => {

@@ -122,6 +122,8 @@ import {
   type ModelBreakdownEntry,
   OkSchema,
   PatchAgentBodySchema,
+  AddAgentReposBodySchema,
+  AgentRepoParamSchema,
   PatchAgentCronJobBodySchema,
   PatchAgentCronRunBodySchema,
   PatchAgentPluginBodySchema,
@@ -566,7 +568,7 @@ const patchAgentRoute = createRoute({
   path: "/agents/{id}",
   summary: "Update an agent",
   description:
-    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, and/or `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows). `typeName` and `trialExpiryWarnedAt` are not updatable via this route. Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
+    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, and/or `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows). `typeName` and `trialExpiryWarnedAt` are not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
   request: {
     params: AgentIdParamSchema,
     body: {
@@ -581,6 +583,46 @@ const patchAgentRoute = createRoute({
     400: { description: "Bad request", ...jsonError },
     403: { description: "Forbidden", ...jsonError },
     404: { description: "Agent not found", ...jsonError },
+  },
+});
+
+const addAgentReposRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/repos",
+  summary: "Add repos to an agent",
+  description:
+    "Admin, the agent's own key, or platform.ops. Additive alternative to `PATCH /agents/{id}` (which replaces the whole `repos` array): unions the given `org/repo` entries into the agent's current list, preserving the order of existing entries and appending new ones. Idempotent — adding a repo the agent already has is a no-op. 400 when the resulting list has two repos sharing a basename. Returns the full updated agent.",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      content: { "application/json": { schema: AddAgentReposBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Repos added (or already present)",
+      content: { "application/json": { schema: GetAgentResultSchema } },
+    },
+    400: { description: "Bad request", ...jsonError },
+    403: { description: "Forbidden", ...jsonError },
+    404: { description: "Agent not found", ...jsonError },
+  },
+});
+
+const removeAgentRepoRoute = createRoute({
+  method: "delete",
+  path: "/agents/{id}/repos/{owner}/{name}",
+  summary: "Remove a repo from an agent",
+  description:
+    "Admin, the agent's own key, or platform.ops. Removes one `owner/name` repo from the agent's `repos`, preserving the order of the rest. 404 when the agent does not have that repo. Returns the full updated agent.",
+  request: { params: AgentRepoParamSchema },
+  responses: {
+    200: {
+      description: "Repo removed",
+      content: { "application/json": { schema: GetAgentResultSchema } },
+    },
+    403: { description: "Forbidden", ...jsonError },
+    404: { description: "Agent or repo not found", ...jsonError },
   },
 });
 
@@ -1644,6 +1686,55 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     const warning =
       [slackWarning, reconcileWarning].filter(Boolean).join("; ") || undefined;
     return c.json(serializeAgent(agent, warning), 200);
+  });
+
+  // POST /agents/:id/repos — additive repo attach (same gating as PATCH).
+  // Registered with the other /agents/:id routes; no static /agents/repos
+  // route exists, and "/agents/{id}/repos" has an extra segment so it cannot
+  // shadow or be shadowed by the single-segment "/agents/{id}".
+  app.openapi(addAgentReposRoute, async (c) => {
+    if (!isAdminOrSessionMember(c)) {
+      throw new ForbiddenError("Admin access required to update agent");
+    }
+    requireScope(c, "ops");
+    const { id: agentId } = c.req.valid("param");
+    const { repos: toAdd } = c.req.valid("json");
+    const current = await agentService.getDetail(agentId);
+    if (!current) {
+      throw new NotFoundError(`agent ${agentId} not found`);
+    }
+    const merged = [...new Set([...current.repos, ...toAdd])];
+    const collision = describeRepoNameCollision(merged);
+    if (collision) {
+      throw new BadRequestError(collision);
+    }
+    const agent = await agentService.updateSelfHosted(agentId, {
+      selfHosted: current.selfHosted,
+      repos: merged,
+    });
+    return c.json(serializeAgent(agent), 200);
+  });
+
+  // DELETE /agents/:id/repos/:owner/:name — remove one repo.
+  app.openapi(removeAgentRepoRoute, async (c) => {
+    if (!isAdminOrSessionMember(c)) {
+      throw new ForbiddenError("Admin access required to update agent");
+    }
+    requireScope(c, "ops");
+    const { id: agentId, owner, name } = c.req.valid("param");
+    const current = await agentService.getDetail(agentId);
+    if (!current) {
+      throw new NotFoundError(`agent ${agentId} not found`);
+    }
+    const repo = `${owner}/${name}`;
+    if (!current.repos.includes(repo)) {
+      throw new NotFoundError(`agent ${agentId} does not have repo ${repo}`);
+    }
+    const agent = await agentService.updateSelfHosted(agentId, {
+      selfHosted: current.selfHosted,
+      repos: current.repos.filter((r) => r !== repo),
+    });
+    return c.json(serializeAgent(agent), 200);
   });
 
   // DELETE /agents/:id — delete an agent and tear down its workload (admin only)
