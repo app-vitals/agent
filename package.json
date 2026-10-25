@@ -14,7 +14,8 @@
     "lint": "bunx biome lint .",
     "format": "bunx biome format --write .",
     "typecheck": "tsc --noEmit",
-    "check:boundary": "bun scripts/check-import-boundary.ts"
+    "check:boundary": "bun scripts/check-import-boundary.ts",
+    "check:config-docs": "bun scripts/check-config-docs.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.13",

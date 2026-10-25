@@ -98,6 +98,8 @@ Provide either the GitHub App vars (recommended) or `GH_TOKEN` (PAT). App auth i
 | Name | Type | Default | Description |
 |---|---|---|---|
 | `DATABASE_URL_SHIPWRIGHT_ADMIN` | `string` | required | Postgres connection string for the admin service schema (e.g. `postgresql://user:pass@host:5432/db`). |
+| `SHIPWRIGHT_ADMIN_API_KEYS` | `string` | — | Admin service only. Comma-separated `name:token:scope` tuples for bearer token auth. Scope is `*`, an agent id, `platform.read` or `platform.ops` (no colons in scopes). See [agent-api.md](agent-api.md). Env-var-only (secret). |
+| `SHIPWRIGHT_SELF_SERVE_ENABLED` | `string` | — | Admin service only. Self-serve signup is on only when this is exactly `enabled`. Companion vars `SHIPWRIGHT_SELF_SERVE_DEFAULT_MAX_AGENTS`, `_CONTACT_EMAIL` and `_AGENT_TYPE` are covered in [admin-service.md](admin-service.md). |
 | `SHIPWRIGHT_ADMIN_POOL_HOLD_THRESHOLD_MS` | `number` | `2000` | Admin service only. A pg pool connection held longer than this many milliseconds before release is logged (`pg connection held past threshold`) with the request route, hold duration and pool stats. Non-positive or non-numeric values fall back to the default. Observability only. |
 | `SHIPWRIGHT_ADMIN_POOL_MONITOR_INTERVAL_MS` | `number` | `30000` | Admin service only. Interval for the pool monitor, which logs the pool snapshot (`pg pool has waiting clients`) only while clients are queued. Stopped on graceful shutdown. Non-positive or non-numeric values fall back to the default. |
 | `SHIPWRIGHT_CHAT_SERVICE_URL` | `string` | — | Base URL of the chat service (e.g. `http://chat:3000`). When set alongside `SHIPWRIGHT_CHAT_SERVICE_TOKEN`, the agent starts the chat poll loop (`runtime/boot.ts`, Step 6b) to poll for pending messages and reply. The admin service reads it too, for the chat UI and token minting. Optional; omit to disable chat. |
@@ -162,6 +164,7 @@ At startup `runtime/setup.ts` pins the mise, XDG, Go, npm and bun cache location
 | Name | Type | Default | Description |
 |---|---|---|---|
 | `AGENT_HOME` | `string` | `/data/agent-home` | Persistent storage root. Mount a PVC here in Kubernetes so mise caches, workspace files and `~/.claude` survive pod restarts. |
+| `WORKSPACE_PATH` | `string` | `$AGENT_HOME/workspace` | Explicit override for the agent workspace root (`resolveWorkspacePath()` in `runtime/workspace-paths.ts`). Resolution throws when neither this nor `AGENT_HOME` is set. |
 | `MISE_DATA_DIR` | `string` | `<AGENT_HOME>/mise` | Mise data directory, set by setup so workspace-declared runtime tools install onto the PVC. |
 | `MISE_CACHE_DIR` | `string` | `<AGENT_HOME>/mise/cache` | Mise cache directory, set by setup. |
 | `XDG_CACHE_HOME` | `string` | `<AGENT_HOME>/cache` | XDG cache directory, set by setup. |

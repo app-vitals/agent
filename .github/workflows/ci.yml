@@ -57,6 +57,11 @@ jobs:
       - name: Import-boundary gate
         run: bun run check:boundary
 
+      # Every process.env.* in runtime/ and admin/ must be documented in
+      # docs/configuration-agent.md (or allowlisted in the script).
+      - name: Config-docs gate
+        run: bun run check:config-docs
+
       - name: Sync test DB schema
         run: cd admin && bunx prisma migrate deploy --schema=prisma/schema
 
