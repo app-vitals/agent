@@ -171,3 +171,17 @@ cuts no release.
 - Turn off semantic-release issue/PR comments and labels permanently (agreed by Dan).
 - Optional `npm deprecate @app-vitals/agent-runtime@0.1.0` needs Dan's npm auth; it is a
   human step in ARL-3.7.
+
+## Cross-session gap fixes
+
+AGR-4.1 (agent-repo-extraction) was already in progress when the 0.1.0 lib defects were
+found, and it pins the registry `@app-vitals/agent-lib`, whose 0.1.0 lacks `chat-notify`,
+`claim-ttl`, `default-account` and `http`.
+
+- Added **AGR-4.5** (shipwright, depends on AGR-4.1 and ARL-3.7): repoint those four
+  imports to the registry lib at >=0.1.1 and delete the local copies. It inspects what
+  AGR-4.1 actually merged rather than assuming.
+- **AGR-4.2** now depends on AGR-4.5 and must consume the platform packages at >=0.1.1.
+- **AGR-4.3a** now depends on ARL-3.7 and must build FROM the agent image at 0.1.1 or later.
+- AGR-4.1 itself is untouched (in progress). The first platform-release dispatch (0.1.1)
+  may fire before its receiver workflow merges; Renovate is the fallback for that bump.
