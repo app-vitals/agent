@@ -138,7 +138,8 @@ Every task is safe to deploy standalone: the automatic trigger ships disabled
 | ARL-3.4 | fix: declare the agent-runtime runtime dependencies | — | fix/arl-3-publish-defects | 3 / sonnet | |
 | ARL-3.5 | fix: boot the agent image in the consumer smoke past the entrypoint env check | — | fix/arl-3-publish-defects | 3 / sonnet | |
 | ARL-3.6 | ci: run the packed consumer smoke on every PR | 3.3, 3.4, 3.5 | ci/arl-3-pack-smoke | 3 / sonnet | |
-| ARL-3.7 | chore: cut 0.1.1, verify, enable automatic releases | 3.1–3.6 | — | 2 / haiku | ⚠ HITL |
+| ARL-3.7 | chore: cut 0.1.1 and verify the repaired release path | 3.1–3.6 | — | 2 / haiku | ⚠ HITL |
+| ARL-3.8 | chore: enable automatic releases and verify the first one | 3.7 | chore/arl-3-8-enable-auto-release | 2 / haiku | ⚠ HITL |
 
 ```
 [START]
@@ -146,9 +147,10 @@ Every task is safe to deploy standalone: the automatic trigger ships disabled
   └─ ARL-3.3, ARL-3.4, ARL-3.5   (PR B, fix: => semantic-release computes 0.1.1)
         └─ ARL-3.6 (needs 3.3, 3.4, 3.5 merged, else the new job is red)
               └─ ARL-3.7 (needs 3.1–3.6)  ⚠ HITL
+                    └─ ARL-3.8 (needs 3.7)  ⚠ HITL
 ```
 
-PR A and PR B are independent. `AUTO_RELEASE` stays off until ARL-3.7, so merging either
+PR A and PR B are independent. `AUTO_RELEASE` stays off until ARL-3.8, so merging either
 cuts no release.
 
 ## Breaking Change Safety
@@ -166,8 +168,9 @@ cuts no release.
 - Restore four lib modules rather than removing all five — shipwright imports them and
   AGR-4.1 is moving it onto the registry package (agreed by Dan).
 - Reuse session `agent-auto-release`, IDs `ARL-3.x` (agreed by Dan).
-- ARL-3.7 includes enabling `AUTO_RELEASE`, since ARL-2.1 is `done` without it being set
-  (agreed by Dan).
+- Enabling `AUTO_RELEASE` is its own task, ARL-3.8, after the supervised cut: ARL-2.1 was
+  marked `done` without the variable ever being set, and the first automatic release is the
+  only test of the push-to-main path (agreed by Dan).
 - Turn off semantic-release issue/PR comments and labels permanently (agreed by Dan).
 - Optional `npm deprecate @app-vitals/agent-runtime@0.1.0` needs Dan's npm auth; it is a
   human step in ARL-3.7.
