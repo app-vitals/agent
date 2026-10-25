@@ -9,10 +9,19 @@
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PLATFORM_OPS_ROUTES } from "../admin/src/api-auth.ts";
 
 const DOCS_DIR = import.meta.dir;
 const ADMIN_SRC = join(DOCS_DIR, "..", "admin", "src");
+
+/** Entries of the PLATFORM_OPS_ROUTES literal in admin/src/api-auth.ts. */
+function platformOpsRoutes(): { method: string; path: string }[] {
+  const source = readFileSync(join(ADMIN_SRC, "api-auth.ts"), "utf-8");
+  const block = /PLATFORM_OPS_ROUTES[^=]*=\s*\[([\s\S]*?)\n\];/.exec(source);
+  const body = block?.[1] ?? "";
+  return [...body.matchAll(/method:\s*"([A-Z]+)",\s*path:\s*"([^"]+)"/g)].map(
+    (m) => ({ method: m[1] as string, path: m[2] as string }),
+  );
+}
 
 const apiDoc = readFileSync(join(DOCS_DIR, "agent-api.md"), "utf-8");
 
@@ -40,9 +49,11 @@ function configFlagNames(): string[] {
 
 describe("docs/agent-api.md", () => {
   it("lists every PLATFORM_OPS_ROUTES entry as a table row (method + path)", () => {
-    const missing = PLATFORM_OPS_ROUTES.filter(
-      (r) => !apiDoc.includes(`| \`${r.method}\` | \`${r.path}\` |`),
-    ).map((r) => `${r.method} ${r.path}`);
+    const routes = platformOpsRoutes();
+    expect(routes.length).toBeGreaterThan(0);
+    const missing = routes
+      .filter((r) => !apiDoc.includes(`| \`${r.method}\` | \`${r.path}\` |`))
+      .map((r) => `${r.method} ${r.path}`);
     expect(missing).toEqual([]);
   });
 
