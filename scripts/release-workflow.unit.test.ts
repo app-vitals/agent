@@ -192,11 +192,17 @@ describe("automatic release on merge to main", () => {
     expect(wf.on.push.tags[0]).toBe("v[0-9]+.[0-9]+.[0-9]+");
   });
 
-  test("releases are serialized and never cancelled mid-publish", () => {
-    expect(wf.concurrency).toEqual({
+  test("version cuts are serialized and never cancelled, without queueing tag publishes behind them", () => {
+    // A workflow-level group keeps one pending run, so a later main push would
+    // cancel a queued tag-push publish and the wait job would block manual runs.
+    expect(wf.concurrency).toBeUndefined();
+    expect(wf.jobs.release.concurrency).toEqual({
       group: "release",
       "cancel-in-progress": false,
     });
+    for (const job of ["wait", "resolve", "publish-npm", "publish-image"]) {
+      expect(wf.jobs[job].concurrency).toBeUndefined();
+    }
   });
 
   test("the release job waits for CI and a red wait blocks it", () => {
