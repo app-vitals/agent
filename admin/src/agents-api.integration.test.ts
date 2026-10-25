@@ -483,6 +483,37 @@ describeOrSkip("admin CRUD API (integration)", () => {
     expect(getBody.repos).toEqual(["my-org/my-repo"]);
   });
 
+  it("POST then DELETE /agents/:id/repos persists the expected set and preserves order", async () => {
+    const hdr = {
+      "Content-Type": "application/json",
+      Cookie: `admin_session=${cookie}`,
+    };
+    const setRes = await app.request(`/agents/${agentId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ repos: ["org/alpha", "org/beta"] }),
+      headers: hdr,
+    });
+    expect(setRes.status).toBe(200);
+
+    const addRes = await app.request(`/agents/${agentId}/repos`, {
+      method: "POST",
+      body: JSON.stringify({ repos: ["org/gamma", "org/alpha"] }),
+      headers: hdr,
+    });
+    expect(addRes.status).toBe(200);
+
+    const delRes = await app.request(`/agents/${agentId}/repos/org/beta`, {
+      method: "DELETE",
+      headers: hdr,
+    });
+    expect(delRes.status).toBe(200);
+
+    const row = await prisma.agent.findUniqueOrThrow({
+      where: { id: agentId },
+    });
+    expect(row.repos).toEqual(["org/alpha", "org/gamma"]);
+  });
+
   // ─── reviewAuthorAllowlist field round-trip ────────────────────────────────
 
   it("PATCH /agents/:id with reviewAuthorAllowlist sets the field; GET /agents/:id returns it", async () => {

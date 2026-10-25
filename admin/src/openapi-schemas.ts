@@ -817,6 +817,24 @@ export const AgentIdParamSchema = z.object({
   id: z.string().openapi({ example: "clx1234567890" }),
 });
 
+export const AddAgentReposBodySchema = z
+  .object({
+    repos: z
+      .array(
+        z.string().refine(isOrgRepo, {
+          message: "each repo must be in org/repo format",
+        }),
+      )
+      .openapi({ example: ["my-org/my-repo"] }),
+  })
+  .openapi("AddAgentReposBody");
+
+export const AgentRepoParamSchema = z.object({
+  id: z.string().openapi({ example: "clx1234567890" }),
+  owner: z.string().openapi({ example: "my-org" }),
+  name: z.string().openapi({ example: "my-repo" }),
+});
+
 export const CronIdParamSchema = z.object({
   id: z.string().openapi({ example: "clx1234567890" }),
   cronId: z.string().openapi({ example: "clx0987654321" }),
