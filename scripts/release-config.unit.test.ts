@@ -30,4 +30,18 @@ describe("release changelog preset", () => {
       '"preset":"conventionalcommits"',
     );
   });
+
+  // The squash history references issue/PR numbers that do not exist in this
+  // repo, so the github plugin's success step fails when it tries to comment.
+  test("the github plugin does not comment on or label linked issues", () => {
+    const rc = JSON.parse(readFileSync(join(root, ".releaserc.json"), "utf8"));
+    const github = rc.plugins.find(
+      (p: unknown) => Array.isArray(p) && p[0] === "@semantic-release/github",
+    );
+    expect(github?.[1]).toMatchObject({
+      successComment: false,
+      failComment: false,
+      releasedLabels: false,
+    });
+  });
 });
