@@ -1,0 +1,264 @@
+/**
+ * scripts/check-config-docs.ts
+ *
+ * CI validation script — checks that every process.env.* reference in
+ * runtime/ and admin/ is documented in docs/configuration-agent.md.
+ *
+ * Usage (CLI):
+ *   bun scripts/check-config-docs.ts
+ *
+ * Exports:
+ *   extractEnvVarNames(sourceCode: string): string[]        — pure string-parsing, no I/O
+ *   extractDocumentedVars(markdownContent: string): string[] — pure string-parsing, no I/O
+ *   collectTsFiles(dir: string, out: string[]): void         — real filesystem walk, exported for testing
+ *   collectDocumentedVars(paths: string[]): Set<string>      — reads + unions documented vars across files
+ *
+ * Exit codes:
+ *   0 — all env vars are documented (or in the allowlist)
+ *   1 — one or more undocumented vars found
+ */
+
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+// ---------------------------------------------------------------------------
+// Allowlist — vars that don't need docs entries.
+// These are universal OS/runtime vars that are universally understood,
+// or test-only overrides that don't represent production configuration.
+// ---------------------------------------------------------------------------
+
+const ALLOWLIST: Set<string> = new Set([
+  // Universal OS / runtime
+  "HOME",
+  "PATH",
+  "USER",
+  "SHELL",
+  "TMPDIR",
+  "TERM",
+  "PWD",
+  "HOSTNAME",
+  "XDG_DATA_HOME",
+  "DISPLAY",
+  // Standard Node / Bun runtime
+  "NODE_ENV",
+  // Test-only vars set in test-env.ts / integration test setups
+  "HOST",
+  // Admin Playwright e2e harness (admin/e2e/), not production configuration
+  "ADMIN_E2E_CHAT_CLIENT_ABSENT",
+  "ADMIN_E2E_CHAT_PENDING",
+  "ADMIN_E2E_PORT",
+  "ADMIN_E2E_SESSION_SECRET",
+  // Injected by Kubernetes into every pod, never set by operators
+  "KUBERNETES_SERVICE_HOST",
+  "KUBERNETES_SERVICE_PORT",
+]);
+
+// ---------------------------------------------------------------------------
+// Pure string-parsing functions (exported for unit tests)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extracts all env var names referenced via process.env in TypeScript source code.
+ *
+ * Handles:
+ *   process.env.VAR_NAME          — dot notation
+ *   process.env?.VAR_NAME         — optional chaining
+ *   process.env['VAR_NAME']       — bracket single-quote
+ *   process.env["VAR_NAME"]       — bracket double-quote
+ *
+ * Only extracts literal string identifiers matching [A-Z][A-Z0-9_]* —
+ * dynamic access like process.env[key] is intentionally skipped.
+ *
+ * Returns a deduplicated, sorted array of var names.
+ */
+export function extractEnvVarNames(sourceCode: string): string[] {
+  const found = new Set<string>();
+
+  // Dot notation and optional-chaining: process.env.VAR or process.env?.VAR
+  for (const m of sourceCode.matchAll(/process\.env\??\.([A-Z][A-Z0-9_]*)/g)) {
+    found.add(m[1]);
+  }
+
+  // Bracket notation with string literal: process.env['VAR'] or process.env["VAR"]
+  for (const m of sourceCode.matchAll(
+    /process\.env\[['"]([A-Z][A-Z0-9_]*)['"]\]/g,
+  )) {
+    found.add(m[1]);
+  }
+
+  return Array.from(found).sort();
+}
+
+/**
+ * Extracts all documented env var names from a Markdown configuration document.
+ *
+ * Scans every table row and looks at the first column for:
+ *   | `VAR_NAME` | ...   — backtick-wrapped (common)
+ *   | VAR_NAME   | ...   — plain (less common)
+ *
+ * Only identifiers matching [A-Z][A-Z0-9_]* are returned.
+ * Header rows (Name, Type, Default, Description) and separator rows (---) are ignored.
+ *
+ * Returns a deduplicated, sorted array of var names.
+ */
+export function extractDocumentedVars(markdownContent: string): string[] {
+  const found = new Set<string>();
+
+  // Match table rows: | cell1 | cell2 | ...
+  // We only look at the first cell (Name column).
+  for (const m of markdownContent.matchAll(/^\|([^|]+)\|/gm)) {
+    const cell = m[1].trim();
+
+    // Strip backticks if present
+    const stripped = cell.replace(/^`|`$/g, "").trim();
+
+    // Only accept ALL_CAPS identifiers with optional underscores
+    if (/^[A-Z][A-Z0-9_]*$/.test(stripped)) {
+      found.add(stripped);
+    }
+  }
+
+  return Array.from(found).sort();
+}
+
+/**
+ * Reads each path in `paths` and unions the documented env var names found
+ * across all of them (via extractDocumentedVars).
+ *
+ * Lets `readFileSync` throw naturally on a missing/unreadable path — callers
+ * (main()) are expected to wrap this in their own try/catch.
+ */
+export function collectDocumentedVars(paths: string[]): Set<string> {
+  const found = new Set<string>();
+  for (const p of paths) {
+    const content = readFileSync(p, "utf8");
+    for (const v of extractDocumentedVars(content)) {
+      found.add(v);
+    }
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------------------
+// File collection helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively collects all *.ts files from `dir` (excluding test files).
+ * Skips node_modules, .git, dist, and worktrees directories.
+ *
+ * Exported (alongside the other pure functions in this file) so it can be
+ * unit-tested directly against a real scratch directory tree, without
+ * exercising main()'s CLI/exit-code plumbing.
+ */
+export function collectTsFiles(dir: string, out: string[]): void {
+  const SKIP_DIRS = new Set([
+    "node_modules",
+    ".git",
+    "dist",
+    "worktrees",
+    "build",
+  ]);
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (SKIP_DIRS.has(entry)) continue;
+    const full = join(dir, entry);
+    let st: ReturnType<typeof statSync>;
+    try {
+      st = statSync(full);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) {
+      collectTsFiles(full, out);
+    } else if (
+      st.isFile() &&
+      entry.endsWith(".ts") &&
+      !entry.endsWith(".test.ts") &&
+      !entry.endsWith(".spec.ts")
+    ) {
+      out.push(full);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CLI entry point
+// ---------------------------------------------------------------------------
+
+function main(): void {
+  const scriptDir = import.meta.dirname ?? process.cwd();
+  // scripts/ → project root
+  const projectRoot = join(scriptDir, "..");
+
+  const docsPaths = [join(projectRoot, "docs", "configuration-agent.md")];
+
+  // 1. Read and parse documented vars
+  let documentedVars: Set<string>;
+  try {
+    documentedVars = collectDocumentedVars(docsPaths);
+  } catch (err) {
+    console.error(
+      `ERROR: Could not read one of ${docsPaths.join(", ")}: ${err}`,
+    );
+    process.exit(1);
+  }
+
+  // 2. Collect source files from the two directories
+  // Dynamic env access (process.env[name]) is not caught by the regex; expand
+  // sourceDirs if lib/ or index.ts should be covered too.
+  const sourceDirs = [join(projectRoot, "runtime"), join(projectRoot, "admin")];
+
+  const sourceFiles: string[] = [];
+  for (const dir of sourceDirs) {
+    collectTsFiles(dir, sourceFiles);
+  }
+
+  // 3. Extract all env var references from source
+  const allVars = new Set<string>();
+  for (const filePath of sourceFiles) {
+    let content: string;
+    try {
+      content = readFileSync(filePath, "utf8");
+    } catch {
+      // Skip unreadable files
+      continue;
+    }
+    for (const v of extractEnvVarNames(content)) {
+      allVars.add(v);
+    }
+  }
+
+  // 4. Find undocumented vars (not in docs and not in allowlist)
+  const undocumented = Array.from(allVars)
+    .filter((v) => !documentedVars.has(v) && !ALLOWLIST.has(v))
+    .sort();
+
+  // 5. Report
+  if (undocumented.length === 0) {
+    console.log(
+      `check-config-docs: all ${allVars.size} env var(s) are documented.`,
+    );
+    process.exit(0);
+  }
+
+  console.error(
+    `check-config-docs: ${undocumented.length} undocumented env var(s) found:\n`,
+  );
+  for (const v of undocumented) {
+    console.error(`  ${v}`);
+  }
+  console.error(
+    "\nAdd these vars to docs/configuration-agent.md or the ALLOWLIST in scripts/check-config-docs.ts.",
+  );
+  process.exit(1);
+}
+
+if (import.meta.main) {
+  main();
+}
