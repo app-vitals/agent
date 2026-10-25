@@ -103,9 +103,11 @@ claude -p --output-format stream-json --verbose --permission-mode acceptEdits \
   rows in the config bundle, so an agent with none gets no shell.
 - **Serialization.** Calls with the same session key run one after another;
   different keys run concurrently.
-- **Resume.** A stored session id is passed with `-r`. If a resumed run fails
-  for any reason other than a timeout, the stored id is cleared and the
-  message is retried as a fresh session.
+- **Resume.** A stored session id is passed with `-r`. If a run fails, it is
+  retried once, resuming the same session; the stored id is never cleared and
+  no fresh session is started. Abort, idle-timeout and connection-lost
+  failures are not retried (a ceiling timeout is). If the retry also fails,
+  the original error is rethrown.
 - **Errors.** `ClaudeRunError`, `ClaudeTimeoutError` and `ClaudeAbortedError`;
   `reportClaudeError` forwards to Sentry when it is configured.
 - **Result.** `ClaudeRunResult` carries the reply text, session id, token usage
