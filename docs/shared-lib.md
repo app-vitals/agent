@@ -9,8 +9,9 @@ The only runtime dependency is `@sentry/bun` (used by `sentry.ts`). Modules take
 their collaborators (clock, timers, `exit`, signal source, Sentry client) as
 injectable options so unit tests need no `mock.module()` or global overrides.
 
-Keep anything the deployed container imports in `lib/`, not `scripts/`: the
-runtime image copies `lib/` but not `scripts/`.
+Anything `runtime/` or `admin/` imports across packages belongs in `lib/`, so
+it is reachable through the package's subpath exports rather than a relative
+path into another package.
 
 ## Generated files (do not edit)
 
