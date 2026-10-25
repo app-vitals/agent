@@ -91,6 +91,29 @@ jobs:
       - name: zizmor
         run: pipx run zizmor==1.5.2 --format plain .github/workflows
 
+  pack-smoke:
+    name: packed consumer smoke
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.3"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Installs locally packed tarballs in a scratch dir and imports every
+      # export, so a dangling export or a missing runtime dependency fails the
+      # PR instead of surfacing after publish. Boot checks are skipped (the
+      # docker job below covers the image boot).
+      - name: Packed consumer smoke
+        run: bun scripts/consumer-smoke.ts --version 0.0.0-ci --pack
+
   admin-docker-build:
     name: admin docker build
     timeout-minutes: 20
