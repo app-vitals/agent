@@ -58,6 +58,19 @@ The agent detail page shows a **GitHub Installations** card with one row per ins
 
 A stale warning appears when the last report is more than 90 minutes old (three missed heartbeats).
 
+## Signed commits
+
+Commits pushed with plain git are unsigned. Under App auth an agent can instead land commits that GitHub signs, so they show **Verified**.
+
+- **Enable.** Set `SHIPWRIGHT_SIGNED_COMMITS=1` in the agent's env. It is off by default, and any other value (e.g. `off`) is off. In admin, the agent detail page's Agent Policy card has a **Signed commits** checkbox, shown only when the agent has `GH_APP_ID` set. Checking it upserts the env row; unchecking deletes it.
+- **Git wrapper.** `scripts/bin/git` sits ahead of real git on `PATH`. With the flag on it routes `git push` through `scripts/signed-push.ts`, which replays the local commits in `<remoteHead>..HEAD` through GitHub's `createCommitOnBranch` GraphQL mutation using the per-owner installation token, verifies the remote tree matches local `HEAD^{tree}`, then syncs the worktree with `git fetch` and `git reset --mixed` (uncommitted work survives). Every other subcommand, and push with the flag off, execs real git unchanged. Global options (`-C`, `-c`) are honored.
+- **Owner hint.** Like the `gh` wrapper, an intercepted push needs `SHIPWRIGHT_GH_OWNER=<org>` to pick the org token. Unset gives a teaching error; retry with it prefixed.
+- **PAT auth.** With no `GH_TOKEN_FILE` (or the file missing) there is nothing to sign with, so push passes through to real git.
+- **Refusals.** The API cannot reproduce some pushes exactly, so the helper exits non-zero instead of silently differing: new executable files, mode changes, symlinks, submodules, force, tag, delete and `--all`/`--mirror` pushes, multiple refspecs, non-fast-forward pushes, merge commits, and commits over the payload cap (default 10 MB base64 per commit, override with `SHIPWRIGHT_SIGNED_COMMITS_MAX_BYTES`; GitHub documents no real limit, so tune it if one is observed).
+- **Bypass.** Every refusal ends with the fix: prefix that one push with `SHIPWRIGHT_SIGNED_COMMITS=off`, e.g. `SHIPWRIGHT_SIGNED_COMMITS=off git push origin my-branch`. That push is unsigned.
+- **SHAs change.** The API re-creates each commit, so local SHAs differ after a push; the local branch is moved to the new head. Anything that recorded a pre-push SHA (notes, PR comments) is stale.
+- **Partial failure.** If a replay fails midway, the message says how many commits landed and leaves the worktree untouched. Run `git fetch`, rebase the remaining commits onto the remote branch, and push again.
+
 ## Troubleshooting
 
 - **`SHIPWRIGHT_GH_OWNER is not set` from `gh` or git.** Expected in DMs. Retry with the hint prefixed, e.g. `SHIPWRIGHT_GH_OWNER=<org> gh pr list -R <org>/<repo>`. If a loop or cron run hits it, check the agent logs for a `[spawn-env]` warning: no owner could be resolved for that spawn.
@@ -69,3 +82,4 @@ A stale warning appears when the last report is more than 90 minutes old (three 
 - **Admin rejects the repo list (400).** Two repos share a name across orgs. Scope only one of them.
 - **Card is stale or missing.** The agent may be down or unable to reach admin. A missing card means no snapshot was ever reported.
 - **Agent still uses a PAT.** App auth did not engage: no pin and no usable in-scope installation. Check `GH_APP_ID`, the key, and the card.
+- **`signed-push: refusing`.** The push has something the commit API cannot express. Read the reason; use the printed `SHIPWRIGHT_SIGNED_COMMITS=off git push ...` bypass if an unsigned push is acceptable.
