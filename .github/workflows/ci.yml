@@ -32,6 +32,7 @@ jobs:
     env:
       DATABASE_URL_ADMIN_TEST: postgres://agent:agent@localhost:5432/agent_admin_test
       DATABASE_URL_SHIPWRIGHT_ADMIN: postgres://agent:agent@localhost:5432/agent_admin_test
+      DATABASE_URL_SHIPWRIGHT_CHAT: postgres://agent:agent@localhost:5432/shipwright_chat_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,7 +54,8 @@ jobs:
         run: bun run typecheck
 
       # Port of the monorepo's platform gate: no import may leave runtime/,
-      # admin/, lib/ and agent-types/.
+      # admin/, lib/, agent-types/ and chat/; chat/ may import only agent-lib
+      # workspace modules and npm packages.
       - name: Import-boundary gate
         run: bun run check:boundary
 
@@ -62,13 +64,23 @@ jobs:
       - name: Declared-dependencies gate
         run: bun run check:deps
 
-      # Every process.env.* in runtime/ and admin/ must be documented in
+      # Every process.env.* in runtime/, admin/ and chat/ must be documented in
       # docs/configuration-agent.md (or allowlisted in the script).
       - name: Config-docs gate
         run: bun run check:config-docs
 
       - name: Sync test DB schema
         run: cd admin && bunx prisma migrate deploy --schema=prisma/schema
+
+      # Dedicated chat database; the chat unit, integration and smoke suites
+      # run against it in the Test step (DATABASE_URL_SHIPWRIGHT_CHAT above).
+      - name: Create chat test database
+        run: createdb -h localhost -U agent shipwright_chat_test
+        env:
+          PGPASSWORD: agent
+
+      - name: Sync chat test DB schema
+        run: cd chat && bunx prisma migrate deploy
 
       - name: Install Playwright chromium-headless-shell
         run: bunx playwright install --with-deps chromium-headless-shell
