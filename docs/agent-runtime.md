@@ -89,6 +89,19 @@ once whenever a later config sync supplies the credentials.
 returns `claude`, `shipwright`, `slack`, `alerts`, `owner`, `voice`, `chat`
 and `paths` groups. `AGENT_HOME` defaults to `/data/agent-home` in `boot.ts`.
 
+### Voice (STT/TTS)
+
+`config.voice` is a boot-time snapshot, used only to validate `PIPER_VOICE` at
+startup. Synthesis and transcription instead call `buildVoiceConfig()`
+(`voice.ts`), which reads live `process.env` — the same approach as
+`buildSlackAppConfig()` — so per-agent `ELEVENLABS_API_KEY` /
+`ELEVENLABS_VOICE_ID` set via `PATCH /agents/{id}/envs` take effect within one
+config-sync tick (≤ 60 s) without a restart. Per-agent env wins over
+fleet-wide `admin.extraEnv` (config-sync overwrites the process value); when a
+per-agent voice key is removed, `revertRemovedVoiceEnv` restores the fleet
+value or unsets it, so the agent falls back to Piper on the next tick. Each
+synthesis logs `[voice] TTS backend: elevenlabs|piper` (never the key).
+
 | Variable | Default | Effect |
 |---|---|---|
 | `ANTHROPIC_MODEL`, `ANTHROPIC_FALLBACK_MODEL`, `ANTHROPIC_EFFORT_LEVEL` | `DEFAULT_ANTHROPIC_MODEL` | Passed to `claude` as `--model`, `--fallback-model`, `--effort`. |

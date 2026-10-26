@@ -18,7 +18,11 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
-import { makeWhisperSvcClient } from "./voice.ts";
+import {
+  buildVoiceConfig,
+  makeWhisperSvcClient,
+  revertRemovedVoiceEnv,
+} from "./voice.ts";
 
 describe("makeWhisperSvcClient — onerahmet /asr contract", () => {
   test("POSTs to the /asr endpoint of the service URL", async () => {
@@ -101,5 +105,74 @@ describe("makeWhisperSvcClient — onerahmet /asr contract", () => {
     const result = await client(Buffer.from("audio"), "clip.webm");
     console.warn = warn;
     expect(result).toBeNull();
+  });
+});
+
+describe("buildVoiceConfig — live env (COS-62.1)", () => {
+  test("picks up ELEVENLABS_* set after an earlier build (env mutation)", () => {
+    const env: Record<string, string | undefined> = {};
+    expect(buildVoiceConfig(env).elevenLabsApiKey).toBeUndefined();
+
+    env.ELEVENLABS_API_KEY = "xi-key";
+    env.ELEVENLABS_VOICE_ID = "nPczCjzI2devNBz1zQrb";
+    const cfg = buildVoiceConfig(env);
+    expect(cfg.elevenLabsApiKey).toBe("xi-key");
+    expect(cfg.voiceId).toBe("nPczCjzI2devNBz1zQrb");
+  });
+
+  test("falls back to unset once the key is removed or empty", () => {
+    const env: Record<string, string | undefined> = { ELEVENLABS_API_KEY: "k" };
+    delete env.ELEVENLABS_API_KEY;
+    expect(buildVoiceConfig(env).elevenLabsApiKey).toBeUndefined();
+    env.ELEVENLABS_API_KEY = "";
+    expect(buildVoiceConfig(env).elevenLabsApiKey).toBeUndefined();
+  });
+});
+
+describe("revertRemovedVoiceEnv", () => {
+  test("deletes a removed per-agent key with no pod baseline", () => {
+    const proc: Record<string, string | undefined> = {
+      ELEVENLABS_API_KEY: "k",
+      ELEVENLABS_VOICE_ID: "v",
+    };
+    const reverted = revertRemovedVoiceEnv(
+      new Set(["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"]),
+      {},
+      {},
+      proc,
+    );
+    expect(reverted.sort()).toEqual([
+      "ELEVENLABS_API_KEY",
+      "ELEVENLABS_VOICE_ID",
+    ]);
+    expect(proc.ELEVENLABS_API_KEY).toBeUndefined();
+  });
+
+  test("restores the fleet/pod value when the per-agent override is removed", () => {
+    const proc: Record<string, string | undefined> = {
+      ELEVENLABS_API_KEY: "agent",
+    };
+    revertRemovedVoiceEnv(
+      new Set(["ELEVENLABS_API_KEY"]),
+      {},
+      { ELEVENLABS_API_KEY: "fleet" },
+      proc,
+    );
+    expect(proc.ELEVENLABS_API_KEY).toBe("fleet");
+  });
+
+  test("leaves keys alone that are still in the bundle or never came from it", () => {
+    const proc: Record<string, string | undefined> = {
+      ELEVENLABS_API_KEY: "a",
+      GROQ_API_KEY: "pod",
+    };
+    const reverted = revertRemovedVoiceEnv(
+      new Set(["ELEVENLABS_API_KEY"]),
+      { ELEVENLABS_API_KEY: "a" },
+      {},
+      proc,
+    );
+    expect(reverted).toEqual([]);
+    expect(proc.GROQ_API_KEY).toBe("pod");
   });
 });
