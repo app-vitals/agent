@@ -79,6 +79,25 @@ describe("resolvePublicRepo", () => {
 // ─── buildProvisioner ───────────────────────────────────────────────────────
 
 describe("buildProvisioner", () => {
+  it("wires the pod ServiceAccount flag into the provisioner config", () => {
+    const on = buildProvisioner(
+      {
+        SHIPWRIGHT_K8S_PROVISIONING: "enabled",
+        SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED: "enabled",
+      },
+      stubAgentTokenService(),
+    );
+    expect(configOf(on).podServiceAccount).toEqual({ enabled: true });
+  });
+
+  it("leaves the pod ServiceAccount flag off by default", () => {
+    const off = buildProvisioner(
+      { SHIPWRIGHT_K8S_PROVISIONING: "enabled" },
+      stubAgentTokenService(),
+    );
+    expect(configOf(off).podServiceAccount).toEqual({ enabled: false });
+  });
+
   it("returns a NoopAgentProvisioner when SHIPWRIGHT_K8S_PROVISIONING is unset", () => {
     const provisioner = buildProvisioner({}, stubAgentTokenService());
     expect(provisioner).toBeInstanceOf(NoopAgentProvisioner);

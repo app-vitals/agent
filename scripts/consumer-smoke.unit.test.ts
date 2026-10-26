@@ -8,6 +8,8 @@ import {
   checkAgentLibCopies,
   deriveEntries,
   evaluateBoot,
+  findEmptyWildcards,
+  findUnreachableModules,
   parseArgs,
   RESOLUTION_ERROR,
 } from "./consumer-smoke.ts";
@@ -227,5 +229,100 @@ describe("checkAgentLibCopies", () => {
 
   test("fails when no copy is installed", () => {
     expect(checkAgentLibCopies([], "0.1.2")[0]).toContain("found 0");
+  });
+});
+
+describe("findUnreachableModules", () => {
+  const files = ["src/server.ts", "src/agents.ts", "src/agents.unit.test.ts"];
+
+  test("fails for a shipped module no export reaches (the 0.1.2 gap)", () => {
+    const out = findUnreachableModules({ ".": "./src/server.ts" }, files);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("src/agents.ts");
+  });
+
+  test("a wildcard export reaches every module; test files are ignored", () => {
+    expect(
+      findUnreachableModules(
+        { ".": "./src/server.ts", "./*": "./src/*.ts" },
+        files,
+      ),
+    ).toEqual([]);
+  });
+
+  test("an allowlisted private module is not reported", () => {
+    expect(
+      findUnreachableModules(
+        { ".": "./src/server.ts" },
+        files,
+        new Set(["src/agents.ts"]),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("findEmptyWildcards", () => {
+  test("fails when a wildcard expands to zero files (dangling ./coding/*)", () => {
+    const dir = fixture(["src/a.ts"]);
+    try {
+      const out = findEmptyWildcards(
+        { "./*": "./src/*.ts", "./coding/*": "./src/coding/*.ts" },
+        dir,
+      );
+      expect(out).toHaveLength(1);
+      expect(out[0]).toContain("./coding/*");
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  test("a wildcard that matches only test files counts as empty", () => {
+    const dir = fixture(["src/a.unit.test.ts"]);
+    try {
+      expect(findEmptyWildcards({ "./*": "./src/*.ts" }, dir)).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  const GENERATED = { "./prisma/client/*": "./prisma/client/*" };
+
+  test("a generated-path wildcard with no checkout files passes when the installed package has them", () => {
+    const checkout = fixture(["src/a.ts"]);
+    const installed = fixture(["prisma/client/index.js"]);
+    try {
+      expect(findEmptyWildcards(GENERATED, checkout, installed)).toEqual([]);
+    } finally {
+      rmSync(checkout, { recursive: true });
+      rmSync(installed, { recursive: true });
+    }
+  });
+
+  test("a generated-path wildcard still fails when the installed package lacks the files", () => {
+    const checkout = fixture(["src/a.ts"]);
+    const installed = fixture(["src/a.ts"]);
+    try {
+      expect(findEmptyWildcards(GENERATED, checkout, installed)).toHaveLength(1);
+    } finally {
+      rmSync(checkout, { recursive: true });
+      rmSync(installed, { recursive: true });
+    }
+  });
+
+  test("an empty source wildcard still fails even when an installed dir is given", () => {
+    const checkout = fixture(["src/a.ts"]);
+    const installed = fixture(["src/coding/x.ts", "prisma/client/index.js"]);
+    try {
+      const out = findEmptyWildcards(
+        { ...GENERATED, "./coding/*": "./src/coding/*.ts" },
+        checkout,
+        installed,
+      );
+      expect(out).toHaveLength(1);
+      expect(out[0]).toContain("./coding/*");
+    } finally {
+      rmSync(checkout, { recursive: true });
+      rmSync(installed, { recursive: true });
+    }
   });
 });

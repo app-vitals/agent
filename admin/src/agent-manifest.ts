@@ -318,6 +318,24 @@ export interface AgentDeploymentOpts {
    * federation). Omit for an unchanged manifest.
    */
   anthropicFederation?: AgentAnthropicFederation;
+  /**
+   * Per-agent pod ServiceAccount (COS-48.1). When set (and `anthropicFederation`
+   * is absent) the pod runs as this ServiceAccount. Mutually exclusive with
+   * `anthropicFederation`: federation's projected token subject must stay its
+   * own ServiceAccount, so supplying both throws
+   * PodServiceAccountConflictError. Omit for an unchanged manifest.
+   */
+  podServiceAccountName?: string;
+}
+
+/** Both a pod ServiceAccount and Anthropic federation were supplied. */
+export class PodServiceAccountConflictError extends Error {
+  constructor(agentId: string) {
+    super(
+      `agent ${agentId}: podServiceAccountName cannot be combined with anthropicFederation (the federation token subject must stay its own ServiceAccount)`,
+    );
+    this.name = "PodServiceAccountConflictError";
+  }
 }
 
 /**
@@ -479,6 +497,9 @@ export function buildAgentDeploymentManifest(
 
   const policy = opts.claudePolicy;
   const federation = opts.anthropicFederation;
+  if (federation && opts.podServiceAccountName) {
+    throw new PodServiceAccountConflictError(opts.agentId);
+  }
 
   return {
     apiVersion: "apps/v1",
@@ -507,7 +528,9 @@ export function buildAgentDeploymentManifest(
           // Federation: the projected token's subject is this ServiceAccount.
           ...(federation
             ? { serviceAccountName: federation.serviceAccountName }
-            : {}),
+            : opts.podServiceAccountName
+              ? { serviceAccountName: opts.podServiceAccountName }
+              : {}),
           securityContext: {
             fsGroup: AGENT_RUN_AS,
             fsGroupChangePolicy: "OnRootMismatch",

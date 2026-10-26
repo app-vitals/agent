@@ -50,6 +50,7 @@ export function managedReconcileTargets(
       anthropicServiceAccountId: a.anthropicServiceAccountId,
       anthropicFederationRuleId: a.anthropicFederationRuleId,
       k8sServiceAccountName: a.k8sServiceAccountName,
+      podServiceAccountName: a.podServiceAccountName,
     }));
 }
 

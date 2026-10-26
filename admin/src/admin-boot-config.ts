@@ -30,6 +30,7 @@ import {
   HttpChatServiceProvisioningClient,
   NoopChatServiceProvisioningClient,
 } from "./chat-service-provisioning-client.ts";
+import { parsePodServiceAccountConfig } from "./pod-service-account-config.ts";
 import { HttpKubernetesClient } from "./kubernetes-client.ts";
 import type { ServiceIntegration } from "./service-integration.ts";
 
@@ -212,6 +213,7 @@ export function buildProvisioner(
     ...(claudePolicy ? { claudePolicy } : {}),
     ...(anthropicFederation ? { anthropicFederation } : {}),
     ...(perAgentIdentity ? { perAgentIdentity } : {}),
+    podServiceAccount: parsePodServiceAccountConfig(env),
     // When SHIPWRIGHT_AGENT_PVC_NAME_TEMPLATE is set (e.g. "acme-agent-{name}-home"),
     // substitute {name} with the pre-sanitized name resolved by pvcNameFor()
     // (slug sanitized via sanitizeAgentName, or falls back to resourceName).
