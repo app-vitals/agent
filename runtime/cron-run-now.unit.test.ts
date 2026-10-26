@@ -50,6 +50,12 @@ function setup() {
 const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString();
 
 describe("createRunNowHonourer", () => {
+  it("never runs a manually disabled job", async () => {
+    const t = setup();
+    await t.honour([job({ enabled: false, runRequestedAt: ago(1000) })]);
+    expect(t.dispatched).toHaveLength(0);
+  });
+
   it("runs a fresh request once with the stored job fields and run-now variant", async () => {
     const { honour, dispatched } = setup();
     await honour([job({ runRequestedAt: ago(60_000) })]);

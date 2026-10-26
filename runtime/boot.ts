@@ -673,7 +673,29 @@ export async function startAgent(
               `cron job ${req.jobId} classified as loop but the agent extension has no dispatchLoop`,
             );
           }
-          await extension.dispatchLoop(req.jobId);
+          // dispatchLoop creates no run-now run of its own, so record one here:
+          // creating it clears the stamp and flips the audit row to honoured.
+          const reporter = cronRunReporter ?? new NoopCronRunReporter();
+          const startedAt = SystemClock().now();
+          const runId = await reporter.createRun(
+            req.jobId,
+            startedAt,
+            undefined,
+            undefined,
+            undefined,
+            req.commandVariant,
+          );
+          let outcome: "completed" | "failed" = "completed";
+          try {
+            await extension.dispatchLoop(req.jobId);
+          } catch (err) {
+            outcome = "failed";
+            throw err;
+          } finally {
+            await reporter
+              .completeRun(req.jobId, runId, SystemClock().now(), outcome)
+              .catch(() => {});
+          }
           return;
         }
         await handleCronRequest(req, cronDeps);
@@ -712,7 +734,8 @@ export async function startAgent(
       );
 
       // Fire-and-forget: a run can take minutes and must not hold up the sync.
-      void honourRunNow(jobs);
+      // Only scheduled (enabled) jobs: a manually disabled cron is not run.
+      void honourRunNow(jobs.filter((job) => desired.has(job.id)));
 
       // Cancel removed/disabled jobs
       for (const [id, task] of cronTasks) {

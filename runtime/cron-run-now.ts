@@ -23,6 +23,8 @@ export interface RunNowJob {
   user?: string | null;
   silent?: boolean;
   preCheck?: string | null;
+  /** A manually disabled job is never run, even with a fresh stamp. */
+  enabled?: boolean;
   /** ISO string on the wire (typed Date by the generated client). */
   runRequestedAt?: string | Date | null;
 }
@@ -62,7 +64,7 @@ export function createRunNowHonourer(
   return async (jobs) => {
     const running: Promise<void>[] = [];
     for (const job of jobs) {
-      if (!job.runRequestedAt) continue;
+      if (!job.runRequestedAt || job.enabled === false) continue;
       const requestedMs = new Date(job.runRequestedAt).getTime();
       if (Number.isNaN(requestedMs)) continue;
       const requested = new Date(requestedMs).toISOString();
