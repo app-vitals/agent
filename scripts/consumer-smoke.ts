@@ -115,13 +115,36 @@ export function deriveEntries(
   return out;
 }
 
-/** Wildcard exports that expand to zero files: they would otherwise probe nothing and pass. */
-export function findEmptyWildcards(exports: Exports, pkgDir: string): string[] {
+/**
+ * Export targets that only exist after a build step (`prisma generate`), so the
+ * checkout never has them (gitignored). Wildcards over these are verified
+ * against the INSTALLED package, which is what actually ships them.
+ */
+const GENERATED_TARGET_PREFIXES = ["./prisma/client/"];
+
+export function isGeneratedTarget(target: string): boolean {
+  return GENERATED_TARGET_PREFIXES.some((p) => target.startsWith(p));
+}
+
+/**
+ * Wildcard exports that expand to zero files: they would otherwise probe nothing and pass.
+ * Source wildcards are globbed in `pkgDir` (the checkout); generated-output wildcards
+ * are globbed in `installedDir` (the installed package) when given.
+ */
+export function findEmptyWildcards(
+  exports: Exports,
+  pkgDir: string,
+  installedDir?: string,
+): string[] {
   return Object.entries(exports)
-    .filter(
-      ([subpath, target]) =>
-        subpath.includes("*") && expandWildcard(target, pkgDir).length === 0,
-    )
+    .filter(([subpath, target]) => {
+      if (!subpath.includes("*")) return false;
+      const dir =
+        installedDir !== undefined && isGeneratedTarget(target)
+          ? installedDir
+          : pkgDir;
+      return expandWildcard(target, dir).length === 0;
+    })
     .map(([subpath, target]) => `${subpath} -> ${target} matches no files`);
 }
 
@@ -362,7 +385,11 @@ function importProbe(repoRoot: string, scratch: string): boolean {
     const pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
     const exports = pkg.exports as Exports;
     entries.push(...deriveEntries(name, exports, pkgDir));
-    for (const f of findEmptyWildcards(exports, pkgDir))
+    for (const f of findEmptyWildcards(
+      exports,
+      pkgDir,
+      join(scratch, "node_modules", name),
+    ))
       failures.push(`${name}: ${f}`);
     if (dir === "admin") {
       const srcFiles = [...new Bun.Glob("src/**/*").scanSync({ cwd: pkgDir })];
