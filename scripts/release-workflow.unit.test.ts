@@ -94,6 +94,17 @@ describe("release workflow", () => {
     ]);
   });
 
+  test("pack pins @app-vitals/* ranges to VERSION and asserts them before publish", () => {
+    const steps: { name?: string; run?: string }[] = wf.jobs["publish-npm"].steps;
+    const names = steps.map((s) => s.name);
+    const pack = names.indexOf("Pack");
+    const assertStep = names.indexOf("Assert packed dependency ranges");
+    expect(assertStep).toBe(pack + 1);
+    expect(names.indexOf("Publish")).toBeGreaterThan(assertStep);
+    expect(steps[pack]?.run).toContain("pack-ranges.ts rewrite");
+    expect(steps[assertStep]?.run).toContain("pack-ranges.ts assert");
+  });
+
   test("npm publish is idempotent and honours dry run", () => {
     const run = runText("publish-npm");
     expect(run).toMatch(/npm view "\$NAME@\$VERSION"/);

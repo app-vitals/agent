@@ -7,6 +7,8 @@
  *
  *   1. `bun add`s @app-vitals/agent-lib, -runtime and -admin at VERSION (from
  *      the npm registry, or from local tarballs, see below),
+ *      and fails if the installed tree holds more than one @app-vitals/agent-lib
+ *      copy (e.g. nested under agent-admin) or any copy not at VERSION,
  *   2. derives the entry list from this repo's lib/runtime/admin package.json
  *      `exports` (non-wildcard entries as-is; wildcard patterns expanded by
  *      globbing the source dir) and imports every module entry from the
@@ -280,6 +282,30 @@ async function install(args: Args, scratch: string): Promise<void> {
   }
 }
 
+/** Paths of every installed @app-vitals/agent-lib under `scratch`, nested copies included. */
+function findAgentLibCopies(scratch: string): { path: string; version: string }[] {
+  const glob = new Bun.Glob("**/node_modules/@app-vitals/agent-lib/package.json");
+  return [...glob.scanSync({ cwd: scratch })].sort().map((f) => ({
+    path: f,
+    version: JSON.parse(readFileSync(join(scratch, f), "utf8")).version,
+  }));
+}
+
+/** Failures for an installed tree that is not exactly one agent-lib copy at VERSION. */
+export function checkAgentLibCopies(
+  copies: { path: string; version: string }[],
+  version: string,
+): string[] {
+  const out = copies
+    .filter((c) => c.version !== version)
+    .map((c) => `${c.path} is ${c.version}, expected ${version}`);
+  if (copies.length !== 1)
+    out.push(
+      `expected exactly 1 @app-vitals/agent-lib copy, found ${copies.length}: ${copies.map((c) => c.path).join(", ")}`,
+    );
+  return out;
+}
+
 function importProbe(repoRoot: string, scratch: string): boolean {
   let failed = false;
   const entries: Entry[] = [];
@@ -416,7 +442,9 @@ async function main(): Promise<void> {
     packLocal(repoRoot, args.version, args.tarballs);
   }
   await install(args, scratch);
-  let ok = args.importProbe ? importProbe(repoRoot, scratch) : true;
+  const libFailures = checkAgentLibCopies(findAgentLibCopies(scratch), args.version);
+  for (const f of libFailures) console.error(`  FAIL agent-lib: ${f}`);
+  let ok = (args.importProbe ? importProbe(repoRoot, scratch) : true) && libFailures.length === 0;
   if (args.boot) {
     const results = [
       await bootImage("agent", args.agentImage),

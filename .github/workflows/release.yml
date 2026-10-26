@@ -277,10 +277,19 @@ jobs:
       - name: Pack
         env:
           PACKAGE: ${{ matrix.package }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
-          # bun pm pack rewrites workspace:* dependencies to concrete versions.
+          # bun pm pack does not use the stamped version when it rewrites
+          # workspace:* ranges (it packed agent-lib 0.1.0 into 0.1.1), so pin
+          # every @app-vitals/* range to VERSION explicitly before packing.
+          bun scripts/pack-ranges.ts rewrite --version "$VERSION" "$PACKAGE"
           mkdir -p "$RUNNER_TEMP/pack"
           (cd "$PACKAGE" && bun pm pack --destination "$RUNNER_TEMP/pack")
+
+      - name: Assert packed dependency ranges
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: bun scripts/pack-ranges.ts assert --version "$VERSION" "$RUNNER_TEMP"/pack/*.tgz
 
       - name: Publish
         env:
