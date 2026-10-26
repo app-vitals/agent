@@ -58,7 +58,9 @@ const PACKAGES = [
 ] as const;
 
 const MODULE_FILE = /\.(ts|tsx|js|mjs|cjs)$/;
-const TEST_FILE = /\.(unit|integration|smoke|canary|e2e)?\.?test\.(ts|tsx|js)$/;
+/** Test files and test-support fixtures (these need dev-only deps like ajv). */
+const TEST_FILE =
+  /(\.(unit|integration|smoke|canary|e2e)?\.?test\.(ts|tsx|js)|\.fixtures\.ts)$/;
 /** Subpaths that are code but need dev-only deps: existence check only. */
 const RESOLVE_ONLY = new Set(["./prisma.config"]);
 
@@ -69,6 +71,16 @@ function entryMode(subpath: string, target: string): "import" | "resolve" {
 
 function specifierFor(name: string, subpath: string): string {
   return subpath === "." ? name : `${name}${subpath.slice(1)}`;
+}
+
+/** Files (relative to pkgDir) a wildcard export target expands to, tests excluded. */
+function expandWildcard(target: string, pkgDir: string): string[] {
+  const [tgtPre, tgtPost] = target.split("*") as [string, string];
+  const glob = new Bun.Glob(`${tgtPre.replace(/^\.\//, "")}**/*${tgtPost}`);
+  return [...glob.scanSync({ cwd: pkgDir })]
+    .filter((f) => !f.split("/").includes("node_modules"))
+    .filter((f) => !TEST_FILE.test(f))
+    .sort();
 }
 
 /** Expand a package.json `exports` map into probe entries. */
@@ -88,12 +100,7 @@ export function deriveEntries(
     }
     const [subPre, subPost] = subpath.split("*") as [string, string];
     const [tgtPre, tgtPost] = target.split("*") as [string, string];
-    const glob = new Bun.Glob(`${tgtPre.replace(/^\.\//, "")}**/*${tgtPost}`);
-    const matches = [...glob.scanSync({ cwd: pkgDir })]
-      .filter((f) => !f.split("/").includes("node_modules"))
-      .sort();
-    for (const file of matches) {
-      if (TEST_FILE.test(file)) continue;
+    for (const file of expandWildcard(target, pkgDir)) {
       const star = file.slice(
         tgtPre.replace(/^\.\//, "").length,
         file.length - tgtPost.length,
@@ -107,6 +114,46 @@ export function deriveEntries(
   }
   return out;
 }
+
+/** Wildcard exports that expand to zero files: they would otherwise probe nothing and pass. */
+export function findEmptyWildcards(exports: Exports, pkgDir: string): string[] {
+  return Object.entries(exports)
+    .filter(
+      ([subpath, target]) =>
+        subpath.includes("*") && expandWildcard(target, pkgDir).length === 0,
+    )
+    .map(([subpath, target]) => `${subpath} -> ${target} matches no files`);
+}
+
+/**
+ * Modules under `srcDir` (relative to pkgDir) that no exports entry reaches and
+ * that are not allowlisted as private. Catches shipped-but-unexported modules.
+ */
+export function findUnreachableModules(
+  exports: Exports,
+  files: string[],
+  privateModules: ReadonlySet<string> = new Set(),
+): string[] {
+  const targets = Object.values(exports).map((t) => t.replace(/^\.\//, ""));
+  const reaches = (file: string) =>
+    targets.some((t) => {
+      if (!t.includes("*")) return t === file;
+      const [pre, post] = t.split("*") as [string, string];
+      return (
+        file.length >= pre.length + post.length &&
+        file.startsWith(pre) &&
+        file.endsWith(post)
+      );
+    });
+  return files
+    .filter((f) => MODULE_FILE.test(f) && !TEST_FILE.test(f))
+    .filter((f) => !privateModules.has(f) && !reaches(f))
+    .sort()
+    .map((f) => `${f} is shipped but not reachable through exports (export it or allowlist it as private)`);
+}
+
+/** Non-test modules in admin/src that are intentionally NOT exported. */
+export const PRIVATE_ADMIN_MODULES: ReadonlySet<string> = new Set<string>();
 
 /** Script run inside the scratch dir: import/resolve every entry, report all failures. */
 export function buildProbeScript(entries: Entry[]): string {
@@ -308,12 +355,23 @@ export function checkAgentLibCopies(
 
 function importProbe(repoRoot: string, scratch: string): boolean {
   let failed = false;
+  const failures: string[] = [];
   const entries: Entry[] = [];
   for (const { dir, name } of PACKAGES) {
     const pkgDir = join(repoRoot, dir);
     const pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
-    entries.push(...deriveEntries(name, pkg.exports as Exports, pkgDir));
+    const exports = pkg.exports as Exports;
+    entries.push(...deriveEntries(name, exports, pkgDir));
+    for (const f of findEmptyWildcards(exports, pkgDir))
+      failures.push(`${name}: ${f}`);
+    if (dir === "admin") {
+      const srcFiles = [...new Bun.Glob("src/**/*").scanSync({ cwd: pkgDir })];
+      for (const f of findUnreachableModules(exports, srcFiles, PRIVATE_ADMIN_MODULES))
+        failures.push(`${name}: ${f}`);
+    }
   }
+  for (const f of failures) console.error(`  FAIL exports: ${f}`);
+  if (failures.length > 0) failed = true;
   writeFileSync(join(scratch, "probe.mjs"), buildProbeScript(entries));
   const r = run(["bun", "probe.mjs"], scratch, true);
   process.stdout.write(r.stdout);
