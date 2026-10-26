@@ -63,6 +63,20 @@ kubelet probes stay green during setup.
 5. `reconcileSystemCrons`, best effort and non-fatal.
 6. Cron sync loop (60 s) and the periodic reconciler tick.
 7. Slack Socket Mode app, chat poller, session pruner.
+
+Three hooks wired in `boot.ts` ride on the config sync and are gated by the
+bundle's `features` object (held in `agent-features-ref.ts`; absent means all
+off):
+
+- `transcriptUploader` uploads a redacted cron-run transcript after
+  `completeRun` when `features.transcriptUpload` is true.
+- `repoAccessProbe` probes per-repo GitHub access for the installations
+  reporter when `features.repoAccessCheck` is true.
+- `createRunNowHonourer` runs a cron job once on each sync tick when the admin
+  has stamped a fresh `runRequestedAt`; jobs classified as `loop` go through
+  `extension.dispatchLoop`.
+
+See `agent-key-files.md` for each module's contract.
 8. Graceful shutdown on `SIGTERM`/`SIGINT`.
 
 Slack is optional. With no `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` the agent runs

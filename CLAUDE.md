@@ -18,6 +18,7 @@ bun run lint            # bunx biome lint .
 bun run typecheck       # tsc --noEmit
 bun run check:boundary  # import-boundary gate
 bun run check:config-docs  # every runtime/admin env var documented
+bun run check:deps      # published packages declare every third-party import
 bun test                # single file: bun test path/to/file.test.ts
 ```
 
