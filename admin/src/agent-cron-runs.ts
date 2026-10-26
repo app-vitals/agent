@@ -15,6 +15,9 @@ import { NotFoundError } from "./errors.ts";
 
 export type { AgentCronRun };
 
+/** commandVariant a runtime reports when it honours a run-now request. */
+const RUN_NOW_VARIANT = "run-now";
+
 /** An AgentCronRun with its per-model token/cost breakdown rows attached. */
 type AgentCronRunWithModelBreakdown = Prisma.AgentCronRunGetPayload<{
   include: { modelBreakdown: true };
@@ -193,21 +196,44 @@ export class AgentCronRunService {
       throw new NotFoundError(`cron job ${cronId} not found`);
     }
 
-    return this.prisma.agentCronRun.create({
-      data: {
-        cronId,
-        agentId,
-        startedAt: input.startedAt,
-        completedAt: input.completedAt ?? null,
-        skipped: input.skipped ?? false,
-        skipReason: input.skipReason ?? null,
-        outcome: input.outcome ?? null,
-        error: input.error ?? null,
-        phaseId: input.phaseId ?? null,
-        itemType: input.itemType ?? null,
-        itemId: input.itemId ?? null,
-        commandVariant: input.commandVariant ?? null,
-      },
+    const data = {
+      cronId,
+      agentId,
+      startedAt: input.startedAt,
+      completedAt: input.completedAt ?? null,
+      skipped: input.skipped ?? false,
+      skipReason: input.skipReason ?? null,
+      outcome: input.outcome ?? null,
+      error: input.error ?? null,
+      phaseId: input.phaseId ?? null,
+      itemType: input.itemType ?? null,
+      itemId: input.itemId ?? null,
+      commandVariant: input.commandVariant ?? null,
+    };
+
+    if (input.commandVariant !== RUN_NOW_VARIANT) {
+      return this.prisma.agentCronRun.create({ data });
+    }
+
+    // Run-now (COS-42.1): creating the run honours the pending request, so
+    // clear the stamp and link the newest requested audit row to this run.
+    return this.prisma.$transaction(async (tx) => {
+      const run = await tx.agentCronRun.create({ data });
+      await tx.agentCronJob.update({
+        where: { id: cronId },
+        data: { runRequestedAt: null, runRequestedBy: null },
+      });
+      const request = await tx.agentCronRunRequest.findFirst({
+        where: { cronId, status: "requested" },
+        orderBy: [{ requestedAt: "desc" }, { createdAt: "desc" }],
+      });
+      if (request) {
+        await tx.agentCronRunRequest.update({
+          where: { id: request.id },
+          data: { status: "honoured", honouredRunId: run.id },
+        });
+      }
+      return run;
     });
   }
 

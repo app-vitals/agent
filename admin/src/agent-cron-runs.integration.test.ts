@@ -1489,3 +1489,92 @@ describeOrSkip("AgentCronRunService — run telemetry (integration)", () => {
     ).toBe(0);
   });
 });
+
+describeOrSkip(
+  "AgentCronRunService run-now clear-on-create (integration)",
+  () => {
+    let prisma: PrismaClient;
+    let agentId: string;
+    let cronId: string;
+    let runService: AgentCronRunService;
+
+    async function stamp(requestedAt: Date) {
+      await prisma.agentCronJob.update({
+        where: { id: cronId },
+        data: { runRequestedAt: requestedAt, runRequestedBy: "tester" },
+      });
+      return prisma.agentCronRunRequest.create({
+        data: {
+          cronId,
+          agentId,
+          requestedBy: "tester",
+          requestedAt,
+          status: "requested",
+        },
+      });
+    }
+
+    beforeEach(async () => {
+      prisma = makePrisma();
+      await prisma.agentCronRunRequest.deleteMany();
+      await prisma.agentCronRun.deleteMany();
+      await prisma.agentCronJob.deleteMany();
+      agentId = await createAgent(prisma, "Run-now Agent");
+      cronId = await createCron(new AgentCronJobService(prisma), agentId);
+      runService = new AgentCronRunService(prisma);
+    });
+
+    afterEach(async () => {
+      await prisma.agentCronRunRequest.deleteMany();
+      await prisma.agentCronRun.deleteMany();
+      await prisma.agentCronJob.deleteMany();
+      await prisma.agent.deleteMany({ where: { id: agentId } });
+      await prisma.$disconnect();
+    });
+
+    it("commandVariant run-now clears the stamp and honours the newest request", async () => {
+      await stamp(new Date("2026-10-26T11:00:00Z"));
+      const newest = await stamp(new Date("2026-10-26T11:30:00Z"));
+
+      const run = await runService.create(cronId, agentId, {
+        startedAt: new Date("2026-10-26T11:31:00Z"),
+        commandVariant: "run-now",
+      });
+
+      const job = await prisma.agentCronJob.findUniqueOrThrow({
+        where: { id: cronId },
+      });
+      expect(job.runRequestedAt).toBeNull();
+      expect(job.runRequestedBy).toBeNull();
+      const honoured = await prisma.agentCronRunRequest.findUniqueOrThrow({
+        where: { id: newest.id },
+      });
+      expect(honoured.status).toBe("honoured");
+      expect(honoured.honouredRunId).toBe(run.id);
+      const stillRequested = await prisma.agentCronRunRequest.count({
+        where: { cronId, status: "requested" },
+      });
+      expect(stillRequested).toBe(1);
+    });
+
+    it("any other variant leaves the stamp and the request alone", async () => {
+      const req = await stamp(new Date("2026-10-26T11:30:00Z"));
+      await runService.create(cronId, agentId, {
+        startedAt: new Date("2026-10-26T11:31:00Z"),
+        commandVariant: "default",
+      });
+      await runService.create(cronId, agentId, {
+        startedAt: new Date("2026-10-26T11:32:00Z"),
+      });
+      const job = await prisma.agentCronJob.findUniqueOrThrow({
+        where: { id: cronId },
+      });
+      expect(job.runRequestedAt).not.toBeNull();
+      const row = await prisma.agentCronRunRequest.findUniqueOrThrow({
+        where: { id: req.id },
+      });
+      expect(row.status).toBe("requested");
+      expect(row.honouredRunId).toBeNull();
+    });
+  },
+);

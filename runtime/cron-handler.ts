@@ -161,6 +161,8 @@ interface CronRequest {
   user?: string;
   silent?: boolean;
   preCheck?: string;
+  /** Run-attribution tag, e.g. "run-now" (COS-42.1); passed to createRun. */
+  commandVariant?: string;
 }
 
 export interface CronHandlerDeps {
@@ -259,7 +261,14 @@ export async function handleCronRequest(
 
   // CREATE run at start (before preCheck)
   const runId = cronRunReporter
-    ? await cronRunReporter.createRun(jobId, startedAt)
+    ? await cronRunReporter.createRun(
+        jobId,
+        startedAt,
+        undefined,
+        undefined,
+        undefined,
+        req.commandVariant,
+      )
     : null;
 
   if (req.preCheck) {

@@ -56,6 +56,7 @@ import { createContextStampReader } from "./context-stamp.ts";
 import { reportCronFailure } from "./cron-failure-reporter.ts";
 import type { CronHandlerDeps } from "./cron-handler.ts";
 import { handleCronRequest } from "./cron-handler.ts";
+import { createRunNowHonourer } from "./cron-run-now.ts";
 import {
   HttpCronRunReporter,
   NoopCronRunReporter,
@@ -659,6 +660,18 @@ export async function startAgent(
   const cronTasks = new Map<string, ReturnType<typeof nodeCron.schedule>>();
 
   if (runtimeClient && agentId) {
+    // Run-now requests (COS-42.1): honoured at most once each, in memory.
+    const honourRunNow = createRunNowHonourer({
+      clock: SystemClock(),
+      dispatch: (req) => handleCronRequest(req, cronDeps),
+      onError: (jobId, err) =>
+        reportCronFailure(jobId, err, {
+          cronRunReporter: cronRunReporter ?? new NoopCronRunReporter(),
+          sentryClient: process.env.SENTRY_DSN ? Sentry : undefined,
+          clock: SystemClock(),
+        }),
+    });
+
     async function syncCrons() {
       if (!runtimeClient || !agentId) return;
       let jobs: Awaited<ReturnType<typeof runtimeClient.listAgentCronJobs>>;
@@ -671,6 +684,9 @@ export async function startAgent(
         );
         return;
       }
+
+      // Fire-and-forget: a run can take minutes and must not hold up the sync.
+      void honourRunNow(jobs);
 
       // Hand the extension the fresh job list (every tick, regardless of whether
       // any job gets (re)scheduled below — the coding extension keeps its live
