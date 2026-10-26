@@ -37,6 +37,8 @@ const validCronJob = {
   system: false,
   parentCronId: null,
   lockdownDisabledAt: null,
+  runRequestedAt: null,
+  runRequestedBy: null,
   createdAt: now,
   updatedAt: now,
 };
@@ -102,6 +104,8 @@ describe("AgentCronJobSchema", () => {
       system: false,
       parentCronId: null,
       lockdownDisabledAt: null,
+      runRequestedAt: null,
+      runRequestedBy: null,
       createdAt: now,
       updatedAt: now,
     };

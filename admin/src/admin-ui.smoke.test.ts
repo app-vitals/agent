@@ -1060,6 +1060,8 @@ describe("admin UI — authenticated pages", () => {
       system: true,
       parentCronId: null,
       lockdownDisabledAt: null,
+      runRequestedAt: null,
+      runRequestedBy: null,
       lastRun: null,
       runCountToday: 0,
     };

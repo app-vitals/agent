@@ -35,6 +35,8 @@ function makeCron(id: string): AgentCronJob {
     system: false,
     parentCronId: null,
     lockdownDisabledAt: null,
+    runRequestedAt: null,
+    runRequestedBy: null,
   };
 }
 

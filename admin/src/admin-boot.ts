@@ -72,6 +72,8 @@ import {
 import { createAdminUIApp } from "./admin-ui.ts";
 import { AgentAskService } from "./agent-ask.ts";
 import { parseAgentAskConfig } from "./agent-ask-config.ts";
+import { CronRunNowService } from "./cron-run-now.ts";
+import { parseCronRunNowConfig } from "./cron-run-now-config.ts";
 import { AgentChatTokenService } from "./agent-chat-tokens.ts";
 import { AgentCronJobService } from "./agent-cron-jobs.ts";
 import { AgentCronRunStatsService } from "./agent-cron-run-stats.ts";
@@ -292,6 +294,8 @@ export async function startAdmin(
 
   // Agent-to-agent ask (COS-31.1). Throws at boot on a malformed allowlist.
   const agentAskConfig = parseAgentAskConfig(process.env);
+  // Cron run-now (COS-42.1).
+  const cronRunNowConfig = parseCronRunNowConfig(process.env);
 
   // Cron-run transcript API (COS-43.1): flag off by default.
   const transcriptConfig = parseTranscriptConfig(process.env);
@@ -461,6 +465,10 @@ export async function startAdmin(
     agentAsk: {
       config: agentAskConfig,
       store: new AgentAskService(prisma),
+    },
+    cronRunNow: {
+      config: cronRunNowConfig,
+      store: new CronRunNowService(prisma),
     },
     ...(chatClient ? { chatClient } : {}),
     transcripts: {

@@ -106,6 +106,7 @@ export const PLATFORM_OPS_ROUTES: readonly PlatformOpsRoute[] = [
   { method: "DELETE", path: "/agents/{id}/repos", subpaths: true },
   { method: "PATCH", path: "/agents/{id}/crons/{cronId}" },
   { method: "POST", path: "/agents/{id}/ask" },
+  { method: "POST", path: "/agents/{id}/crons/{cronId}/run-now" },
   { method: "POST", path: "/agents/{id}/chat-credentials", subpaths: true },
   { method: "DELETE", path: "/agents/{id}/chat-credentials", subpaths: true },
 ];

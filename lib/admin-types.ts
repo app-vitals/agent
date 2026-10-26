@@ -145,7 +145,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["ProvisionAgentResult"] | components["schemas"]["ProvisionSkippedResult"];
+                        "application/json":
+                            | components["schemas"]["ProvisionAgentResult"]
+                            | components["schemas"]["ProvisionSkippedResult"];
                     };
                 };
                 /** @description Forbidden */
@@ -1781,7 +1783,13 @@ export interface paths {
                 header?: never;
                 path: {
                     id: string;
-                    phase: "prd" | "plan-session" | "review" | "patch" | "deploy" | "dev-task";
+                    phase:
+                        | "prd"
+                        | "plan-session"
+                        | "review"
+                        | "patch"
+                        | "deploy"
+                        | "dev-task";
                 };
                 cookie?: never;
             };
@@ -2871,6 +2879,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/crons/{cronId}/run-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request an immediate run of a cron job
+         * @description Asks the agent's runtime to run the cron job once, now, with the job's own stored prompt. Takes no request body (any body is 400). Stamps `runRequestedAt` on the job and writes an AgentCronRunRequest audit row before returning 202; the runtime honours a fresh request (under 15 minutes old) once on its next cron sync. Callers: `*`, `platform.ops`, or the agent's own key. 404 unless SHIPWRIGHT_CRON_RUN_NOW_ENABLED is `enabled`; 409 when the trial-expiry lockdown disabled the cron.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    cronId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Run requested */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CronRunNowResponse"];
+                    };
+                };
+                /** @description A request body was sent */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Caller not allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Cron not found, or cron run-now disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Cron disabled by lockdown */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/ask": {
         parameters: {
             query?: never;
@@ -3259,6 +3345,13 @@ export interface components {
         CronWrapper: {
             cron: components["schemas"]["AgentCronJob"];
         };
+        CronRunNowResponse: {
+            /**
+             * Format: date-time
+             * @example 2026-10-26T12:00:00.000Z
+             */
+            requestedAt: string;
+        };
         AgentCronJob: {
             /** @example clx1234567890 */
             id: string;
@@ -3284,6 +3377,12 @@ export interface components {
             system: boolean;
             /** @example null */
             parentCronId: string | null;
+            /**
+             * Format: date-time
+             * @description Set by POST .../run-now; the runtime honours it once while fresh (15 minutes) and run creation with commandVariant run-now clears it.
+             * @example null
+             */
+            runRequestedAt: string | null;
             /**
              * Format: date-time
              * @example 2026-01-01T00:00:00.000Z
@@ -3790,7 +3889,13 @@ export interface components {
              * @example review
              * @enum {string}
              */
-            phase: "prd" | "plan-session" | "review" | "patch" | "deploy" | "dev-task";
+            phase:
+                | "prd"
+                | "plan-session"
+                | "review"
+                | "patch"
+                | "deploy"
+                | "dev-task";
             /** @example shipwright:code-reviewer */
             subagentType: string | null;
             /**

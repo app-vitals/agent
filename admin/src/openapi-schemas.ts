@@ -227,6 +227,11 @@ export const AgentCronJobSchema = z
     name: z.string().nullable().openapi({ example: "morning-brief" }),
     system: z.boolean().openapi({ example: false }),
     parentCronId: z.string().nullable().openapi({ example: null }),
+    runRequestedAt: z.string().datetime().nullable().openapi({
+      example: null,
+      description:
+        "Set by POST .../run-now; the runtime honours it once while fresh (15 minutes) and run creation with commandVariant run-now clears it.",
+    }),
     createdAt: z
       .string()
       .datetime()
@@ -773,6 +778,15 @@ export const AgentAskBodySchema = z
     }),
   })
   .openapi("AgentAskBody");
+
+export const CronRunNowResponseSchema = z
+  .object({
+    requestedAt: z
+      .string()
+      .datetime()
+      .openapi({ example: "2026-10-26T12:00:00.000Z" }),
+  })
+  .openapi("CronRunNowResponse");
 
 export const AgentAskResponseSchema = z
   .object({

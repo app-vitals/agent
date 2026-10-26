@@ -46,6 +46,10 @@ import {
   registerAgentAskRoutes,
 } from "./agent-ask.ts";
 import type { AgentChatTokenService } from "./agent-chat-tokens.ts";
+import {
+  type CronRunNowDeps,
+  registerCronRunNowRoutes,
+} from "./cron-run-now.ts";
 import type {
   AgentCronJobService,
   AgentCronJobWithRunSummary,
@@ -289,6 +293,12 @@ export interface AdminDeps {
    * 404. See agent-ask.ts.
    */
   agentAsk?: AgentAskDeps;
+  /**
+   * Cron run-now (COS-42.1): flag config, the stamp+audit store and an
+   * injectable clock. Absent or flag off -> the run-now route 404s. See
+   * cron-run-now.ts.
+   */
+  cronRunNow?: CronRunNowDeps;
   /**
    * Chat-service thread/message client behind POST /agents/:id/ask
    * (admin-boot wires the HttpChatClient the chat UI uses). Absent → the ask
@@ -2344,6 +2354,10 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     agentService,
   });
 
+  // ─── Cron run-now (COS-42.1) ──────────────────────────────────────────────
+
+  registerCronRunNowRoutes(app, { cronRunNow: deps.cronRunNow });
+
   // ─── Cron-run transcripts (COS-43.1) ──────────────────────────────────────
 
   registerCronRunTranscriptRoutes(app, { transcripts: deps.transcripts });
@@ -2529,10 +2543,12 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
 function serializeCron(cron: {
   createdAt: Date;
   updatedAt: Date;
+  runRequestedAt?: Date | null;
   [k: string]: unknown;
 }): z.infer<typeof AgentCronJobSchema> {
   return {
     ...cron,
+    runRequestedAt: cron.runRequestedAt?.toISOString() ?? null,
     createdAt: cron.createdAt.toISOString(),
     updatedAt: cron.updatedAt.toISOString(),
   } as z.infer<typeof AgentCronJobSchema>;
@@ -2562,6 +2578,7 @@ function serializeCronWithSummary(job: AgentCronJobWithRunSummary): z.infer<
     name: job.name,
     system: job.system,
     parentCronId: job.parentCronId,
+    runRequestedAt: job.runRequestedAt?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
     lastRun: job.lastRun
