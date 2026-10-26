@@ -33,6 +33,7 @@ import { parseMarkers } from "./markers.ts";
 import type { RunTelemetry } from "./run-telemetry.ts";
 import { dispatchMarkers, type SynthesizeSpeechFn } from "./slack.ts";
 import { buildSpawnEnv } from "./spawn-env.ts";
+import type { TranscriptUploader } from "./transcript-uploader.ts";
 import type { VoiceConfig } from "./voice.ts";
 
 /**
@@ -214,6 +215,11 @@ export interface CronHandlerDeps {
    * spawning ~15 real bun child processes per test run (CPS-1.1).
    */
   spawner?: typeof Bun.spawn;
+  /**
+   * Uploads the run's redacted session transcript once completeRun has been
+   * recorded (COS-43.1). Feature-gated inside the uploader; absent → no-op.
+   */
+  transcriptUploader?: TranscriptUploader;
 }
 
 export async function handleCronRequest(
@@ -244,6 +250,7 @@ export async function handleCronRequest(
     contextStamp,
     getDefaultOwner,
     spawner = Bun.spawn,
+    transcriptUploader,
   } = deps;
 
   const startedAt = clock.now();
@@ -261,6 +268,24 @@ export async function handleCronRequest(
   const runId = cronRunReporter
     ? await cronRunReporter.createRun(jobId, startedAt)
     : null;
+
+  // Best-effort redacted transcript upload (COS-43.1). Runs only after the
+  // run is recorded and can never fail or delay-fail the dispatch.
+  const uploadTranscript = async (sid: string | undefined): Promise<void> => {
+    if (!transcriptUploader || !runId) return;
+    try {
+      await transcriptUploader.upload({
+        cronId: jobId,
+        runId,
+        sessionId: sid,
+        cwd: workspace ?? process.cwd(),
+      });
+    } catch (err) {
+      console.warn(
+        `[agent:cron] transcript upload failed for run ${runId}: ${String(err)} — swallowing`,
+      );
+    }
+  };
 
   if (req.preCheck) {
     const isRelative =
@@ -584,6 +609,7 @@ export async function handleCronRequest(
       ...tokenPayload,
       sessionId: failureSessionId,
     });
+    await uploadTranscript(failureSessionId);
     markCronRunFailureReported(err);
     throw err;
   }
@@ -602,6 +628,7 @@ export async function handleCronRequest(
       ...buildTokenPayload(usage, modelUsage, extras(telemetry)),
       sessionId,
     });
+    await uploadTranscript(sessionId);
     return;
   }
   const isDmOnly = !!user && !channel;
@@ -613,6 +640,7 @@ export async function handleCronRequest(
       ...buildTokenPayload(usage, modelUsage, extras(telemetry)),
       sessionId,
     });
+    await uploadTranscript(sessionId);
     return;
   }
 
@@ -627,6 +655,7 @@ export async function handleCronRequest(
       ...buildTokenPayload(usage, modelUsage, extras(telemetry)),
       sessionId,
     });
+    await uploadTranscript(sessionId);
     return;
   }
 
@@ -654,6 +683,7 @@ export async function handleCronRequest(
       ...buildTokenPayload(usage, modelUsage, extras(telemetry)),
       sessionId,
     });
+    await uploadTranscript(sessionId);
 
     // The run is already recorded as "completed" above — any error from here
     // on (postMessage, dispatchMarkers) must be tagged before rethrowing so
@@ -695,6 +725,7 @@ export async function handleCronRequest(
       ...buildTokenPayload(usage, modelUsage, extras(telemetry)),
       sessionId,
     });
+    await uploadTranscript(sessionId);
 
     // The run is already recorded as "completed" above — any error from here
     // on (conversations.open, postMessage, dispatchMarkers) must be tagged

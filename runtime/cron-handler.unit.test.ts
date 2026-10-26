@@ -1175,3 +1175,61 @@ describe("handleCronRequest — telemetry forwarding", () => {
     expect(completes[0]?.opts?.contextFingerprint).toBeUndefined();
   });
 });
+
+// ─── transcript upload hook (COS-43.1) ───────────────────────────────────────
+
+describe("handleCronRequest — transcript upload (COS-43.1)", () => {
+  function recordingReporter(order: string[]): CronRunReporter {
+    return {
+      async createRun() {
+        return "run-tx-1";
+      },
+      async completeRun() {
+        order.push("completeRun");
+      },
+      async skipRun() {},
+      async recordProgress() {},
+      async recordSessionId() {},
+    };
+  }
+
+  test("uploads after completeRun with the run's cron, run, session and cwd", async () => {
+    const order: string[] = [];
+    const calls: unknown[] = [];
+    await handleCronRequest(
+      { jobId: "j-tx", prompt: "hello", silent: true },
+      {
+        ...deps,
+        workspace: "/ws",
+        cronRunReporter: recordingReporter(order),
+        transcriptUploader: {
+          async upload(args) {
+            order.push("upload");
+            calls.push(args);
+          },
+        },
+      },
+    );
+    expect(order).toEqual(["completeRun", "upload"]);
+    expect(calls).toEqual([
+      { cronId: "j-tx", runId: "run-tx-1", sessionId: "sess-1", cwd: "/ws" },
+    ]);
+  });
+
+  test("an uploader rejection never fails the run", async () => {
+    await expect(
+      handleCronRequest(
+        { jobId: "j-tx2", prompt: "hello", silent: true },
+        {
+          ...deps,
+          cronRunReporter: recordingReporter([]),
+          transcriptUploader: {
+            async upload() {
+              throw new Error("boom");
+            },
+          },
+        },
+      ),
+    ).resolves.toBeUndefined();
+  });
+});

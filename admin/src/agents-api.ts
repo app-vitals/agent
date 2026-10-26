@@ -84,6 +84,10 @@ import {
 } from "./caller-scope.ts";
 import type { ChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
 import {
+  type CronRunTranscriptDeps,
+  registerCronRunTranscriptRoutes,
+} from "./cron-run-transcripts.ts";
+import {
   ApiError,
   BadRequestError,
   ForbiddenError,
@@ -291,6 +295,11 @@ export interface AdminDeps {
    * route 503s, even with the flag on.
    */
   chatClient?: AskChatClient;
+  /**
+   * Cron-run transcripts (COS-43.1): flag config + store. Absent or flag off
+   * -> the transcript routes 404. See cron-run-transcripts.ts.
+   */
+  transcripts?: CronRunTranscriptDeps;
 }
 
 export type { AdminApiKey };
@@ -2334,6 +2343,10 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     chatClient: deps.chatClient,
     agentService,
   });
+
+  // ─── Cron-run transcripts (COS-43.1) ──────────────────────────────────────
+
+  registerCronRunTranscriptRoutes(app, { transcripts: deps.transcripts });
 
   // ─── Plugins ───────────────────────────────────────────────────────────────
 
