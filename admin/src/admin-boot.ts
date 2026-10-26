@@ -92,6 +92,7 @@ import {
 } from "./caller-scope.ts";
 import { parseChatCredentialConfig } from "./chat-credential-config.ts";
 import { HttpChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
+import { CronRunTranscriptService } from "./cron-run-transcripts.ts";
 import { isDevAuthAllowed } from "./dev-auth-guard.ts";
 import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-client.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
@@ -106,6 +107,7 @@ import { HttpSlackProvisioningClient } from "./slack-provisioning-client.ts";
 import { SpecialtyRegistry } from "./specialty-manifest-loader.ts";
 import { runStartupPolicyReconcile } from "./startup-policy-reconcile.ts";
 import { makeTokenCrypto } from "./token-crypto.ts";
+import { parseTranscriptConfig } from "./transcript-config.ts";
 import {
   resolveTrialExpirySweepIntervalMs,
   TrialExpirySweeper,
@@ -291,6 +293,9 @@ export async function startAdmin(
   // Agent-to-agent ask (COS-31.1). Throws at boot on a malformed allowlist.
   const agentAskConfig = parseAgentAskConfig(process.env);
 
+  // Cron-run transcript API (COS-43.1): flag off by default.
+  const transcriptConfig = parseTranscriptConfig(process.env);
+
   // Web Push (CFB-4.2). Enabled ONLY when public + private + subject are all
   // set — a partial config must not half-enable the feature. When disabled,
   // pushService is undefined, the push routes 503, and the toggle renders "".
@@ -415,6 +420,7 @@ export async function startAdmin(
     adminApiKeys,
     agentTokenService,
     anthropicFederationEnabled,
+    transcriptUploadEnabled: transcriptConfig.enabled,
   });
 
   root.route("/agents", runtimeApp);
@@ -457,6 +463,10 @@ export async function startAdmin(
       store: new AgentAskService(prisma),
     },
     ...(chatClient ? { chatClient } : {}),
+    transcripts: {
+      config: transcriptConfig,
+      store: new CronRunTranscriptService(prisma),
+    },
     ...resolvedExtensions.apiDeps,
   });
   root.route("/", adminApiApp);

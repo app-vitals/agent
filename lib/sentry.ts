@@ -69,13 +69,15 @@ export interface ErrorCapturingClient {
 const MAX_SCRUB_DEPTH = 20;
 
 /** Recomputed per call (not cached at module load) so tests can mutate env freely between assertions. */
-function liveSecretValues(): string[] {
-  return SECRET_ENV_VARS.map((key) => process.env[key]).filter(
+export function liveSecretValues(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string[] {
+  return SECRET_ENV_VARS.map((key) => env[key]).filter(
     (value): value is string => !!value,
   );
 }
 
-function redactSecrets<T>(
+export function redactSecrets<T>(
   value: T,
   secrets: string[],
   seen: WeakSet<object>,

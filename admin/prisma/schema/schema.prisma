@@ -426,6 +426,40 @@ model AgentAsk {
   @@index([fromAgentId, createdAt])
 }
 
+// ─── Cron-run transcripts (COS-43.1) ────────────────────────────────────────
+// One redacted session transcript per cron run, uploaded by the agent runtime
+// (already redacted + tail-truncated to 1 MiB) and served only to admin /
+// platform callers behind SHIPWRIGHT_TRANSCRIPT_API_ENABLED. No FK on runId:
+// the retention sweep (newest 200 per agent) is the only lifecycle. The body
+// is never logged. AgentTranscriptRead is the audit row written before every
+// transcript read.
+
+model AgentCronRunTranscript {
+  id         String   @id @default(cuid())
+  runId      String   @unique
+  agentId    String
+  cronId     String
+  sessionId  String?
+  bytes      Int
+  truncated  Boolean
+  redactions Int
+  body       String   @db.Text
+  createdAt  DateTime @default(now())
+
+  @@index([agentId, createdAt])
+}
+
+model AgentTranscriptRead {
+  id        String   @id @default(cuid())
+  runId     String
+  agentId   String
+  reader    String
+  scopeKind String
+  at        DateTime @default(now())
+
+  @@index([agentId, at])
+}
+
 // ─── Agent GitHub Installations Snapshot ────────────────────────────────────
 // One row per agent holding the agent's most recently reported GitHub App
 // installations (owner, installation id, state, sanitized lastError). PUT

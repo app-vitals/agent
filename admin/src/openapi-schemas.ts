@@ -698,6 +698,51 @@ export const ChatCredentialsWrapperSchema = z
   .object({ credentials: z.array(ChatCredentialSchema) })
   .openapi("ChatCredentialsWrapper");
 
+// ─── Cron-run transcripts (COS-43.1) ─────────────────────────────────────────
+
+export const UploadCronRunTranscriptBodySchema = z
+  .object({
+    sessionId: z.string().min(1).optional().openapi({
+      description: "Claude session id the transcript was read from.",
+      example: "7c1c8d1e-0000-4000-8000-000000000000",
+    }),
+    body: z.string().openapi({
+      description:
+        "The already-redacted transcript (JSONL text). Over 1 MiB (UTF-8 bytes) is a 413. Never logged.",
+    }),
+    truncated: z.boolean().openapi({
+      description: "True when the runtime dropped earlier lines to fit.",
+      example: false,
+    }),
+    redactions: z.number().int().min(0).openapi({
+      description: "How many secrets the runtime redacted.",
+      example: 0,
+    }),
+  })
+  .openapi("UploadCronRunTranscriptBody");
+
+export const CronRunTranscriptUploadResultSchema = z
+  .object({
+    runId: z.string().openapi({ example: "clx1111111111" }),
+    bytes: z.number().int().openapi({ example: 2048 }),
+    truncated: z.boolean().openapi({ example: false }),
+    redactions: z.number().int().openapi({ example: 0 }),
+  })
+  .openapi("CronRunTranscriptUploadResult");
+
+export const CronRunTranscriptSchema = z
+  .object({
+    runId: z.string().openapi({ example: "clx1111111111" }),
+    cronId: z.string().openapi({ example: "clx0987654321" }),
+    sessionId: z.string().nullable().openapi({ example: null }),
+    bytes: z.number().int().openapi({ example: 2048 }),
+    truncated: z.boolean().openapi({ example: false }),
+    redactions: z.number().int().openapi({ example: 0 }),
+    createdAt: z.string().openapi({ example: "2026-10-26T12:00:00.000Z" }),
+    body: z.string().openapi({ description: "Redacted JSONL transcript." }),
+  })
+  .openapi("CronRunTranscript");
+
 // ─── Agent ask (COS-31.1) ─────────────────────────────────────────────────────
 
 export const AgentAskBodySchema = z
@@ -1249,6 +1294,25 @@ export const AgentConfigResponseSchema = z
         "dev-task": null,
       },
     }),
+    /**
+     * COS-43.1: feature flags the runtime acts on. Optional (additive) so an
+     * older runtime or fixture that omits it keeps working; the handler
+     * always populates it.
+     */
+    features: z
+      .object({
+        transcriptUpload: z.boolean().openapi({
+          description:
+            "True when SHIPWRIGHT_TRANSCRIPT_API_ENABLED is on: the runtime uploads a redacted transcript after each cron run.",
+          example: false,
+        }),
+        repoAccessCheck: z.boolean().openapi({
+          description: "Reserved for the repo-access check (COS-44.1).",
+          example: false,
+        }),
+      })
+      .optional()
+      .openapi("AgentConfigFeatures"),
   })
   .openapi("AgentConfigResponse");
 

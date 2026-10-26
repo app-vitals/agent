@@ -1432,6 +1432,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/crons/{cronId}/runs/{runId}/transcript": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a cron run transcript
+         * @description Returns the stored redacted transcript. `*`, `platform.read` and `platform.ops` callers only: an agent key is 403 even for its own runs. Every read writes an AgentTranscriptRead audit row before the response. 404 when SHIPWRIGHT_TRANSCRIPT_API_ENABLED is not `enabled` or no transcript exists.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    cronId: string;
+                    runId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The transcript */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CronRunTranscript"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description No transcript, or transcript API disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        /**
+         * Upload a cron run transcript
+         * @description Stores (upserts) the runtime's already-redacted session transcript for a cron run, then keeps only the agent's newest 200 transcripts. Callers: the agent's own key, or `*`. `body` over 1 MiB (UTF-8 bytes) is a 413. 404 unless SHIPWRIGHT_TRANSCRIPT_API_ENABLED is `enabled`, or when the run is not owned by the cron/agent.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    cronId: string;
+                    runId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["UploadCronRunTranscriptBody"];
+                };
+            };
+            responses: {
+                /** @description Transcript stored */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CronRunTranscriptUploadResult"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Caller not allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Run not found, or transcript API disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Transcript body over 1 MiB */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/plugins": {
         parameters: {
             query?: never;
@@ -3565,6 +3693,53 @@ export interface components {
         TokensWrapper: {
             tokens: components["schemas"]["AgentToken"][];
         };
+        CronRunTranscriptUploadResult: {
+            /** @example clx1111111111 */
+            runId: string;
+            /** @example 2048 */
+            bytes: number;
+            /** @example false */
+            truncated: boolean;
+            /** @example 0 */
+            redactions: number;
+        };
+        UploadCronRunTranscriptBody: {
+            /**
+             * @description Claude session id the transcript was read from.
+             * @example 7c1c8d1e-0000-4000-8000-000000000000
+             */
+            sessionId?: string;
+            /** @description The already-redacted transcript (JSONL text). Over 1 MiB (UTF-8 bytes) is a 413. Never logged. */
+            body: string;
+            /**
+             * @description True when the runtime dropped earlier lines to fit.
+             * @example false
+             */
+            truncated: boolean;
+            /**
+             * @description How many secrets the runtime redacted.
+             * @example 0
+             */
+            redactions: number;
+        };
+        CronRunTranscript: {
+            /** @example clx1111111111 */
+            runId: string;
+            /** @example clx0987654321 */
+            cronId: string;
+            /** @example null */
+            sessionId: string | null;
+            /** @example 2048 */
+            bytes: number;
+            /** @example false */
+            truncated: boolean;
+            /** @example 0 */
+            redactions: number;
+            /** @example 2026-10-26T12:00:00.000Z */
+            createdAt: string;
+            /** @description Redacted JSONL transcript. */
+            body: string;
+        };
         PluginWrapper: {
             plugin: components["schemas"]["AgentPlugin"];
         };
@@ -3968,12 +4143,25 @@ export interface components {
             phaseMethodology: {
                 [key: string]: string | null;
             };
+            features?: components["schemas"]["AgentConfigFeatures"];
         };
         AgentConfigPlugin: {
             /** @example shipwright */
             marketplace: string;
             /** @example shipwright */
             plugin: string;
+        };
+        AgentConfigFeatures: {
+            /**
+             * @description True when SHIPWRIGHT_TRANSCRIPT_API_ENABLED is on: the runtime uploads a redacted transcript after each cron run.
+             * @example false
+             */
+            transcriptUpload: boolean;
+            /**
+             * @description Reserved for the repo-access check (COS-44.1).
+             * @example false
+             */
+            repoAccessCheck: boolean;
         };
         RuntimeError: {
             /** @example Not found */

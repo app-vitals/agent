@@ -62,6 +62,13 @@ export class ForbiddenError extends ApiError {
   }
 }
 
+export class PayloadTooLargeError extends ApiError {
+  constructor(message = "Payload too large") {
+    super(413, message);
+    this.name = "PayloadTooLargeError";
+  }
+}
+
 export class UnprocessableEntityError extends ApiError {
   constructor(message = "Unprocessable entity") {
     super(422, message);
