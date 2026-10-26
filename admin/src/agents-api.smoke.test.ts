@@ -6,7 +6,7 @@
  * Services are injected as in-memory mocks.
  */
 
-import { beforeAll, describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { sign } from "hono/jwt";
 import type { Prisma } from "../prisma/client/client.ts";
 import { getSelfServeSpecialty } from "./account-agent-create.ts";
@@ -5511,6 +5511,229 @@ describe("admin API — PATCH /agents/:id accountId (SSP-5.3)", () => {
     );
     expect(res.status).toBe(403);
     expect(updated).toBe(false);
+    expect(provisioner.reconciled).toEqual([]);
+  });
+});
+
+// ─── COS-49.1: PATCH /agents/:id podServiceAccountName ───────────────────────
+
+describe("admin API — PATCH /agents/:id podServiceAccountName (COS-49.1)", () => {
+  const patch = (
+    app: ReturnType<typeof createAdminApp>,
+    body: unknown,
+    headers: Record<string, string>,
+  ) =>
+    app.request(`/agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+
+  const FEDERATED = {
+    ownerEmail: "jane.doe@example.com",
+    anthropicIdentityName: "id",
+    anthropicServiceAccountId: "svac_1",
+    anthropicFederationRuleId: "fdrl_1",
+    k8sServiceAccountName: "agent-sa",
+  };
+
+  function depsFor(opts: {
+    provisioner: RecordingProvisioner;
+    enabled?: boolean;
+    existing?: Record<string, unknown>;
+    updated?: Array<Record<string, unknown>>;
+  }): AdminDeps {
+    const base = makeMockDeps();
+    return {
+      ...base,
+      provisioner: opts.provisioner,
+      podServiceAccountEnabled: opts.enabled ?? true,
+      agentService: {
+        ...base.agentService,
+        getDetail: async (id: string) => {
+          const d = await base.agentService.getDetail(id);
+          return d ? ({ ...d, ...opts.existing } as typeof d) : d;
+        },
+        updateSelfHosted: async (id, input) => {
+          opts.updated?.push(input as Record<string, unknown>);
+          return {
+            ...(await base.agentService.updateSelfHosted(id, input)),
+            podServiceAccountName:
+              (input as { podServiceAccountName?: string | null })
+                .podServiceAccountName ?? null,
+          };
+        },
+      },
+    };
+  }
+
+  it("admin sets the value: 200, serialized, and reconcile invoked once with the previous value", async () => {
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp(
+      depsFor({
+        provisioner,
+        existing: { podServiceAccountName: "old-sa" },
+      }),
+    );
+    const cookie = await makeSessionCookie();
+    const res = await patch(
+      app,
+      { podServiceAccountName: "new-sa" },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(200);
+    expect(
+      ((await res.json()) as { podServiceAccountName: string })
+        .podServiceAccountName,
+    ).toBe("new-sa");
+    expect(provisioner.reconciled).toHaveLength(1);
+    expect(provisioner.reconciled[0]).toMatchObject({
+      id: AGENT_ID,
+      podServiceAccountName: "new-sa",
+      previousPodServiceAccountName: "old-sa",
+    });
+  });
+
+  it("null clears the value and passes the previous one", async () => {
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp(
+      depsFor({ provisioner, existing: { podServiceAccountName: "old-sa" } }),
+    );
+    const cookie = await makeSessionCookie();
+    const res = await patch(
+      app,
+      { podServiceAccountName: null },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(200);
+    expect(provisioner.reconciled[0]).toMatchObject({
+      podServiceAccountName: null,
+      previousPodServiceAccountName: "old-sa",
+    });
+  });
+
+  it("409 naming the flag when it is off; nothing written or reconciled", async () => {
+    const provisioner = new RecordingProvisioner();
+    const updated: Array<Record<string, unknown>> = [];
+    const app = createAdminApp(
+      depsFor({ provisioner, enabled: false, updated }),
+    );
+    const cookie = await makeSessionCookie();
+    const res = await patch(
+      app,
+      { podServiceAccountName: "sa" },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(await res.json())).toContain(
+      "SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED",
+    );
+    expect(updated).toEqual([]);
+    expect(provisioner.reconciled).toEqual([]);
+  });
+
+  it("422 for an agent with a per-agent federated identity", async () => {
+    const provisioner = new RecordingProvisioner();
+    const updated: Array<Record<string, unknown>> = [];
+    const app = createAdminApp(
+      depsFor({ provisioner, existing: FEDERATED, updated }),
+    );
+    const cookie = await makeSessionCookie();
+    const res = await patch(
+      app,
+      { podServiceAccountName: "sa" },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(422);
+    expect(updated).toEqual([]);
+    expect(provisioner.reconciled).toEqual([]);
+  });
+
+  it("403 for a non-admin session member", async () => {
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp({
+      ...depsFor({ provisioner }),
+      callerScopeResolver: async () => ({
+        kind: "scoped",
+        accountId: "acct-a",
+        agentIds: [AGENT_ID],
+      }),
+    });
+    const cookie = await sign(
+      {
+        isAdmin: false,
+        userId: "user-acct",
+        email: "owner@acct-a.example.com",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      SESSION_SECRET,
+      "HS256",
+    );
+    const res = await patch(
+      app,
+      { podServiceAccountName: "sa" },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(403);
+    expect(provisioner.reconciled).toEqual([]);
+  });
+
+  it("rejects a value that is not an RFC 1123 label (400)", async () => {
+    const app = createAdminApp(
+      depsFor({ provisioner: new RecordingProvisioner() }),
+    );
+    const cookie = await makeSessionCookie();
+    for (const bad of ["Bad_Name", "-lead", "a".repeat(64), ""]) {
+      const res = await patch(
+        app,
+        { podServiceAccountName: bad },
+        { Cookie: `admin_session=${cookie}` },
+      );
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("logs an audit line with agent, old, new and caller name but never the key", async () => {
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp({
+      ...depsFor({
+        provisioner,
+        existing: { podServiceAccountName: "old-sa" },
+      }),
+      adminApiKeys: parseAdminApiKeys(`ops-key-name:${ADMIN_API_KEY}:*`),
+    });
+    const spy = spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const res = await patch(
+        app,
+        { podServiceAccountName: "new-sa" },
+        { Authorization: `Bearer ${ADMIN_API_KEY}` },
+      );
+      expect(res.status).toBe(200);
+      const lines = spy.mock.calls.map((c) => String(c[0]));
+      const line = lines.find((l) => l.includes("podServiceAccountName"));
+      expect(line).toBeDefined();
+      expect(line).toContain(AGENT_ID);
+      expect(line).toContain("old-sa");
+      expect(line).toContain("new-sa");
+      expect(line).toContain("ops-key-name");
+      expect(lines.join("\n")).not.toContain(ADMIN_API_KEY);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does not touch the provisioner when the field is absent", async () => {
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp(depsFor({ provisioner, enabled: false }));
+    const cookie = await makeSessionCookie();
+    const res = await patch(
+      app,
+      { repos: ["org/repo"] },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(200);
     expect(provisioner.reconciled).toEqual([]);
   });
 });

@@ -95,6 +95,22 @@ export const PatchAgentBodySchema = z
       .optional()
       .openapi({ example: "acct_123" }),
     /**
+     * COS-49.1: the Kubernetes ServiceAccount the agent's pod runs as
+     * (RFC 1123 label). Platform admin only; `null` clears it. Rejected 409
+     * unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on, and 422
+     * for agents with a per-agent federated identity.
+     */
+    podServiceAccountName: z
+      .string()
+      .max(63)
+      .regex(
+        /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
+        "must be an RFC 1123 label (lowercase alphanumerics and '-', start and end alphanumeric)",
+      )
+      .nullable()
+      .optional()
+      .openapi({ example: "agent-pod-sa" }),
+    /**
      * ATE-1.1: trial expiry timestamp. Nullable so it can also be explicitly
      * cleared. trialExpiryWarnedAt is intentionally NOT part of this schema —
      * it is written internally by ATE-2.1's warning check, not user-editable

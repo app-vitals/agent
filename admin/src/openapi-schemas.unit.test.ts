@@ -17,6 +17,7 @@ import {
   type AgentTool,
   AgentToolSchema,
   ErrorSchema,
+  PatchAgentBodySchema,
 } from "./openapi-schemas.ts";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -348,5 +349,35 @@ describe("OpenAPI route metadata", () => {
     expect(totalOperations).toBeGreaterThan(30);
 
     expect(issues).toEqual([]);
+  });
+});
+
+describe("PatchAgentBodySchema.podServiceAccountName (COS-49.1)", () => {
+  const parse = (v: unknown) =>
+    PatchAgentBodySchema.safeParse({ podServiceAccountName: v });
+
+  test("accepts RFC 1123 labels", () => {
+    for (const ok of ["a", "agent-sa", "sa1", "a".repeat(63)]) {
+      expect(parse(ok).success).toBe(true);
+    }
+  });
+
+  test("accepts null (clear) and omission", () => {
+    expect(parse(null).success).toBe(true);
+    expect(PatchAgentBodySchema.safeParse({}).success).toBe(true);
+  });
+
+  test("rejects non-labels and values over 63 characters", () => {
+    for (const bad of [
+      "",
+      "Upper",
+      "under_score",
+      "-lead",
+      "trail-",
+      "dot.ted",
+      "a".repeat(64),
+    ]) {
+      expect(parse(bad).success).toBe(false);
+    }
   });
 });

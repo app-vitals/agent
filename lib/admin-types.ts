@@ -281,7 +281,7 @@ export interface paths {
         head?: never;
         /**
          * Update an agent
-         * @description Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, and/or `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows). `typeName` and `trialExpiryWarnedAt` are not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.
+         * @description Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `typeName` and `trialExpiryWarnedAt` are not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.
          */
         patch: {
             parameters: {
@@ -327,6 +327,24 @@ export interface paths {
                 };
                 /** @description Agent not found */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description podServiceAccountName supplied while the pod ServiceAccount flag is off */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description podServiceAccountName supplied for an agent with a per-agent federated identity */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -3158,6 +3176,7 @@ export interface components {
             patchAuthorAllowlist: string[];
             restrictSlackToMembers: boolean;
             typeName: string;
+            podServiceAccountName: string | null;
             accountId: string | null;
             /** Format: date-time */
             createdAt: string;
@@ -3217,6 +3236,8 @@ export interface components {
             restrictSlackToMembers?: boolean;
             /** @example acct_123 */
             accountId?: string | null;
+            /** @example agent-pod-sa */
+            podServiceAccountName?: string | null;
             /**
              * Format: date-time
              * @example 2026-12-01T00:00:00.000Z

@@ -151,6 +151,15 @@ export interface ReconcileTarget extends Partial<AgentAnthropicIdentity> {
   accountId?: string | null;
   /** The Agent row's pod ServiceAccount (COS-48.1); rendered only when the flag is on. */
   podServiceAccountName?: string | null;
+  /**
+   * The pod ServiceAccount this agent had before the change being reconciled
+   * (COS-49.1). Only used to clear: when `podServiceAccountName` is now unset,
+   * the live ServiceAccount is nulled only if it still equals this value, so a
+   * ServiceAccount set by another actor is left alone. The PATCH handler passes
+   * the pre-update column value; startup/full passes leave it absent (so they
+   * never clear anything).
+   */
+  previousPodServiceAccountName?: string | null;
 }
 
 export interface AgentProvisioner {
@@ -699,6 +708,44 @@ export function federationPatch(
   if (env.length > 0) patch.env = env;
 
   return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+/** The pod-identity patch: the ServiceAccount fields only. */
+interface PodIdentityPatch {
+  serviceAccountName: string | null;
+  serviceAccount?: null;
+}
+
+/**
+ * Strategic-merge fragment that brings the live pod ServiceAccount to the
+ * Agent row's podServiceAccountName (COS-49.1), for Deployments without
+ * federation wiring (federationPatch owns the ServiceAccount when the desired
+ * Deployment carries federation).
+ *
+ * - Desired ServiceAccount set: patched when the live one differs.
+ * - Desired unset: cleared (serviceAccountName and the deprecated
+ *   `serviceAccount` alias nulled) ONLY when the live value equals
+ *   `previous`, the value this admin previously applied. A ServiceAccount set
+ *   by another actor therefore survives, as does everything when `previous`
+ *   is unknown (startup passes).
+ */
+export function podIdentityPatch(
+  live: KubernetesDeployment,
+  desired: KubernetesDeployment,
+  previous?: string | null,
+): PodIdentityPatch | undefined {
+  const cur = federationParts(live);
+  const want = federationParts(desired);
+  if (want.volume || want.env.size > 0) return undefined;
+  if (want.serviceAccountName) {
+    return cur.serviceAccountName !== want.serviceAccountName
+      ? { serviceAccountName: want.serviceAccountName }
+      : undefined;
+  }
+  if (previous && cur.serviceAccountName === previous) {
+    return { serviceAccountName: null, serviceAccount: null };
+  }
+  return undefined;
 }
 
 function isConflict(err: unknown): boolean {
@@ -1420,6 +1467,16 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
           const federation = manageFederation
             ? federationPatch(deployment, desiredDeployment)
             : undefined;
+          // Pod ServiceAccount (COS-49.1). Runs under policyOnly too, so an
+          // admin restart never regresses a Deployment to the wrong identity.
+          const podIdentity =
+            federation?.serviceAccountName === undefined
+              ? podIdentityPatch(
+                  deployment,
+                  desiredDeployment,
+                  agent.previousPodServiceAccountName,
+                )
+              : undefined;
           const containerDrift =
             !policyOnly &&
             current !== undefined &&
@@ -1427,7 +1484,11 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
             containerDrifted(current, desired);
           if (
             desired &&
-            (labelsDrifted || containerDrift || policy || federation)
+            (labelsDrifted ||
+              containerDrift ||
+              policy ||
+              federation ||
+              podIdentity)
           ) {
             // Under policyOnly the container entry carries only the policy and
             // federation mount/env changes (if any); image, the rest of env,
@@ -1466,11 +1527,15 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
               ...(policy?.volumes ?? []),
               ...(federation?.volumes ?? []),
             ];
-            const serviceAccount =
+            const saPatch =
               federation?.serviceAccountName !== undefined
+                ? federation
+                : podIdentity;
+            const serviceAccount =
+              saPatch?.serviceAccountName !== undefined
                 ? {
-                    serviceAccountName: federation.serviceAccountName,
-                    ...(federation.serviceAccount === null
+                    serviceAccountName: saPatch.serviceAccountName,
+                    ...(saPatch.serviceAccount === null
                       ? { serviceAccount: null }
                       : {}),
                   }

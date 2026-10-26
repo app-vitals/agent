@@ -703,3 +703,150 @@ describeOrSkip("admin CRUD API (integration)", () => {
     expect((await fleet.json()).totals.input).toBe(510);
   });
 });
+
+// ─── COS-49.1: PATCH /agents/:id podServiceAccountName ──────────────────────────
+
+describeOrSkip("PATCH /agents/:id podServiceAccountName (integration)", () => {
+  let prisma: PrismaClient;
+  let agentId: string;
+  let cookie: string;
+  const reconciled: Array<Record<string, unknown>> = [];
+
+  const provisioner: AgentProvisioner = {
+    canProvision: true,
+    provision: async () => ({
+      resourceName: "r",
+      secretName: "s",
+      deploymentName: "d",
+    }),
+    deprovision: async () => {},
+    reconcile: async (targets: Array<{ id: string }>) => {
+      for (const t of targets) reconciled.push(t as Record<string, unknown>);
+      return {
+        recreated: [],
+        updated: [],
+        migrated: [],
+        noOwner: [],
+        orphans: [],
+        failed: [],
+        dryRun: false,
+      };
+    },
+  } as unknown as AgentProvisioner;
+
+  const patch = (
+    app: ReturnType<typeof createAdminApp>,
+    body: unknown,
+    headers: Record<string, string> = { Cookie: `admin_session=${cookie}` },
+  ) =>
+    app.request(`/agents/${agentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+
+  beforeEach(async () => {
+    prisma = makePrisma();
+    await prisma.agentWorkQueueSnapshot.deleteMany();
+    await prisma.agentPlugin.deleteMany();
+    await prisma.agentPhaseMethodology.deleteMany();
+    await prisma.agentToken.deleteMany();
+    await prisma.agentCronJob.deleteMany();
+    await prisma.agentTool.deleteMany();
+    await prisma.agentEnv.deleteMany();
+    await prisma.agentMember.deleteMany();
+    await prisma.agent.deleteMany();
+    agentId = await createAgent(prisma);
+    cookie = await makeSessionCookie();
+    reconciled.length = 0;
+  });
+
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+
+  const appWith = (enabled: boolean) =>
+    createAdminApp({
+      ...makeDeps(prisma, provisioner),
+      podServiceAccountEnabled: enabled,
+    });
+
+  it("409 when the flag is off; the column is untouched", async () => {
+    const res = await patch(appWith(false), {
+      podServiceAccountName: "sa",
+    });
+    expect(res.status).toBe(409);
+    const row = await prisma.agent.findUniqueOrThrow({
+      where: { id: agentId },
+    });
+    expect(row.podServiceAccountName).toBeNull();
+    expect(reconciled).toEqual([]);
+  });
+
+  it("403 for a non-admin session", async () => {
+    const memberCookie = await sign(
+      {
+        isAdmin: false,
+        userId: "user-m",
+        email: "member@example.com",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      SESSION_SECRET,
+      "HS256",
+    );
+    await prisma.agentMember.create({
+      data: { agentId, email: "member@example.com" },
+    });
+    const res = await patch(
+      appWith(true),
+      { podServiceAccountName: "sa" },
+      { Cookie: `admin_session=${memberCookie}` },
+    );
+    expect(res.status).toBe(403);
+    expect(reconciled).toEqual([]);
+  });
+
+  it("422 for an agent with a per-agent federated identity", async () => {
+    await prisma.agent.update({
+      where: { id: agentId },
+      data: {
+        ownerEmail: "jane.doe@example.com",
+        anthropicIdentityName: "id-49-1",
+        anthropicServiceAccountId: "svac_1",
+        anthropicFederationRuleId: "fdrl_1",
+        k8sServiceAccountName: "agent-sa",
+      },
+    });
+    const res = await patch(appWith(true), { podServiceAccountName: "sa" });
+    expect(res.status).toBe(422);
+    expect(reconciled).toEqual([]);
+  });
+
+  it("200 persists the value, serializes it and reconciles once; null clears", async () => {
+    const app = appWith(true);
+    const res = await patch(app, { podServiceAccountName: "agent-pod-sa" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).podServiceAccountName).toBe("agent-pod-sa");
+    expect(reconciled).toHaveLength(1);
+    expect(reconciled[0]).toMatchObject({
+      id: agentId,
+      podServiceAccountName: "agent-pod-sa",
+      previousPodServiceAccountName: null,
+    });
+
+    const get = await app.request(`/agents/${agentId}`, {
+      headers: { Cookie: `admin_session=${cookie}` },
+    });
+    expect((await get.json()).podServiceAccountName).toBe("agent-pod-sa");
+
+    const clear = await patch(app, { podServiceAccountName: null });
+    expect(clear.status).toBe(200);
+    expect((await clear.json()).podServiceAccountName).toBeNull();
+    expect(reconciled).toHaveLength(2);
+    expect(reconciled[1]).toMatchObject({
+      podServiceAccountName: null,
+      previousPodServiceAccountName: "agent-pod-sa",
+    });
+  });
+});
