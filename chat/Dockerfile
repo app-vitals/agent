@@ -39,7 +39,7 @@ COPY --from=deps /app/chat/node_modules ./chat/node_modules
 COPY --from=deps /app/lib/node_modules ./lib/node_modules
 
 # Only what chat needs: its own source and the shared lib it imports.
-COPY package.json bunfig.toml ./
+COPY package.json bunfig.toml tsconfig.json ./
 COPY lib ./lib
 COPY chat ./chat
 

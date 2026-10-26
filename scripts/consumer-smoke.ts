@@ -32,7 +32,7 @@
  *   bun scripts/consumer-smoke.ts --version 1.2.3 --tarballs DIR  # prebuilt tgz
  * --no-import-probe skips step 2 (admin's entries need a generated Prisma
  * client, absent in the docker CI job). --no-admin-boot boots only the agent image (the admin image is built in a
- * separate CI job). --no-chat-boot skips the chat image boot. Env: CONSUMER_SMOKE_VERSION, CONSUMER_SMOKE_DIR. Boot checks need docker and
+ * separate CI job). --no-agent-boot / --no-chat-boot skip those image boots. Env: CONSUMER_SMOKE_VERSION, CONSUMER_SMOKE_DIR. Boot checks need docker and
  * are on by default for registry installs, off for --pack/--tarballs
  * (override with --boot / --no-boot).
  */
@@ -276,6 +276,7 @@ export type Args = {
   agentImage: string;
   adminImage: string;
   chatImage: string;
+  bootAgent: boolean;
   bootAdmin: boolean;
   bootChat: boolean;
   importProbe: boolean;
@@ -313,6 +314,7 @@ export function parseArgs(
     boot,
     agentImage: flag("agent-image") ?? `ghcr.io/app-vitals/agent:${version}`,
     importProbe: !argv.includes("--no-import-probe"),
+    bootAgent: !argv.includes("--no-agent-boot"),
     bootAdmin: !argv.includes("--no-admin-boot"),
     bootChat: !argv.includes("--no-chat-boot"),
     adminImage:
@@ -644,7 +646,7 @@ async function main(): Promise<void> {
   let ok = (args.importProbe ? importProbe(repoRoot, scratch) : true) && libFailures.length === 0;
   if (args.boot) {
     const results = [
-      await bootImage("agent", args.agentImage),
+      ...(args.bootAgent ? [await bootImage("agent", args.agentImage)] : []),
       ...(args.bootAdmin ? [await bootImage("admin", args.adminImage)] : []),
       ...(args.bootChat ? [await bootChat(args.chatImage)] : []),
     ];

@@ -364,5 +364,6 @@ describe("chat boot check", () => {
     expect(a.chatImage).toBe("ghcr.io/app-vitals/agent-chat:1.2.3");
     expect(a.bootChat).toBe(true);
     expect(parseArgs(["--version", "1.2.3", "--no-chat-boot"], {}).bootChat).toBe(false);
+    expect(parseArgs(["--version", "1.2.3", "--no-agent-boot"], {}).bootAgent).toBe(false);
   });
 });

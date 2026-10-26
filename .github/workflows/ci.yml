@@ -152,6 +152,16 @@ jobs:
       - name: Build chat Docker image
         run: docker build -f chat/Dockerfile -t agent-chat:ci .
 
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.3"
+
+      # Boots the CI-built chat image against a throwaway Postgres: it must
+      # apply its migrations and answer GET /health, in this PR rather than
+      # only post-release.
+      - name: Consumer smoke chat image boot
+        run: bun scripts/consumer-smoke.ts --version 0.0.0-ci --pack --boot --no-agent-boot --no-admin-boot --no-import-probe --chat-image agent-chat:ci
+
   runtime-docker-build:
     name: runtime docker build
     timeout-minutes: 20
@@ -191,7 +201,7 @@ jobs:
       # (packed tarballs, no release needed). Proves the image reaches
       # `[agent] agent home initialized` in this PR rather than only post-release.
       - name: Consumer smoke agent image boot
-        run: bun scripts/consumer-smoke.ts --version 0.0.0-ci --pack --boot --no-admin-boot --no-import-probe --agent-image agent:ci
+        run: bun scripts/consumer-smoke.ts --version 0.0.0-ci --pack --boot --no-admin-boot --no-chat-boot --no-import-probe --agent-image agent:ci
 
       # Load-bearing: a green `bun test` in CI's unrestricted process does not
       # prove whether /sys/fs/cgroup is delegated under a restricted securityContext.
