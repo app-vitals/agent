@@ -5,7 +5,9 @@
  *
  * One row per agent (AgentGitHubInstallationsSnapshot.agentId is @unique).
  * push() upserts the single row, replacing the installations list wholesale —
- * an installation absent from the latest push is gone.
+ * an installation absent from the latest push is gone. repoAccess (COS-44.1)
+ * is only written when the push carries it, so a push from a runtime with the
+ * check off never wipes a result stored earlier.
  */
 
 import type {
@@ -19,6 +21,8 @@ export type { AgentGitHubInstallationsSnapshot };
 interface PushGitHubInstallationsInput {
   reportedAt: Date;
   installations: Prisma.InputJsonValue;
+  /** Omitted leaves the stored per-repo access result unchanged; [] clears it. */
+  repoAccess?: Prisma.InputJsonValue;
 }
 
 export class AgentGitHubInstallationsService {
@@ -35,10 +39,16 @@ export class AgentGitHubInstallationsService {
         agentId,
         reportedAt: input.reportedAt,
         installations: input.installations,
+        ...(input.repoAccess === undefined
+          ? {}
+          : { repoAccess: input.repoAccess }),
       },
       update: {
         reportedAt: input.reportedAt,
         installations: input.installations,
+        ...(input.repoAccess === undefined
+          ? {}
+          : { repoAccess: input.repoAccess }),
       },
     });
   }

@@ -179,6 +179,11 @@ export interface AgentRuntimeDeps {
    * as `features.transcriptUpload` in the config bundle. Defaults to false.
    */
   transcriptUploadEnabled?: boolean;
+  /**
+   * COS-44.1: SHIPWRIGHT_AGENT_REPO_ACCESS_CHECK_ENABLED is on — surfaced to the
+   * runtime as `features.repoAccessCheck` in the config bundle. Defaults to false.
+   */
+  repoAccessCheckEnabled?: boolean;
 }
 
 // ─── Route definitions ────────────────────────────────────────────────────────
@@ -352,10 +357,9 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
       maxFindings: agent.maxFindings,
       cleanupMergedWorktrees: agent.cleanupMergedWorktrees,
       cleanupAfterDays: agent.cleanupAfterDays,
-      // COS-43.1: repoAccessCheck is wired by COS-44.1; false until then.
       features: {
         transcriptUpload: deps.transcriptUploadEnabled === true,
-        repoAccessCheck: false,
+        repoAccessCheck: deps.repoAccessCheckEnabled === true,
       },
     };
 

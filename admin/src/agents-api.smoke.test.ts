@@ -197,6 +197,7 @@ function makeInMemoryGitHubInstallationsService(): AdminDeps["agentGitHubInstall
       agentId: string;
       reportedAt: Date;
       installations: Prisma.JsonValue;
+      repoAccess: Prisma.JsonValue;
       createdAt: Date;
     }
   >();
@@ -208,6 +209,9 @@ function makeInMemoryGitHubInstallationsService(): AdminDeps["agentGitHubInstall
         agentId,
         reportedAt: input.reportedAt,
         installations: input.installations as Prisma.JsonValue,
+        repoAccess: (input.repoAccess === undefined
+          ? (existing?.repoAccess ?? null)
+          : input.repoAccess) as Prisma.JsonValue,
         createdAt: existing?.createdAt ?? new Date("2024-01-01"),
       };
       rows.set(agentId, row);
@@ -1248,6 +1252,66 @@ describe("admin API — GitHub installations snapshot", () => {
     expect((await getRes.json()).snapshot.installations).toEqual([
       BODY.installations[0],
     ]);
+  });
+
+  const REPOS = [
+    {
+      repo: "agent",
+      owner: "app-vitals",
+      read: true,
+      write: false,
+      checkedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      repo: "gone",
+      owner: "app-vitals",
+      read: false,
+      write: false,
+      checkedAt: "2026-01-01T00:00:00.000Z",
+      error: "not_found",
+    },
+  ];
+
+  it("PUT accepts repos and GET returns them as repoAccess (COS-44.1)", async () => {
+    const app = createAdminApp(makeMockDeps());
+    const res = await put(app, { ...BODY, repos: REPOS });
+    expect(res.status).toBe(200);
+    expect((await res.json()).snapshot.repoAccess).toEqual(REPOS);
+    const getRes = await app.request(
+      `/agents/${AGENT_ID}/github-installations`,
+      { headers: { Cookie: `admin_session=${cookie}` } },
+    );
+    expect((await getRes.json()).snapshot.repoAccess).toEqual(REPOS);
+  });
+
+  it("repoAccess is null until reported, and a push without repos keeps it", async () => {
+    const app = createAdminApp(makeMockDeps());
+    expect(
+      (await (await put(app, BODY)).json()).snapshot.repoAccess,
+    ).toBeNull();
+    await put(app, { ...BODY, repos: REPOS });
+    const again = await put(app, BODY);
+    expect((await again.json()).snapshot.repoAccess).toEqual(REPOS);
+  });
+
+  it("rejects an unknown key or error class on a repos entry (400)", async () => {
+    const app = createAdminApp(makeMockDeps());
+    expect(
+      (
+        await put(app, {
+          ...BODY,
+          repos: [{ ...REPOS[0], token: "ghs_secret" }],
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await put(app, {
+          ...BODY,
+          repos: [{ ...REPOS[1], error: "kaboom" }],
+        })
+      ).status,
+    ).toBe(400);
   });
 
   it("rejects an extra top-level field (400)", async () => {

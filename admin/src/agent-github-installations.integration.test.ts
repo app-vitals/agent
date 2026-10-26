@@ -66,6 +66,38 @@ describeOrSkip("AgentGitHubInstallationsService (integration)", () => {
     expect(read?.reportedAt).toEqual(reportedAt);
   });
 
+  it("round-trips repoAccess and keeps it when a later push omits it (COS-44.1)", async () => {
+    const agentId = await createAgent(prisma);
+    const repoAccess = [
+      {
+        repo: "agent",
+        owner: "app-vitals",
+        read: true,
+        write: true,
+        checkedAt: "2026-01-15T12:00:00.000Z",
+      },
+    ];
+    const first = await service.push(agentId, {
+      reportedAt: new Date("2026-01-15T12:00:00.000Z"),
+      installations: [],
+      repoAccess,
+    });
+    expect(first.repoAccess).toEqual(repoAccess);
+
+    await service.push(agentId, {
+      reportedAt: new Date("2026-01-16T12:00:00.000Z"),
+      installations: [],
+    });
+    expect((await service.get(agentId))?.repoAccess).toEqual(repoAccess);
+
+    await service.push(agentId, {
+      reportedAt: new Date("2026-01-17T12:00:00.000Z"),
+      installations: [],
+      repoAccess: [],
+    });
+    expect((await service.get(agentId))?.repoAccess).toEqual([]);
+  });
+
   it("get() returns null when nothing has been pushed", async () => {
     const agentId = await createAgent(prisma);
     expect(await service.get(agentId)).toBeNull();

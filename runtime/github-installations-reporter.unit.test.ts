@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { InstallationsSnapshot } from "./github-installations.ts";
+import type { RepoAccessEntry, RepoAccessProbe } from "./repo-access-probe.ts";
 import {
   HttpGitHubInstallationsReporter,
   INSTALLATIONS_HEARTBEAT_MS,
@@ -31,7 +32,10 @@ function snap(
   };
 }
 
-function harness(responses: (Response | Error)[] = []) {
+function harness(
+  responses: (Response | Error)[] = [],
+  repoAccessProbe?: RepoAccessProbe,
+) {
   let nowMs = Date.UTC(2026, 0, 1);
   const calls: { url: string; init: RequestInit | undefined }[] = [];
   let i = 0;
@@ -47,6 +51,7 @@ function harness(responses: (Response | Error)[] = []) {
     apiKey: "KEY",
     fetchFn,
     clock: { now: () => new Date(nowMs) },
+    repoAccessProbe,
   });
   return {
     reporter,
@@ -162,5 +167,50 @@ describe("startInstallationsHeartbeat", () => {
 describe("NoopGitHubInstallationsReporter", () => {
   test("resolves without effect", async () => {
     await new NoopGitHubInstallationsReporter().report(snap());
+  });
+});
+
+describe("HttpGitHubInstallationsReporter repo access (COS-44.1)", () => {
+  const entry: RepoAccessEntry = {
+    repo: "a",
+    owner: "acme",
+    read: true,
+    write: false,
+    checkedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  test("a probe result is merged into the PUT body as repos", async () => {
+    const h = harness([], { run: async () => [entry] });
+    await h.reporter.report(snap());
+    expect(JSON.parse(String(h.calls[0].init?.body)).repos).toEqual([entry]);
+  });
+
+  test("a fresh probe result posts even when installations are unchanged", async () => {
+    let result: RepoAccessEntry[] | undefined = [entry];
+    const h = harness([], { run: async () => result });
+    await h.reporter.report(snap());
+    result = [{ ...entry, write: true }];
+    h.advance(60_000);
+    await h.reporter.report(snap());
+    expect(h.calls).toHaveLength(2);
+    expect(JSON.parse(String(h.calls[1].init?.body)).repos[0].write).toBe(true);
+  });
+
+  test("later heartbeats re-send the last probe result", async () => {
+    let result: RepoAccessEntry[] | undefined = [entry];
+    const h = harness([], { run: async () => result });
+    await h.reporter.report(snap());
+    result = undefined;
+    h.advance(INSTALLATIONS_HEARTBEAT_MS);
+    await h.reporter.report(snap());
+    expect(JSON.parse(String(h.calls[1].init?.body)).repos).toEqual([entry]);
+  });
+
+  test("no probe result -> body has no repos key", async () => {
+    const h = harness([], { run: async () => undefined });
+    await h.reporter.report(snap());
+    expect(
+      Object.keys(JSON.parse(String(h.calls[0].init?.body))).sort(),
+    ).toEqual(["installations", "reportedAt"]);
   });
 });

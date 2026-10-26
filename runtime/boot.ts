@@ -31,6 +31,7 @@ import {
   planCronSchedule,
   runPeriodicPasses,
 } from "./agent-extension.ts";
+import { agentFeaturesRef } from "./agent-features-ref.ts";
 import { agentReposRef } from "./agent-repos-ref.ts";
 import {
   agentSlackMembershipRef,
@@ -50,7 +51,6 @@ import {
   setLiveClaudeConfig,
 } from "./claude.ts";
 import { bunExec, detectClaudeCodeVersion } from "./claude-version.ts";
-import { agentFeaturesRef } from "./agent-features-ref.ts";
 import { cleanupAfterDaysRef } from "./cleanup-after-days-ref.ts";
 import { SystemClock } from "./clock.ts";
 import { createConfig } from "./config.ts";
@@ -84,6 +84,10 @@ import {
 import { HttpChatServiceClient } from "./http-chat-service-client.ts";
 import { buildLogPrefix } from "./log-prefix.ts";
 import { validatePiperVoice } from "./piper-voice.ts";
+import {
+  createRepoAccessProbe,
+  createRepoAccessTokenFor,
+} from "./repo-access-probe.ts";
 import {
   createFileSessionStore,
   startSessionPruner,
@@ -223,6 +227,17 @@ export async function startAgent(
           apiUrl: config.shipwright.apiUrl,
           agentId: config.shipwright.agentId,
           apiKey: config.shipwright.apiKey,
+          repoAccessProbe: createRepoAccessProbe({
+            fetch,
+            clock: SystemClock(),
+            log: (message) => console.log(message),
+            getRepos: () => agentReposRef.get(),
+            isEnabled: () => agentFeaturesRef.get()?.repoAccessCheck === true,
+            tokenFor: createRepoAccessTokenFor(
+              () => githubInstallationsManagerRef.get(),
+              process.env,
+            ),
+          }),
         })
       : new NoopGitHubInstallationsReporter();
 

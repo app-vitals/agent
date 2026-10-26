@@ -237,6 +237,7 @@ function buildApp(opts?: {
   cleanupMergedWorktrees?: boolean;
   cleanupAfterDays?: number;
   transcriptUploadEnabled?: boolean;
+  repoAccessCheckEnabled?: boolean;
 }) {
   const hasAgent = opts?.hasAgent ?? true;
   const bundle: AgentEnvBundle | null =
@@ -310,6 +311,7 @@ function buildApp(opts?: {
     sessionSecret: SESSION_SECRET,
     anthropicFederationEnabled: opts?.anthropicFederationEnabled,
     transcriptUploadEnabled: opts?.transcriptUploadEnabled,
+    repoAccessCheckEnabled: opts?.repoAccessCheckEnabled,
   });
 }
 
@@ -349,6 +351,19 @@ describe("GET /:id/config features (COS-43.1)", () => {
     expect(body.features).toEqual({
       transcriptUpload: true,
       repoAccessCheck: false,
+    });
+  });
+});
+
+describe("GET /:id/config features.repoAccessCheck (COS-44.1)", () => {
+  test("follows the repo-access flag", async () => {
+    const app = buildApp({ repoAccessCheckEnabled: true });
+    const res = await app.request(`/${KNOWN_AGENT_ID}/config`, {
+      headers: { Authorization: `Bearer ${VALID_ADMIN_KEY}` },
+    });
+    expect((await res.json()).features).toEqual({
+      transcriptUpload: false,
+      repoAccessCheck: true,
     });
   });
 });

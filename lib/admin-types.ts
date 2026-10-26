@@ -4038,6 +4038,8 @@ export interface components {
              */
             reportedAt: string;
             installations: components["schemas"]["GitHubInstallation"][];
+            /** @description Latest per-repo access probe result; null until a runtime with the repo-access check enabled reports one. */
+            repoAccess: components["schemas"]["RepoAccessEntry"][] | null;
             /**
              * Format: date-time
              * @example 2026-01-01T00:00:00.000Z
@@ -4057,6 +4059,27 @@ export interface components {
              */
             lastError?: string | null;
         };
+        RepoAccessEntry: {
+            /** @example agent */
+            repo: string;
+            /** @example app-vitals */
+            owner: string;
+            /** @example true */
+            read: boolean;
+            /** @example false */
+            write: boolean;
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            checkedAt: string;
+            /**
+             * @description Why the probe could not read the repo; absent when the probe succeeded.
+             * @example not_found
+             * @enum {string}
+             */
+            error?: "not_found" | "forbidden" | "rate_limited" | "network";
+        };
         PutGitHubInstallationsBody: {
             /**
              * Format: date-time
@@ -4064,6 +4087,8 @@ export interface components {
              */
             reportedAt: string;
             installations: components["schemas"]["GitHubInstallation"][];
+            /** @description Per-repo access probe result (COS-44.1). Omit to leave the stored result unchanged; send [] to clear it. */
+            repos?: components["schemas"]["RepoAccessEntry"][];
         };
         AgentConfigResponse: {
             /**

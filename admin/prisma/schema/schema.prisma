@@ -472,6 +472,7 @@ model AgentGitHubInstallationsSnapshot {
   agent         Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
   reportedAt    DateTime
   installations Json     // GitHubInstallation[]
+  repoAccess    Json?    // RepoAccessEntry[] — per-repo read/write probe (COS-44.1); null until a flagged runtime reports it
   createdAt     DateTime @default(now())
 }
 

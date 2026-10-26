@@ -102,6 +102,7 @@ import { mountPlatformDoc } from "./platform-doc-route.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
 import { isPushEnabled } from "./push-sender.ts";
 import { PushService } from "./push-service.ts";
+import { parseRepoAccessConfig } from "./repo-access-config.ts";
 import { parseSelfServeConfig } from "./self-serve-config.ts";
 import { HttpSlackProvisioningClient } from "./slack-provisioning-client.ts";
 import { SpecialtyRegistry } from "./specialty-manifest-loader.ts";
@@ -296,6 +297,9 @@ export async function startAdmin(
   // Cron-run transcript API (COS-43.1): flag off by default.
   const transcriptConfig = parseTranscriptConfig(process.env);
 
+  // Per-repo GitHub access check (COS-44.1): flag off by default.
+  const repoAccessConfig = parseRepoAccessConfig(process.env);
+
   // Web Push (CFB-4.2). Enabled ONLY when public + private + subject are all
   // set — a partial config must not half-enable the feature. When disabled,
   // pushService is undefined, the push routes 503, and the toggle renders "".
@@ -421,6 +425,7 @@ export async function startAdmin(
     agentTokenService,
     anthropicFederationEnabled,
     transcriptUploadEnabled: transcriptConfig.enabled,
+    repoAccessCheckEnabled: repoAccessConfig.enabled,
   });
 
   root.route("/agents", runtimeApp);
