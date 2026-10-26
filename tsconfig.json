@@ -13,9 +13,11 @@
   "include": [
     "runtime",
     "admin/src",
+    "chat/src",
+    "chat/prisma.config.ts",
     "admin/prisma.config.ts",
     "lib",
     "scripts"
   ],
-  "exclude": ["**/node_modules", "**/dist", "admin/e2e", "admin/prisma/client"]
+  "exclude": ["**/node_modules", "**/dist", "admin/e2e", "admin/prisma/client", "chat/prisma/client"]
 }

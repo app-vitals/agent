@@ -18,7 +18,7 @@
  *   1 — one or more undocumented vars found
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -214,7 +214,11 @@ function main(): void {
   // 2. Collect source files from the two directories
   // Dynamic env access (process.env[name]) is not caught by the regex; expand
   // sourceDirs if lib/ or index.ts should be covered too.
-  const sourceDirs = [join(projectRoot, "runtime"), join(projectRoot, "admin")];
+  const sourceDirs = [
+    join(projectRoot, "runtime"),
+    join(projectRoot, "admin"),
+    join(projectRoot, "chat"),
+  ];
 
   const sourceFiles: string[] = [];
   for (const dir of sourceDirs) {

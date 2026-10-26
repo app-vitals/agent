@@ -6,6 +6,7 @@ Guidance for AI coding agents working in this repository.
 
 - `runtime/` (`@app-vitals/agent-runtime`): the agent process. `runtime/entrypoint-main.ts` is the container entrypoint; it runs the startup sequence and spawns `index.ts`.
 - `admin/` (`@app-vitals/agent-admin`): admin API and UI. `admin/src/main.ts` is its composition root.
+- `chat/` (`@app-vitals/agent-chat`, private): the chat service (Postgres-backed Thread/Message store + scoped tokens). Imported from shipwright `chat/`; `bun run db:generate` in `chat/` creates its Prisma client.
 - `lib/` (`@app-vitals/agent-lib`): shared modules; each is exported from `lib/package.json`.
 - `agent-types/`: agent-type definitions and their JSON schema.
 - `index.ts`: the agent server composition root (`startAgent([])`).

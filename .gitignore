@@ -5,5 +5,6 @@ coverage
 .env.*
 !.env.example
 admin/prisma/client
+chat/prisma/client
 *.db
 *.db-journal

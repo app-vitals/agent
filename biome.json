@@ -19,7 +19,8 @@
       "!**/dist",
       "!**/build",
       "!**/coverage",
-      "!**/admin/prisma/client"
+      "!**/admin/prisma/client",
+      "!**/chat/prisma/client"
     ]
   }
 }

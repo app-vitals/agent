@@ -3,7 +3,7 @@
  * scripts/check-import-boundary.ts
  *
  * Import-boundary gate. Walks every TypeScript source in runtime/, admin/,
- * lib/ and agent-types/ plus the root index.ts, and fails on any module
+ * lib/, agent-types/ and chat/ plus the root index.ts, and fails on any module
  * specifier that leaves the repository:
  *
  *   - relative specifiers must resolve to a file inside the repository
@@ -12,22 +12,29 @@
  *     lib/ or admin/
  *   - the pre-extraction workspace scope is not allowed
  *
+ * chat/ is stricter: it may import only its own files, @app-vitals/agent-lib
+ * workspace modules and npm packages. Relative paths into runtime/ or admin/,
+ * and the agent-runtime / agent-admin workspace packages, are violations.
+ *
  * npm packages and node:/bun: builtins are not edges.
  *
  * Usage: bun scripts/check-import-boundary.ts [root]
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 /** The workspace scope used before the packages moved to @app-vitals/. */
 const LEGACY_SCOPE = `@${"shipwright"}/`;
 
-const SCAN_DIRS = ["runtime", "admin", "lib", "agent-types", "scripts"];
+const SCAN_DIRS = ["runtime", "admin", "lib", "agent-types", "chat", "scripts"];
 const SCAN_FILES = ["index.ts"];
 const SKIP_DIRS = new Set(["node_modules", "dist", "client", "e2e"]);
 /** Tests that carry import specifiers as string fixtures, not real imports. */
-const FIXTURE_FILES = new Set(["import-boundary.unit.test.ts"]);
+const FIXTURE_FILES = new Set([
+  "import-boundary.unit.test.ts",
+  "check-import-boundary.unit.test.ts",
+]);
 const SOURCE = /\.(?:ts|tsx|js|mjs|cjs)$/;
 const RESOLVE_SUFFIXES = ["", ".ts", ".tsx", ".js", ".json", "/index.ts"];
 
@@ -84,11 +91,37 @@ function inExportsMap(root: string, sub: string): boolean {
   );
 }
 
+/** True when `file` lives under the chat/ workspace. */
+function isChatFile(root: string, file: string): boolean {
+  const rel = relative(root, file);
+  return rel === "chat" || rel.startsWith(`chat${sep}`);
+}
+
+/** chat/ may reach only its own files, agent-lib workspace modules and npm. */
+function checkChatSpecifier(
+  root: string,
+  file: string,
+  spec: string,
+): string | null {
+  if (spec.startsWith(".")) {
+    const rel = relative(join(root, "chat"), resolve(dirname(file), spec));
+    return rel.startsWith("..") ? "chat may not import outside chat/" : null;
+  }
+  const workspace = /^@app-vitals\/agent-(runtime|admin)(?:\/|$)/.exec(spec);
+  return workspace
+    ? `chat may not import the agent-${workspace[1]} workspace`
+    : null;
+}
+
 function checkSpecifier(
   root: string,
   file: string,
   spec: string,
 ): string | null {
+  if (isChatFile(root, file)) {
+    const chatReason = checkChatSpecifier(root, file, spec);
+    if (chatReason) return chatReason;
+  }
   if (spec.startsWith(LEGACY_SCOPE)) {
     return `the ${LEGACY_SCOPE} scope does not exist in this repository`;
   }
