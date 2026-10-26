@@ -3,10 +3,12 @@
  * Verify the chat OpenAPI spec generator produces a valid
  * OpenAPI 3.1 document that covers all three route groups.
  *
- * Uses buildChatSpec() in memory — no filesystem I/O.
+ * Uses buildChatSpec() in memory; one test reads the committed openapi.json.
  */
 
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { buildChatSpec } from "./generate-spec.ts";
 
 describe("buildChatSpec", () => {
@@ -39,5 +41,13 @@ describe("buildChatSpec", () => {
       (p) => p.startsWith("/threads/") && p.includes("/messages"),
     );
     expect(messagePaths.length).toBeGreaterThan(0);
+  });
+
+  it("matches the committed chat/openapi.json (run `bun run generate:chat-spec` if stale)", () => {
+    const committed = readFileSync(
+      join(import.meta.dir, "../openapi.json"),
+      "utf-8",
+    );
+    expect(committed).toBe(`${JSON.stringify(buildChatSpec(), null, 2)}\n`);
   });
 });

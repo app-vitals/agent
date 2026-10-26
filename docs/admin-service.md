@@ -14,6 +14,7 @@ Canonical sources are not repeated here:
 - Data model: `admin/prisma/schema/schema.prisma` (platform models) and
   `admin/prisma/schema/coding.prisma` (coding-extension models); migrations in `admin/prisma/migrations/`.
 - Auth and bearer scopes: [agent-api.md](agent-api.md).
+- Chat service architecture and API: [chat-service.md](chat-service.md).
 - Env var quick reference and Docker usage: `admin/README.md`.
 
 ## Module map

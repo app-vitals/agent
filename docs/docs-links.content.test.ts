@@ -26,6 +26,7 @@ const DOCS = [
   "agent-key-files.md",
   "configuration-agent.md",
   "observability.md",
+  "chat-service.md",
 ];
 
 /** Remove fenced code blocks so links inside examples are not checked. */

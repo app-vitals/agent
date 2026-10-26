@@ -3,7 +3,7 @@
 > Env var reference for the platform: the agent runtime (`runtime/`) and the
 > admin service (`admin/`). Related: [agent-runtime.md](agent-runtime.md),
 > [admin-service.md](admin-service.md), [agent-ops.md](agent-ops.md),
-> [agent-api.md](agent-api.md).
+> [agent-api.md](agent-api.md), [chat-service.md](chat-service.md).
 
 ---
 
@@ -96,6 +96,8 @@ Provide either the GitHub App vars (recommended) or `GH_TOKEN` (PAT). App auth i
 | `SHIPWRIGHT_ADMIN_TRIAL_EXPIRY_SWEEP_INTERVAL_MS` | `number` | `60000` (60 sec) | Tick cadence in milliseconds for the trial-expiry sweeper (`admin/src/trial-expiry-sweeper.ts`), a background job in the admin service that disables all enabled AgentCronJob records of agents whose `trialExpiresAt` has passed. Each tick finds every cron belonging to an expired-trial agent and sets it `enabled:false` via `AgentCronJobService.setEnabled()`, the same method the `PATCH /agents/:id/crons/:cronId` route uses. It deliberately does **not** deprovision the agent (no workload teardown, no token revocation), since a customer may convert to paid later. Idempotent. Blank, non-numeric, zero and negative values fall back to the default. |
 
 ### Admin and chat services
+
+For comprehensive documentation of the chat service architecture, authentication, data model, queue behavior and API endpoints, see [chat-service.md](chat-service.md).
 
 The platform feature flags (`SHIPWRIGHT_SELF_SERVE_ENABLED`, `SHIPWRIGHT_AGENT_ASK_ENABLED`, `SHIPWRIGHT_CRON_RUN_NOW_ENABLED`, `SHIPWRIGHT_CHAT_TOKEN_MINT_ENABLED`, `SHIPWRIGHT_ADMIN_DOC_ENABLED`, `SHIPWRIGHT_TRANSCRIPT_API_ENABLED`, `SHIPWRIGHT_AGENT_REPO_ACCESS_CHECK_ENABLED`, `SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED`) all default to off and follow one convention: the feature is on only when the value is the literal string `enabled`. `true`, `1`, `on` and any other value leave it off. This table is maintained by hand; `bun run check:config-docs` (`scripts/check-config-docs.ts`) scans every `process.env.*` reference under `runtime/`, `admin/` and `chat/` and fails when a variable is missing from it.
 
