@@ -19,6 +19,7 @@ import type {
   InstallationState,
   InstallationsSnapshot,
 } from "./github-installations.ts";
+import type { RepoAccessEntry, RepoAccessProbe } from "./repo-access-probe.ts";
 
 export const INSTALLATIONS_HEARTBEAT_MS = 30 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -56,6 +57,11 @@ interface HttpGitHubInstallationsReporterOptions {
   fetchFn?: typeof fetch;
   clock?: Clock;
   heartbeatMs?: number;
+  /**
+   * COS-44.1: per-repo access probe. It gates itself (flag, once per interval,
+   * scope change); the reporter just merges whatever it returns into the PUT.
+   */
+  repoAccessProbe?: RepoAccessProbe;
 }
 
 export class HttpGitHubInstallationsReporter
@@ -66,6 +72,7 @@ export class HttpGitHubInstallationsReporter
   private readonly heartbeatMs: number;
   private lastSignature: string | null = null;
   private lastPostedAt = 0;
+  private lastRepos: RepoAccessEntry[] | undefined;
 
   constructor(private opts: HttpGitHubInstallationsReporterOptions) {
     this.fetchFn = opts.fetchFn ?? fetch;
@@ -77,13 +84,19 @@ export class HttpGitHubInstallationsReporter
     try {
       const installations = snapshot.installations.map(toReported);
       const signature = JSON.stringify(installations);
+      const probed = await this.opts.repoAccessProbe?.run();
+      if (probed) this.lastRepos = probed;
       const nowMs = this.clock.now().getTime();
-      const changed = signature !== this.lastSignature;
+      const changed = signature !== this.lastSignature || probed !== undefined;
       if (!changed && nowMs - this.lastPostedAt < this.heartbeatMs) return;
       // Claim the slot before awaiting so overlapping reports don't double-post.
       this.lastSignature = signature;
       this.lastPostedAt = nowMs;
-      await this.put(installations, new Date(nowMs).toISOString());
+      await this.put(
+        installations,
+        new Date(nowMs).toISOString(),
+        this.lastRepos,
+      );
     } catch (err) {
       console.warn(
         `[github-installations-reporter] report failed: ${String(err)} — swallowing`,
@@ -94,6 +107,7 @@ export class HttpGitHubInstallationsReporter
   private async put(
     installations: ReportedInstallation[],
     reportedAt: string,
+    repos: RepoAccessEntry[] | undefined,
   ): Promise<void> {
     const { apiUrl, agentId, apiKey } = this.opts;
     const url = `${apiUrl}/agents/${agentId}/github-installations`;
@@ -104,7 +118,11 @@ export class HttpGitHubInstallationsReporter
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ reportedAt, installations }),
+        body: JSON.stringify({
+          reportedAt,
+          installations,
+          ...(repos ? { repos } : {}),
+        }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       if (!res.ok) {

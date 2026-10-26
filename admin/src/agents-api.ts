@@ -2510,6 +2510,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     const snapshot = await agentGitHubInstallationsService.push(agentId, {
       reportedAt: new Date(body.reportedAt),
       installations: body.installations,
+      repoAccess: body.repos,
     });
     return c.json(
       { snapshot: serializeGitHubInstallationsSnapshot(snapshot) },
@@ -2814,6 +2815,7 @@ function serializeGitHubInstallationsSnapshot(snapshot: {
   agentId: string;
   reportedAt: Date;
   installations: unknown;
+  repoAccess: unknown;
   createdAt: Date;
 }): z.infer<typeof AgentGitHubInstallationsSnapshotSchema> {
   return {
@@ -2823,6 +2825,9 @@ function serializeGitHubInstallationsSnapshot(snapshot: {
     installations: snapshot.installations as z.infer<
       typeof AgentGitHubInstallationsSnapshotSchema
     >["installations"],
+    repoAccess: (snapshot.repoAccess ?? null) as z.infer<
+      typeof AgentGitHubInstallationsSnapshotSchema
+    >["repoAccess"],
     createdAt: snapshot.createdAt.toISOString(),
   };
 }

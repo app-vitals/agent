@@ -954,6 +954,33 @@ const GitHubInstallationSchema = z
   .openapi("GitHubInstallation");
 
 /**
+ * One per-repo access probe result (COS-44.1). CLOSED (.strict()) like the
+ * installation schema: tokens and other credentials are rejected, never stored.
+ * `error` is a fixed class, not free text.
+ */
+const RepoAccessEntrySchema = z
+  .object({
+    repo: z.string().min(1).max(200).openapi({ example: "agent" }),
+    owner: z.string().min(1).max(200).openapi({ example: "app-vitals" }),
+    read: z.boolean().openapi({ example: true }),
+    write: z.boolean().openapi({ example: false }),
+    checkedAt: z
+      .string()
+      .datetime()
+      .openapi({ example: "2026-01-01T00:00:00.000Z" }),
+    error: z
+      .enum(["not_found", "forbidden", "rate_limited", "network"])
+      .optional()
+      .openapi({
+        description:
+          "Why the probe could not read the repo; absent when the probe succeeded.",
+        example: "not_found",
+      }),
+  })
+  .strict()
+  .openapi("RepoAccessEntry");
+
+/**
  * PUT /agents/:id/github-installations body. Replace-all: the installations
  * array overwrites whatever was previously stored.
  */
@@ -964,6 +991,10 @@ export const PutGitHubInstallationsBodySchema = z
       .datetime()
       .openapi({ example: "2026-01-01T00:00:00.000Z" }),
     installations: z.array(GitHubInstallationSchema),
+    repos: z.array(RepoAccessEntrySchema).optional().openapi({
+      description:
+        "Per-repo access probe result (COS-44.1). Omit to leave the stored result unchanged; send [] to clear it.",
+    }),
   })
   .strict()
   .openapi("PutGitHubInstallationsBody");
@@ -977,6 +1008,10 @@ export const AgentGitHubInstallationsSnapshotSchema = z
       .datetime()
       .openapi({ example: "2026-01-01T00:00:00.000Z" }),
     installations: z.array(GitHubInstallationSchema),
+    repoAccess: z.array(RepoAccessEntrySchema).nullable().openapi({
+      description:
+        "Latest per-repo access probe result; null until a runtime with the repo-access check enabled reports one.",
+    }),
     createdAt: z
       .string()
       .datetime()
