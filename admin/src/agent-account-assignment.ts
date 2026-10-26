@@ -22,6 +22,7 @@ export async function reconcileAgentAfterAccountChange(
     name: string;
     selfHosted: boolean;
     accountId?: string | null;
+    podServiceAccountName?: string | null;
   },
 ): Promise<string | undefined> {
   if (agent.selfHosted) return undefined;
@@ -36,6 +37,7 @@ export async function reconcileAgentAfterAccountChange(
         anthropicServiceAccountId: agent.anthropicServiceAccountId,
         anthropicFederationRuleId: agent.anthropicFederationRuleId,
         k8sServiceAccountName: agent.k8sServiceAccountName,
+        podServiceAccountName: agent.podServiceAccountName,
       },
     ]);
     const failure = result.failed.find((f) => f.agentId === agent.id);

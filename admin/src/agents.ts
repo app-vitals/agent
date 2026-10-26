@@ -76,6 +76,8 @@ export interface AgentRecord {
  * strips them from its response.
  */
 export interface AgentSummary extends Partial<AgentAnthropicIdentity> {
+  /** COS-48.1 pod ServiceAccount (read by reconcile when the flag is on). */
+  podServiceAccountName?: string | null;
   id: string;
   name: string;
   selfHosted: boolean;
@@ -255,6 +257,7 @@ const SUMMARY_SELECT = {
   anthropicServiceAccountId: true,
   anthropicFederationRuleId: true,
   k8sServiceAccountName: true,
+  podServiceAccountName: true,
 } as const;
 
 const DETAIL_SELECT = {
@@ -287,6 +290,7 @@ const DETAIL_SELECT = {
   anthropicServiceAccountId: true,
   anthropicFederationRuleId: true,
   k8sServiceAccountName: true,
+  podServiceAccountName: true,
 } as const;
 
 // ─── Service ──────────────────────────────────────────────────────────────────
