@@ -441,4 +441,83 @@ test.describe("GET /admin/chat/:agentId/threads/:threadId — CFB-3.2 mobile dra
     // A 1px rounding tolerance guards against sub-pixel layout.
     expect(composerBottom).toBeLessThanOrEqual(viewportHeight + 1);
   });
+
+  // ─── Voice-first composer: phone mic size + auto-play toggle persistence ──
+
+  test("at 375px the mic and auto-play buttons are >= 56px round thumb targets", async ({
+    page,
+    context,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await loadChatThreadPage(page, context);
+
+    const sizes = await page.evaluate(() =>
+      ["mic-btn", "autoplay-btn"].map((id) => {
+        const el = document.getElementById(id) as HTMLElement;
+        const rect = el.getBoundingClientRect();
+        return {
+          id,
+          width: rect.width,
+          height: rect.height,
+          radius: getComputedStyle(el).borderRadius,
+        };
+      }),
+    );
+    for (const { id, width, height, radius } of sizes) {
+      expect(width, id).toBeGreaterThanOrEqual(56);
+      expect(height, id).toBeGreaterThanOrEqual(56);
+      expect(radius, id).toBe("50%");
+    }
+  });
+
+  test("at 1280px the mic keeps the 44px desktop row height", async ({
+    page,
+    context,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await loadChatThreadPage(page, context);
+    const height = await page.evaluate(
+      () =>
+        (document.getElementById("mic-btn") as HTMLElement).getBoundingClientRect()
+          .height,
+    );
+    expect(height).toBe(44);
+  });
+
+  test("the auto-play toggle persists per thread across a reload", async ({
+    page,
+    context,
+  }) => {
+    await loadChatThreadPage(page, context);
+    const toggle = page.locator("#autoplay-btn");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect(toggle).toHaveClass(/chat-autoplay-on/);
+    const stored = await page.evaluate(
+      (threadId) =>
+        window.localStorage.getItem(`shipwright.chat.autoplay.${threadId}`),
+      THREAD_ID,
+    );
+    expect(stored).toBe("1");
+
+    await page.reload();
+    await expect(page.locator("#autoplay-btn")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await page.locator("#autoplay-btn").click();
+    await expect(page.locator("#autoplay-btn")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    const cleared = await page.evaluate(
+      (threadId) =>
+        window.localStorage.getItem(`shipwright.chat.autoplay.${threadId}`),
+      THREAD_ID,
+    );
+    expect(cleared).toBeNull();
+  });
 });

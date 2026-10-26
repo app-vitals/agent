@@ -2266,6 +2266,16 @@ const chatPageStyles = `
          squeezed to ~160px next to the Attach/Send buttons at narrow widths. */
       .chat-composer-row { flex-wrap:wrap }
       .chat-message-input { flex-basis:100%; }
+      /* Voice-first composer on phones: the mic and the auto-play toggle
+         become 56px round thumb targets (desktop keeps the 44px text-button
+         row), and an active recording pulses a red ring so the state is
+         obvious at arm's length. */
+      .chat-composer-btn--mic, .chat-composer-btn--autoplay { width:56px;height:56px;padding:0;border-radius:50%;font-size:24px;line-height:1 }
+      .chat-composer-btn--mic.chat-mic-recording { animation:chat-mic-pulse 1.2s ease-in-out infinite }
+      @keyframes chat-mic-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(185,28,28,0.45) } 50% { box-shadow:0 0 0 10px rgba(185,28,28,0) } }
+      @media (prefers-reduced-motion: reduce) {
+        .chat-composer-btn--mic.chat-mic-recording { animation:none;box-shadow:0 0 0 4px rgba(185,28,28,0.3) }
+      }
       /* .chat-thread-page combines with .vos-page (specificity 0,2,0), which
          otherwise beats .vos-page's own mobile padding rule (0,1,0) — pin the
          effective mobile padding here. The bottom padding is intentionally
@@ -2354,6 +2364,21 @@ export const STALL_WARN_AFTER_MS = 120_000;
 // (DEFAULT_CLAUDE_TIMEOUT_MS 1hr + CLAIM_TTL_BUFFER_MS 5min). Inline JS can't
 // import the lib file, so the value is hardcoded here with this reference.
 export const ABSOLUTE_MAX_MS = 3_900_000;
+
+/**
+ * localStorage key prefix for the per-thread "auto-play voice replies" switch
+ * (`<prefix><threadId>` = "1" when on). Browser-local by design: a phone and a
+ * laptop remember the switch separately and no server round-trip or schema
+ * field is involved. Exported so tests can assert the inline script carries it.
+ */
+export const AUTOPLAY_STORAGE_KEY_PREFIX = "shipwright.chat.autoplay.";
+/**
+ * A 10ms silent WAV. iOS Safari only lets `play()` run on a media element that
+ * was first started inside a user gesture, so the inline script plays this on
+ * a shared Audio element during the mic/toggle/send taps and later reuses that
+ * unlocked element for a reply when the bubble's own control refuses.
+ */
+const AUTOPLAY_UNLOCK_WAV = "data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==";
 
 /**
  * Module-level pure bubble renderer (hoisted out of renderChatThreadPage in
@@ -2545,6 +2570,12 @@ const chatThreadStyles = `
     .chat-composer-btn--attach { padding:0 16px }
     .chat-composer-btn--mic { padding:0 16px }
     .chat-composer-btn--mic.chat-mic-recording { background:#fee2e2;color:#b91c1c;border-color:#b91c1c }
+    /* Auto-play voice replies toggle: aria-pressed button next to the mic;
+       the on-state reads green so the phone shows at a glance that replies
+       will speak on their own. */
+    .chat-composer-btn--autoplay { padding:0 16px }
+    .chat-composer-btn--autoplay.chat-autoplay-on { background:#dcfce7;color:#15803d;border-color:#15803d }
+    .chat-autoplay-hint { display:inline-block;margin-top:4px;font-size:12px;color:#6b7280 }
     .chat-composer-btn--send { padding:0 20px }
     /* Live-progress stall state (CFB-2.3): when progressSeq hasn't advanced for
        STALL_WARN_AFTER_MS the status bubble gains .${STALL_INDICATOR_CLASS},
@@ -2822,6 +2853,7 @@ export function renderChatThreadPage(
   var fileInput = document.getElementById('file-input');
   var fileName = document.getElementById('file-name');
   var micBtn = document.getElementById('mic-btn');
+  var autoplayBtn = document.getElementById('autoplay-btn');
   var container = document.getElementById('messages-container');
   var agentId = ${JSON.stringify(agentId)};
   var threadId = ${JSON.stringify(thread.id)};
@@ -2850,6 +2882,102 @@ export function renderChatThreadPage(
   var LIVE_STATUS_MILESTONE_ID = ${JSON.stringify(LIVE_STATUS_MILESTONE_ID)};
   var STALL_INDICATOR_CLASS = ${JSON.stringify(STALL_INDICATOR_CLASS)};
   var ASSISTANT_ROLE_CLASS = '${CHAT_BUBBLE_CLASS} ${chatBubbleRoleClass("assistant")}';
+
+  // ─── Auto-play voice replies ─────────────────────────────────────────────
+  // Per-thread switch remembered in localStorage (no server state). When on,
+  // the newest assistant audio bubble inserted by a poll is played as soon as
+  // it lands, so a voice-note round trip needs no tap to hear the answer.
+  // Bubbles already in the DOM at load are seeded into renderedIds and can
+  // never qualify, so reopening a thread never replays its backlog.
+  var AUTOPLAY_STORAGE_KEY = ${JSON.stringify(AUTOPLAY_STORAGE_KEY_PREFIX)} + threadId;
+  var AUTOPLAY_UNLOCK_SRC = ${JSON.stringify(AUTOPLAY_UNLOCK_WAV)};
+  var autoplayEnabled = false;
+  try {
+    autoplayEnabled = !!window.localStorage && window.localStorage.getItem(AUTOPLAY_STORAGE_KEY) === '1';
+  } catch (e) {
+    autoplayEnabled = false; // private mode / storage blocked
+  }
+  var unlockAudio = null;
+
+  function setAutoplayUI() {
+    if (!autoplayBtn) return;
+    autoplayBtn.setAttribute('aria-pressed', autoplayEnabled ? 'true' : 'false');
+    autoplayBtn.classList.toggle('chat-autoplay-on', autoplayEnabled);
+    autoplayBtn.textContent = autoplayEnabled ? '🔊' : '🔇';
+    autoplayBtn.setAttribute('title', autoplayEnabled ? 'Auto-play voice replies: on' : 'Auto-play voice replies: off');
+  }
+
+  // Call from inside a user gesture (tap on mic / toggle / send). Plays the
+  // silent clip on one shared Audio element so iOS treats that element as
+  // user-started; playReply() falls back to it when a bubble's own control
+  // is refused. Resets the src every time so a previous reply never replays.
+  function unlockAutoplay() {
+    if (!autoplayEnabled || typeof Audio === 'undefined') return;
+    try {
+      if (!unlockAudio) unlockAudio = new Audio();
+      unlockAudio.src = AUTOPLAY_UNLOCK_SRC;
+      var p = unlockAudio.play();
+      if (p && p.then) p.then(function() { unlockAudio.pause(); }).catch(function() {});
+    } catch (e) {
+      // No audio support — the visible control is still there.
+    }
+  }
+
+  function showAutoplayHint(bubble) {
+    if (!bubble || !bubble.querySelector || bubble.querySelector('.chat-autoplay-hint')) return;
+    var hint = document.createElement('span');
+    hint.className = 'chat-autoplay-hint';
+    hint.textContent = 'Tap ▶ to listen';
+    var audio = bubble.querySelector('audio');
+    if (audio && audio.parentNode) audio.parentNode.insertBefore(hint, audio.nextSibling);
+    else bubble.appendChild(hint);
+  }
+
+  function playReply(audio, bubble) {
+    var attempt;
+    try { attempt = audio.play(); } catch (e) { attempt = Promise.reject(e); }
+    Promise.resolve(attempt).catch(function() {
+      // The bubble's control was refused (iOS: this element never saw a
+      // gesture). Reuse the unlocked element; pause it if the user takes
+      // over with the visible control.
+      if (!unlockAudio) { showAutoplayHint(bubble); return; }
+      try {
+        unlockAudio.src = audio.currentSrc || audio.getAttribute('src');
+        audio.addEventListener('play', function() { unlockAudio.pause(); });
+        Promise.resolve(unlockAudio.play()).catch(function() { showAutoplayHint(bubble); });
+      } catch (e) {
+        showAutoplayHint(bubble);
+      }
+    });
+  }
+
+  // nodes: assistant bubbles first inserted by this poll, in order. Only the
+  // newest one with an <audio> plays, so a burst never stacks overlapping
+  // replies.
+  function maybeAutoplay(nodes) {
+    if (!autoplayEnabled) return;
+    for (var i = nodes.length - 1; i >= 0; i--) {
+      var audio = nodes[i] && nodes[i].querySelector ? nodes[i].querySelector('audio') : null;
+      if (!audio) continue;
+      playReply(audio, nodes[i]);
+      return;
+    }
+  }
+
+  if (autoplayBtn) {
+    setAutoplayUI();
+    autoplayBtn.addEventListener('click', function() {
+      autoplayEnabled = !autoplayEnabled;
+      try {
+        if (autoplayEnabled) window.localStorage.setItem(AUTOPLAY_STORAGE_KEY, '1');
+        else window.localStorage.removeItem(AUTOPLAY_STORAGE_KEY);
+      } catch (e) {
+        // Storage blocked: the switch still works for this page view.
+      }
+      setAutoplayUI();
+      unlockAutoplay();
+    });
+  }
 
   // Poll cadence.
   var POLL_PENDING_MS = 2000; // adaptive fast poll while a reply is pending
@@ -2916,16 +3044,18 @@ export function renderChatThreadPage(
     else container.appendChild(node);
   }
 
-  // Insert a server-rendered bubbleHtml string, deduped by id.
+  // Insert a server-rendered bubbleHtml string, deduped by id. Returns the
+  // inserted node on a first insertion, null otherwise (dupe / no html).
   function renderServerBubble(m) {
-    if (!m || !m.id || renderedIds[m.id]) return false;
+    if (!m || !m.id || renderedIds[m.id]) return null;
     renderedIds[m.id] = true;
-    if (!m.bubbleHtml) return false;
+    if (!m.bubbleHtml) return null;
     var tpl = document.createElement('template');
     tpl.innerHTML = m.bubbleHtml.trim();
     var node = tpl.content.firstChild;
-    if (node) insertBeforeLiveStatus(node);
-    return true;
+    if (!node) return null;
+    insertBeforeLiveStatus(node);
+    return node;
   }
 
   // True when the user is within ~80px of the bottom, i.e. hasn't scrolled up
@@ -3047,10 +3177,13 @@ export function renderChatThreadPage(
         // bubbleHtml, which already includes any Retry button (CFB-2.4) since
         // the server computes retryBody per-message; wire up any new buttons
         // after insertion (see wireRetryButtons below).
+        var newAssistantNodes = [];
         for (var i = 0; i < msgs.length; i++) {
-          renderServerBubble(msgs[i]);
+          var inserted = renderServerBubble(msgs[i]);
+          if (inserted && msgs[i].role === 'assistant') newAssistantNodes.push(inserted);
         }
         wireRetryButtons();
+        maybeAutoplay(newAssistantNodes);
 
         // Determine whether a reply is still pending (last message is an
         // unreplied user message).
@@ -3142,6 +3275,7 @@ export function renderChatThreadPage(
       micBtn.style.display = 'none';
     } else {
       micBtn.addEventListener('click', function() {
+        unlockAutoplay(); // the tap is the gesture iOS needs for later playback
         if (mediaRecorder && mediaRecorder.state === 'recording') {
           mediaRecorder.stop();
           return;
@@ -3251,6 +3385,7 @@ export function renderChatThreadPage(
   }
 
   form.addEventListener('submit', function(e) {
+    unlockAutoplay();
     e.preventDefault();
     var text = input.value.trim();
     var file = fileInput && fileInput.files && fileInput.files[0];
@@ -3468,6 +3603,14 @@ export function renderChatThreadPage(
               aria-label="Record a voice message"
               title="Record a voice message"
             >🎤</button>
+            <button
+              type="button"
+              id="autoplay-btn"
+              class="btn btn-secondary chat-composer-btn chat-composer-btn--autoplay"
+              aria-label="Auto-play voice replies"
+              aria-pressed="false"
+              title="Auto-play voice replies: off"
+            >🔇</button>
             <button
               type="button"
               id="attach-btn"
