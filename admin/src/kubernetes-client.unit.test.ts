@@ -510,6 +510,28 @@ describe("RecordedKubernetesClient.patchDeployment()", () => {
     );
   });
 
+  it("strategic-merges serviceAccountName: a string sets, null clears (with the alias)", async () => {
+    const rec = new RecordedKubernetesClient({
+      deployments: { "shipwright/agent-abc": makeDeployment("img:v1") },
+      secrets: {},
+    });
+    const patchSa = (podSpec: object) =>
+      rec.patchDeployment("shipwright", "agent-abc", {
+        spec: { template: { spec: podSpec } },
+      });
+    const podSpec = async () =>
+      (await rec.getDeployment("shipwright", "agent-abc")).spec.template.spec;
+
+    await patchSa({ serviceAccountName: "agent-sa" });
+    expect((await podSpec()).serviceAccountName).toBe("agent-sa");
+    // Untouched containers survive a pod-level-only patch.
+    expect((await podSpec()).containers[0]?.image).toBe("img:v1");
+
+    await patchSa({ serviceAccountName: null, serviceAccount: null });
+    expect((await podSpec()).serviceAccountName).toBeUndefined();
+    expect((await podSpec()).serviceAccount).toBeUndefined();
+  });
+
   it("throws NotFoundError when the deployment does not exist", async () => {
     const rec = new RecordedKubernetesClient({ deployments: {}, secrets: {} });
 

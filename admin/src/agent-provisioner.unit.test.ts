@@ -21,6 +21,7 @@ import {
   type KubernetesAgentProvisionerConfig,
   NoopAgentProvisioner,
   perAgentFederation,
+  podIdentityPatch,
   policyDrifted,
 } from "./agent-provisioner.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
@@ -1138,6 +1139,7 @@ function manifestWith(
   overrides: {
     imageTag?: string;
     anthropicFederation?: AgentAnthropicFederation;
+    podServiceAccountName?: string;
   } = {},
 ) {
   return buildAgentDeploymentManifest({
@@ -1151,6 +1153,7 @@ function manifestWith(
     tokenSecretKey: "token",
     claudePolicy,
     anthropicFederation: overrides.anthropicFederation,
+    podServiceAccountName: overrides.podServiceAccountName,
   });
 }
 
@@ -1896,5 +1899,138 @@ describe("KubernetesAgentProvisioner — pod service account (COS-48.1)", () => 
     expect(
       await desiredSa(BASE_CONFIG, { podServiceAccountName: "agent-sa" }),
     ).toBeUndefined();
+  });
+});
+
+// ─── Pod ServiceAccount drift (COS-49.1) ────────────────────────────────────
+
+describe("podIdentityPatch()", () => {
+  const withSa = (name?: string) =>
+    manifestWith(undefined, { podServiceAccountName: name });
+
+  it("patches the desired ServiceAccount when the live one differs", () => {
+    expect(podIdentityPatch(withSa(), withSa("agent-sa"))).toEqual({
+      serviceAccountName: "agent-sa",
+    });
+    expect(podIdentityPatch(withSa("old-sa"), withSa("agent-sa"))).toEqual({
+      serviceAccountName: "agent-sa",
+    });
+  });
+
+  it("is undefined when already in sync", () => {
+    expect(
+      podIdentityPatch(withSa("agent-sa"), withSa("agent-sa")),
+    ).toBeUndefined();
+  });
+
+  it("clears serviceAccountName and serviceAccount when live equals the previous value", () => {
+    expect(podIdentityPatch(withSa("agent-sa"), withSa(), "agent-sa")).toEqual({
+      serviceAccountName: null,
+      serviceAccount: null,
+    });
+  });
+
+  it("leaves a foreign ServiceAccount alone when clearing", () => {
+    expect(
+      podIdentityPatch(withSa("hand-set"), withSa(), "agent-sa"),
+    ).toBeUndefined();
+  });
+
+  it("never clears when the previous value is unknown", () => {
+    expect(podIdentityPatch(withSa("agent-sa"), withSa())).toBeUndefined();
+    expect(
+      podIdentityPatch(withSa("agent-sa"), withSa(), null),
+    ).toBeUndefined();
+  });
+
+  it("defers to federationPatch when the desired Deployment has federation", () => {
+    expect(
+      podIdentityPatch(withSa("x"), fedManifest(FED_A), "x"),
+    ).toBeUndefined();
+  });
+});
+
+describe("KubernetesAgentProvisioner.reconcile() — pod ServiceAccount drift (COS-49.1)", () => {
+  const live = (sa?: string) =>
+    new RecordedKubernetesClient({
+      deployments: {
+        [`${NAMESPACE}/${POLICY_RESOURCE}`]: manifestWith(undefined, {
+          podServiceAccountName: sa,
+        }),
+      },
+      secrets: {},
+      pvcs: {},
+    });
+  const provisioner = (client: KubernetesClient, enabled = true) =>
+    new KubernetesAgentProvisioner(client, stubTokens() as AgentTokenService, {
+      ...BASE_CONFIG,
+      podServiceAccount: { enabled },
+    });
+  const sa = async (rec: RecordedKubernetesClient) =>
+    (await rec.getDeployment(NAMESPACE, POLICY_RESOURCE)).spec.template.spec
+      .serviceAccountName;
+
+  for (const policyOnly of [false, true]) {
+    it(`patches the desired ServiceAccount when live differs (policyOnly=${policyOnly})`, async () => {
+      const rec = live("old-sa");
+      const { client, patches } = patchSpy(rec);
+      const result = await provisioner(client).reconcile(
+        [{ id: POLICY_AGENT_ID, podServiceAccountName: "agent-sa" }],
+        { policyOnly },
+      );
+      expect(result.updated).toEqual([POLICY_AGENT_ID]);
+      expect(patches).toHaveLength(1);
+      expect(await sa(rec)).toBe("agent-sa");
+    });
+  }
+
+  it("clears a previously managed ServiceAccount", async () => {
+    const rec = live("agent-sa");
+    const result = await provisioner(rec).reconcile([
+      {
+        id: POLICY_AGENT_ID,
+        podServiceAccountName: null,
+        previousPodServiceAccountName: "agent-sa",
+      },
+    ]);
+    expect(result.updated).toEqual([POLICY_AGENT_ID]);
+    expect(await sa(rec)).toBeUndefined();
+  });
+
+  it("leaves a hand-set ServiceAccount on an unmanaged Deployment alone", async () => {
+    const rec = live("hand-set");
+    const { client, patches } = patchSpy(rec);
+    const result = await provisioner(client).reconcile(
+      [
+        {
+          id: POLICY_AGENT_ID,
+          podServiceAccountName: null,
+          previousPodServiceAccountName: "agent-sa",
+        },
+      ],
+      { policyOnly: true },
+    );
+    expect(result.updated).toEqual([]);
+    expect(patches).toHaveLength(0);
+    expect(await sa(rec)).toBe("hand-set");
+  });
+
+  it("does nothing for a clear without a previous value (startup pass)", async () => {
+    const rec = live("agent-sa");
+    const { client, patches } = patchSpy(rec);
+    await provisioner(client).reconcile(
+      [{ id: POLICY_AGENT_ID, podServiceAccountName: null }],
+      { policyOnly: true },
+    );
+    expect(patches).toHaveLength(0);
+  });
+
+  it("does not patch when the flag is off", async () => {
+    const rec = live("hand-set");
+    const { client, patches } = patchSpy(rec);
+    await provisioner(client, false).reconcile([
+      { id: POLICY_AGENT_ID, podServiceAccountName: "agent-sa" },
+    ]);
+    expect(patches).toHaveLength(0);
   });
 });

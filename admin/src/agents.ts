@@ -87,6 +87,8 @@ export interface AgentSummary extends Partial<AgentAnthropicIdentity> {
 }
 
 export interface AgentDetail extends Partial<AgentAnthropicIdentity> {
+  /** COS-49.1 pod ServiceAccount; null when unset. */
+  podServiceAccountName?: string | null;
   id: string;
   name: string;
   slackId: string | null;
@@ -137,6 +139,8 @@ export interface AgentDetail extends Partial<AgentAnthropicIdentity> {
 }
 
 interface UpdateSelfHostedInput {
+  /** COS-49.1: pod ServiceAccount; null clears it. */
+  podServiceAccountName?: string | null;
   /** SSP-5.3: owning account; null clears it (unassigned/platform agent). */
   accountId?: string | null;
   /**
@@ -471,6 +475,9 @@ export class AgentService {
         selfHosted: input.selfHosted,
         ...(input.accountId !== undefined
           ? { accountId: input.accountId }
+          : {}),
+        ...(input.podServiceAccountName !== undefined
+          ? { podServiceAccountName: input.podServiceAccountName }
           : {}),
         ...(input.repos !== undefined ? { repos: input.repos } : {}),
         ...(input.reviewAuthorAllowlist !== undefined

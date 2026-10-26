@@ -39,7 +39,10 @@ import {
   getSelfServeSpecialty,
   isAccountCreateErrorCode,
 } from "./account-agent-create.ts";
-import { reconcileAgentAfterAccountChange } from "./agent-account-assignment.ts";
+import {
+  reconcileAgentAfterAccountChange,
+  reconcileAgentAfterPodServiceAccountChange,
+} from "./agent-account-assignment.ts";
 import {
   type AgentAskDeps,
   type AskChatClient,
@@ -62,7 +65,10 @@ import type { AgentEnvService } from "./agent-envs.ts";
 import type { AgentGitHubInstallationsService } from "./agent-github-installations.ts";
 import type { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
-import type { AgentProvisioner } from "./agent-provisioner.ts";
+import {
+  type AgentProvisioner,
+  hasPerAgentIdentity,
+} from "./agent-provisioner.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AgentToolService } from "./agent-tools.ts";
 import type { AgentService } from "./agents.ts";
@@ -94,8 +100,10 @@ import {
 import {
   ApiError,
   BadRequestError,
+  ConflictError,
   ForbiddenError,
   NotFoundError,
+  UnprocessableEntityError,
 } from "./errors.ts";
 import {
   AddAgentReposBodySchema,
@@ -288,6 +296,12 @@ export interface AdminDeps {
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
   anthropicFederationEnabled?: boolean;
   /**
+   * COS-49.1: per-agent pod ServiceAccount flag
+   * (SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED). Off (default) -> PATCH
+   * /agents/:id with podServiceAccountName returns 409.
+   */
+  podServiceAccountEnabled?: boolean;
+  /**
    * Agent-to-agent ask (COS-31.1): flag + allowlist config, the AgentAsk
    * audit store and an injectable clock. Absent or flag off → the ask routes
    * 404. See agent-ask.ts.
@@ -397,6 +411,8 @@ const GetAgentResultSchema = z
     patchAuthorAllowlist: z.array(z.string()),
     restrictSlackToMembers: z.boolean(),
     typeName: z.string(),
+    /** COS-49.1: the pod ServiceAccount; null when unset. */
+    podServiceAccountName: z.string().nullable(),
     /** Owning account; null for unassigned agents (task-store maps null to its 'default' account). */
     accountId: z.string().nullable(),
     createdAt: z.string().datetime(),
@@ -604,7 +620,7 @@ const patchAgentRoute = createRoute({
   path: "/agents/{id}",
   summary: "Update an agent",
   description:
-    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, and/or `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows). `typeName` and `trialExpiryWarnedAt` are not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
+    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `typeName` and `trialExpiryWarnedAt` are not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
   request: {
     params: AgentIdParamSchema,
     body: {
@@ -619,6 +635,16 @@ const patchAgentRoute = createRoute({
     400: { description: "Bad request", ...jsonError },
     403: { description: "Forbidden", ...jsonError },
     404: { description: "Agent not found", ...jsonError },
+    409: {
+      description:
+        "podServiceAccountName supplied while the pod ServiceAccount flag is off",
+      ...jsonError,
+    },
+    422: {
+      description:
+        "podServiceAccountName supplied for an agent with a per-agent federated identity",
+      ...jsonError,
+    },
   },
 });
 
@@ -1657,6 +1683,39 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         throw new ForbiddenError("Admin access required to change accountId");
       }
     }
+    // COS-49.1: pod ServiceAccount — platform-admin only, flag-gated, and not
+    // for agents whose federated identity owns the ServiceAccount.
+    let previousPodServiceAccountName: string | null = null;
+    if (body.podServiceAccountName !== undefined) {
+      if (c.get("isAdmin") !== true) {
+        throw new ForbiddenError(
+          "Admin access required to change podServiceAccountName",
+        );
+      }
+      if (deps.podServiceAccountEnabled !== true) {
+        throw new ConflictError(
+          "podServiceAccountName cannot be changed: SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is not enabled",
+        );
+      }
+      const current = await agentService.getDetail(agentId);
+      if (!current) {
+        throw new NotFoundError(`agent ${agentId} not found`);
+      }
+      if (
+        hasPerAgentIdentity({
+          ownerEmail: current.ownerEmail ?? null,
+          anthropicIdentityName: current.anthropicIdentityName ?? null,
+          anthropicServiceAccountId: current.anthropicServiceAccountId ?? null,
+          anthropicFederationRuleId: current.anthropicFederationRuleId ?? null,
+          k8sServiceAccountName: current.k8sServiceAccountName ?? null,
+        })
+      ) {
+        throw new UnprocessableEntityError(
+          "podServiceAccountName cannot be set on an agent with a per-agent federated identity (federation owns its ServiceAccount)",
+        );
+      }
+      previousPodServiceAccountName = current.podServiceAccountName ?? null;
+    }
     const collision =
       body.repos !== undefined ? describeRepoNameCollision(body.repos) : null;
     if (collision) {
@@ -1665,6 +1724,9 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     const agent = await agentService
       .updateSelfHosted(agentId, {
         selfHosted: body.selfHosted,
+        ...(body.podServiceAccountName !== undefined
+          ? { podServiceAccountName: body.podServiceAccountName }
+          : {}),
         ...(body.accountId !== undefined ? { accountId: body.accountId } : {}),
         ...(body.repos !== undefined ? { repos: body.repos } : {}),
         ...(body.reviewAuthorAllowlist !== undefined
@@ -1719,8 +1781,24 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       body.accountId !== undefined
         ? await reconcileAgentAfterAccountChange(provisioner, agent)
         : undefined;
+    let podSaWarning: string | undefined;
+    if (body.podServiceAccountName !== undefined) {
+      // Audit: ids and names only — never the caller's key.
+      console.info(
+        `[agents-api] podServiceAccountName changed: agent=${agentId} old=${previousPodServiceAccountName ?? "null"} new=${body.podServiceAccountName ?? "null"} caller=${c.get("caller")?.name ?? "anonymous"}`,
+      );
+      if (body.podServiceAccountName !== previousPodServiceAccountName) {
+        podSaWarning = await reconcileAgentAfterPodServiceAccountChange(
+          provisioner,
+          agent,
+          previousPodServiceAccountName,
+        );
+      }
+    }
     const warning =
-      [slackWarning, reconcileWarning].filter(Boolean).join("; ") || undefined;
+      [slackWarning, reconcileWarning, podSaWarning]
+        .filter(Boolean)
+        .join("; ") || undefined;
     return c.json(serializeAgent(agent, warning), 200);
   });
 
@@ -2739,6 +2817,7 @@ function serializeAgent(
     restrictSlackToMembers?: boolean;
     typeName: string;
     accountId?: string | null;
+    podServiceAccountName?: string | null;
     createdAt: Date;
     updatedAt: Date;
     missingRequiredEnv?: string[];
@@ -2768,6 +2847,7 @@ function serializeAgent(
     restrictSlackToMembers: agent.restrictSlackToMembers ?? false,
     typeName: agent.typeName,
     accountId: agent.accountId ?? null,
+    podServiceAccountName: agent.podServiceAccountName ?? null,
     createdAt: agent.createdAt.toISOString(),
     updatedAt: agent.updatedAt.toISOString(),
     missingRequiredEnv: agent.missingRequiredEnv ?? [],

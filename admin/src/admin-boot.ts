@@ -74,6 +74,7 @@ import { AgentAskService } from "./agent-ask.ts";
 import { parseAgentAskConfig } from "./agent-ask-config.ts";
 import { CronRunNowService } from "./cron-run-now.ts";
 import { parseCronRunNowConfig } from "./cron-run-now-config.ts";
+import { parsePodServiceAccountConfig } from "./pod-service-account-config.ts";
 import { AgentChatTokenService } from "./agent-chat-tokens.ts";
 import { AgentCronJobService } from "./agent-cron-jobs.ts";
 import { AgentCronRunStatsService } from "./agent-cron-run-stats.ts";
@@ -463,6 +464,7 @@ export async function startAdmin(
     pool: adminPool,
     selfServe,
     anthropicFederationEnabled,
+    podServiceAccountEnabled: parsePodServiceAccountConfig(process.env).enabled,
     chatCredentialsEnabled: parseChatCredentialConfig(process.env).enabled,
     ...(chatCredentialsClient
       ? { chatCredentials: chatCredentialsClient }
