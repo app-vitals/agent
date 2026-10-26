@@ -40,7 +40,18 @@ const WORKSPACE_TEMPLATE_DIR =
 // Repo root — two levels up from agent/src/. In Docker this is /app; on the Pi
 // it resolves to the checkout root. Uses a local marketplace so plugins are always
 // available regardless of whether the GitHub repo is accessible.
-const SHIPWRIGHT_REPO_ROOT = join(import.meta.dir, "..", "..", "..");
+const DEFAULT_SHIPWRIGHT_REPO_ROOT = join(import.meta.dir, "..", "..", "..");
+
+/**
+ * The repo root used for the built-in marketplace and specialty lookup.
+ * `SHIPWRIGHT_REPO_ROOT` overrides the computed default (which resolves to `/`
+ * in the platform image layout); unset or empty keeps the computed default.
+ */
+export function resolveShipwrightRepoRoot(
+  env: Record<string, string | undefined> = process.env,
+): string {
+  return env.SHIPWRIGHT_REPO_ROOT || DEFAULT_SHIPWRIGHT_REPO_ROOT;
+}
 
 // Local marketplace name — matches the `name` field in .claude-plugin/marketplace.json.
 const SHIPWRIGHT_MARKETPLACE = "shipwright";
@@ -73,10 +84,11 @@ const REQUIRED_TEMPLATES: readonly string[] = [
  */
 export function resolveTemplatesDir(
   requestedType: string | undefined,
-  repoRoot: string = SHIPWRIGHT_REPO_ROOT,
+  repoRootOverride?: string,
   warn: (message: string) => void = (m) => console.warn(m),
   env: Record<string, string | undefined> = process.env,
 ): string {
+  const repoRoot = repoRootOverride ?? resolveShipwrightRepoRoot(env);
   const typeName =
     requestedType ||
     env.SHIPWRIGHT_DEFAULT_AGENT_TYPE ||
@@ -393,7 +405,7 @@ export async function installPlugins(
   execFn: ExecFn = defaultExec,
   cwd: string = process.cwd(),
   agentPlugins: AgentPlugin[] = [],
-  shipwrightRepoRoot: string = SHIPWRIGHT_REPO_ROOT,
+  shipwrightRepoRootOverride?: string,
   pluginManifestPath: string = join(
     process.env.HOME ?? "/root",
     ".claude",
@@ -402,7 +414,10 @@ export async function installPlugins(
   ),
   extraMarketplaceDirs?: string[],
   extraMarketplacesRoot: string = BAKED_MARKETPLACES_ROOT,
+  env: Record<string, string | undefined> = process.env,
 ): Promise<void> {
+  const shipwrightRepoRoot =
+    shipwrightRepoRootOverride ?? resolveShipwrightRepoRoot(env);
   try {
     // Determine which extra marketplace dirs to register.
     // Explicit list (injected via tests) takes precedence over discovery.

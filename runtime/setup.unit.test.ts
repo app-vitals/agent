@@ -5,7 +5,15 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { discoverBakedMarketplaces, installPlugins } from "./setup.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  discoverBakedMarketplaces,
+  installPlugins,
+  resolveShipwrightRepoRoot,
+  resolveTemplatesDir,
+} from "./setup.ts";
 
 // Explicit empty extra-marketplace list — every call in this describe block
 // must pass this (or an intentional array) instead of omitting the arg.
@@ -282,5 +290,96 @@ describe("resolveTemplatesDir option resolution (AEP-1.2)", () => {
     expect(warnings[0]).toContain('"base"');
     expect(warnings[0]).toContain("/fixture/types/base/manifest.yaml");
     expect(dir).toMatch(/workspace$/);
+  });
+});
+
+describe("SHIPWRIGHT_REPO_ROOT override (PCB-1.1)", () => {
+  const recordExec = () => {
+    const calls: string[][] = [];
+    const exec = async (_cmd: string, args: string[]) => {
+      calls.push(args);
+      return { stdout: "", exitCode: 0 };
+    };
+    return { calls, exec };
+  };
+  const registerRoot = async (env: Record<string, string | undefined>) => {
+    const { calls, exec } = recordExec();
+    await installPlugins(
+      exec,
+      "/tmp/cwd",
+      [],
+      undefined,
+      "/tmp/nonexistent-manifest.json",
+      NO_EXTRA_MARKETPLACES,
+      "/tmp/nonexistent-baked-root",
+      env,
+    );
+    return calls[0][3];
+  };
+
+  it("installPlugins registers the marketplace from SHIPWRIGHT_REPO_ROOT when set", async () => {
+    expect(await registerRoot({ SHIPWRIGHT_REPO_ROOT: "/opt/custom" })).toBe(
+      "/opt/custom",
+    );
+  });
+
+  it("installPlugins keeps the computed default when unset or empty", async () => {
+    const unset = await registerRoot({});
+    expect(unset).toBe(resolveShipwrightRepoRoot({}));
+    expect(unset).not.toBe("/opt/custom");
+    expect(await registerRoot({ SHIPWRIGHT_REPO_ROOT: "" })).toBe(unset);
+  });
+
+  describe("resolveTemplatesDir", () => {
+    const makeRoot = () => {
+      const root = mkdtempSync(join(tmpdir(), "repo-root-"));
+      const dir = join(root, "specialties", "foo");
+      mkdirSync(join(dir, "tpl"), { recursive: true });
+      writeFileSync(join(dir, "manifest.yaml"), "identity:\n  templatesDir: tpl\n");
+      for (const f of [
+        "CLAUDE.md.template",
+        "SOUL.md.template",
+        "IDENTITY.md.template",
+      ]) {
+        writeFileSync(join(dir, "tpl", f), "x");
+      }
+      return { root, tpl: join(dir, "tpl") };
+    };
+
+    it("looks up specialties under SHIPWRIGHT_REPO_ROOT when set", () => {
+      const { root, tpl } = makeRoot();
+      try {
+        const warnings: string[] = [];
+        const dir = resolveTemplatesDir(
+          "foo",
+          undefined,
+          (m) => warnings.push(m),
+          { SHIPWRIGHT_REPO_ROOT: root },
+        );
+        expect(warnings).toEqual([]);
+        expect(dir).toBe(tpl);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("does not use the override when unset or empty", () => {
+      const { root, tpl } = makeRoot();
+      try {
+        for (const env of [{}, { SHIPWRIGHT_REPO_ROOT: "" }]) {
+          const warnings: string[] = [];
+          const dir = resolveTemplatesDir(
+            "foo",
+            undefined,
+            (m) => warnings.push(m),
+            env,
+          );
+          expect(dir).not.toBe(tpl);
+          expect(warnings).toHaveLength(1);
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
   });
 });
