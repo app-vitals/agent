@@ -2017,6 +2017,114 @@
           "requestedAt"
         ]
       },
+      "CronRunTranscriptUploadResult": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "example": "clx1111111111"
+          },
+          "bytes": {
+            "type": "integer",
+            "example": 2048
+          },
+          "truncated": {
+            "type": "boolean",
+            "example": false
+          },
+          "redactions": {
+            "type": "integer",
+            "example": 0
+          }
+        },
+        "required": [
+          "runId",
+          "bytes",
+          "truncated",
+          "redactions"
+        ]
+      },
+      "UploadCronRunTranscriptBody": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Claude session id the transcript was read from.",
+            "example": "7c1c8d1e-0000-4000-8000-000000000000"
+          },
+          "body": {
+            "type": "string",
+            "description": "The already-redacted transcript (JSONL text). Over 1 MiB (UTF-8 bytes) is a 413. Never logged."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the runtime dropped earlier lines to fit.",
+            "example": false
+          },
+          "redactions": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many secrets the runtime redacted.",
+            "example": 0
+          }
+        },
+        "required": [
+          "body",
+          "truncated",
+          "redactions"
+        ]
+      },
+      "CronRunTranscript": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "example": "clx1111111111"
+          },
+          "cronId": {
+            "type": "string",
+            "example": "clx0987654321"
+          },
+          "sessionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": null
+          },
+          "bytes": {
+            "type": "integer",
+            "example": 2048
+          },
+          "truncated": {
+            "type": "boolean",
+            "example": false
+          },
+          "redactions": {
+            "type": "integer",
+            "example": 0
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-26T12:00:00.000Z"
+          },
+          "body": {
+            "type": "string",
+            "description": "Redacted JSONL transcript."
+          }
+        },
+        "required": [
+          "runId",
+          "cronId",
+          "sessionId",
+          "bytes",
+          "truncated",
+          "redactions",
+          "createdAt",
+          "body"
+        ]
+      },
       "PluginWrapper": {
         "type": "object",
         "properties": {
@@ -2918,6 +3026,9 @@
               "deploy": null,
               "dev-task": null
             }
+          },
+          "features": {
+            "$ref": "#/components/schemas/AgentConfigFeatures"
           }
         },
         "required": [
@@ -2953,6 +3064,25 @@
         "required": [
           "marketplace",
           "plugin"
+        ]
+      },
+      "AgentConfigFeatures": {
+        "type": "object",
+        "properties": {
+          "transcriptUpload": {
+            "type": "boolean",
+            "description": "True when SHIPWRIGHT_TRANSCRIPT_API_ENABLED is on: the runtime uploads a redacted transcript after each cron run.",
+            "example": false
+          },
+          "repoAccessCheck": {
+            "type": "boolean",
+            "description": "Reserved for the repo-access check (COS-44.1).",
+            "example": false
+          }
+        },
+        "required": [
+          "transcriptUpload",
+          "repoAccessCheck"
         ]
       },
       "RuntimeError": {
@@ -4841,6 +4971,167 @@
           },
           "409": {
             "description": "Cron disabled by lockdown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}/crons/{cronId}/runs/{runId}/transcript": {
+      "put": {
+        "summary": "Upload a cron run transcript",
+        "description": "Stores (upserts) the runtime's already-redacted session transcript for a cron run, then keeps only the agent's newest 200 transcripts. Callers: the agent's own key, or `*`. `body` over 1 MiB (UTF-8 bytes) is a 413. 404 unless SHIPWRIGHT_TRANSCRIPT_API_ENABLED is `enabled`, or when the run is not owned by the cron/agent.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx1234567890"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx0987654321"
+            },
+            "required": true,
+            "name": "cronId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx1111111111"
+            },
+            "required": true,
+            "name": "runId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadCronRunTranscriptBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transcript stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CronRunTranscriptUploadResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Run not found, or transcript API disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Transcript body over 1 MiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Get a cron run transcript",
+        "description": "Returns the stored redacted transcript. `*`, `platform.read` and `platform.ops` callers only: an agent key is 403 even for its own runs. Every read writes an AgentTranscriptRead audit row before the response. 404 when SHIPWRIGHT_TRANSCRIPT_API_ENABLED is not `enabled` or no transcript exists.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx1234567890"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx0987654321"
+            },
+            "required": true,
+            "name": "cronId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx1111111111"
+            },
+            "required": true,
+            "name": "runId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The transcript",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CronRunTranscript"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No transcript, or transcript API disabled",
             "content": {
               "application/json": {
                 "schema": {

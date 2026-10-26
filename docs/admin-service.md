@@ -45,6 +45,8 @@ All paths are under `admin/src/`. Most modules have sibling `*.unit.test.ts`,
 | `agents-api.ts` | `createAdminApp` and `parseAdminApiKeys`: admin CRUD under `/agents` (agents, envs, crons and runs, tools, tokens, plugins, repos, provision, reconcile, federation strip-credentials, chat-token and cron-run stats, GitHub installations). Also wires the delete flow. |
 | `cron-run-now-config.ts` | Parses `SHIPWRIGHT_CRON_RUN_NOW_ENABLED` into `{enabled}`. |
 | `cron-run-now.ts` | `registerCronRunNowRoutes` (`POST /agents/{id}/crons/{cronId}/run-now`, flag gated) and `CronRunNowService`, which stamps the job and writes the `AgentCronRunRequest` audit row. |
+| `cron-run-transcripts.ts` | `registerCronRunTranscriptRoutes` (`PUT`/`GET .../runs/{runId}/transcript`, flag gated) and `CronRunTranscriptService` (upsert, 200-per-agent retention, `AgentTranscriptRead` audit). |
+| `transcript-config.ts` | Parses `SHIPWRIGHT_TRANSCRIPT_API_ENABLED` into `{enabled}`. |
 | `agent-ask.ts` | `registerAgentAskRoutes` (`POST /agents/{id}/ask`, `GET /agents/{id}/asks`, flag gated) and `AgentAskService`, the AgentAsk audit store. |
 | `accounts-api.ts` | `createAccountsApp`: `/accounts` list/get/create/patch, admin-only and self-serve-flag gated. |
 | `api-auth.ts` | Combined bearer-or-session-cookie middleware, scope kinds, `PLATFORM_OPS_ROUTES`. |
@@ -175,6 +177,7 @@ Read at startup in `admin-boot.ts` and `admin-boot-config.ts`. Highlights; see
 | Self-serve | `SHIPWRIGHT_SELF_SERVE_ENABLED=enabled`, `_DEFAULT_MAX_AGENTS`, `_CONTACT_EMAIL`, `_AGENT_TYPE` |
 | Cron run-now | `SHIPWRIGHT_CRON_RUN_NOW_ENABLED=enabled` (404 when off) |
 | Agent ask | `SHIPWRIGHT_AGENT_ASK_ENABLED=enabled`, `SHIPWRIGHT_AGENT_ASK_ALLOWLIST` (`from>to` pairs; empty denies all, malformed throws at boot); also needs the chat service vars |
+| Transcripts | `SHIPWRIGHT_TRANSCRIPT_API_ENABLED=enabled` (cron-run transcript routes; also sets `features.transcriptUpload` in the config bundle) |
 | K8s provisioning | `SHIPWRIGHT_K8S_PROVISIONING=enabled`, `SHIPWRIGHT_K8S_NAMESPACE`, `SHIPWRIGHT_AGENT_IMAGE`/`_IMAGE_TAG`/`_REPLICAS`/`_PVC_*`, `SHIPWRIGHT_API_URL`, `SHIPWRIGHT_K8S_AGENT_*` (resources, service account, Claude policy configmap/hash) |
 | Anthropic federation | `SHIPWRIGHT_K8S_AGENT_ANTHROPIC_FEDERATION_*` (identity mode `shared` or `perAgent`; partial config throws at boot); admin pod's own sign-in via `ANTHROPIC_IDENTITY_TOKEN_FILE`, `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID` |
 | Chat service | `SHIPWRIGHT_CHAT_SERVICE_URL` and `SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN` (both needed; otherwise chat pages degrade and deletion uses a no-op client) |

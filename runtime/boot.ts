@@ -17,6 +17,7 @@
  *  8. Graceful SIGTERM/SIGINT shutdown
  */
 
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { initSentry } from "@app-vitals/agent-lib/sentry";
 import * as Sentry from "@sentry/bun";
@@ -49,6 +50,7 @@ import {
   setLiveClaudeConfig,
 } from "./claude.ts";
 import { bunExec, detectClaudeCodeVersion } from "./claude-version.ts";
+import { agentFeaturesRef } from "./agent-features-ref.ts";
 import { cleanupAfterDaysRef } from "./cleanup-after-days-ref.ts";
 import { SystemClock } from "./clock.ts";
 import { createConfig } from "./config.ts";
@@ -103,6 +105,7 @@ import {
   buildProductionDeps as buildSyncConfigCloneDeps,
   syncClonedRepos,
 } from "./sync-config-clone.ts";
+import { createTranscriptUploader } from "./transcript-uploader.ts";
 import { resolveDisplayName, resolveUserEmail } from "./users.ts";
 import { synthesizeSpeech, transcribeAudio } from "./voice.ts";
 import {
@@ -280,6 +283,25 @@ export async function startAgent(
     // GOR-1.3: cron spawns carry the default installation's org as the gh hint.
     getDefaultOwner: () =>
       defaultOwnerOf(githubInstallationsManagerRef.get()?.getState?.()),
+    // COS-43.1: redacted transcript upload after completeRun; gated by the
+    // synced features.transcriptUpload flag, failures swallowed.
+    ...(config.shipwright.apiUrl && config.shipwright.agentId
+      ? {
+          transcriptUploader: createTranscriptUploader({
+            fs: {
+              readFile: (path) => readFile(path, "utf8"),
+              readdir: (path) => readdir(path),
+            },
+            fetch,
+            clock: SystemClock(),
+            env: process.env,
+            log: (line) => console.warn(line),
+            apiUrl: config.shipwright.apiUrl,
+            agentId: config.shipwright.agentId,
+            getFeatures: () => agentFeaturesRef.get(),
+          }),
+        }
+      : {}),
   };
 
   // ARD-3.1: the specialty extension seam (agent-extension.ts). The consumer
@@ -528,6 +550,9 @@ export async function startAgent(
         // Sync the agent's cleanup-after-days live ref (APM-1.6) — read by the
         // runtime's worktree reaper.
         cleanupAfterDaysRef.set(bundle.cleanupAfterDays);
+
+        // Sync the feature flags (COS-43.1) — read by the transcript uploader.
+        agentFeaturesRef.set(bundle.features);
       } catch (err) {
         if (
           (err as { statusCode?: number }).statusCode === 404 &&

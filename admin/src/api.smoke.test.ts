@@ -238,6 +238,7 @@ function buildApp(opts?: {
   maxFindings?: number;
   cleanupMergedWorktrees?: boolean;
   cleanupAfterDays?: number;
+  transcriptUploadEnabled?: boolean;
 }) {
   const hasAgent = opts?.hasAgent ?? true;
   const bundle: AgentEnvBundle | null =
@@ -310,6 +311,7 @@ function buildApp(opts?: {
     agentTokenService: { validate: async () => null },
     sessionSecret: SESSION_SECRET,
     anthropicFederationEnabled: opts?.anthropicFederationEnabled,
+    transcriptUploadEnabled: opts?.transcriptUploadEnabled,
   });
 }
 
@@ -325,6 +327,31 @@ describe("GET /:id/config with no phase-methodology service (platform only)", ()
     const body = await res.json();
     expect("phaseMethodology" in body).toBe(false);
     expect(body.repos).toEqual(["org/repo1", "org/repo2"]);
+  });
+});
+
+describe("GET /:id/config features (COS-43.1)", () => {
+  const get = (app: ReturnType<typeof buildApp>) =>
+    app.request(`/${KNOWN_AGENT_ID}/config`, {
+      headers: { Authorization: `Bearer ${VALID_ADMIN_KEY}` },
+    });
+
+  test("features default to all off", async () => {
+    const body = await (await get(buildApp())).json();
+    expect(body.features).toEqual({
+      transcriptUpload: false,
+      repoAccessCheck: false,
+    });
+  });
+
+  test("features.transcriptUpload follows the transcript flag", async () => {
+    const body = await (
+      await get(buildApp({ transcriptUploadEnabled: true }))
+    ).json();
+    expect(body.features).toEqual({
+      transcriptUpload: true,
+      repoAccessCheck: false,
+    });
   });
 });
 

@@ -93,6 +93,11 @@ export interface AgentConfigResponse {
   maxFindings: number;
   cleanupMergedWorktrees: boolean;
   cleanupAfterDays: number;
+  /**
+   * COS-43.1: feature flags the runtime acts on. Optional so fixtures built
+   * before it keep compiling; the live handler always populates it.
+   */
+  features?: { transcriptUpload: boolean; repoAccessCheck: boolean };
 }
 
 interface AgentEnvServiceLike {
@@ -169,6 +174,11 @@ export interface AgentRuntimeDeps {
   agentTokenService: Pick<AgentTokenService, "validate">;
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
   anthropicFederationEnabled?: boolean;
+  /**
+   * COS-43.1: SHIPWRIGHT_TRANSCRIPT_API_ENABLED is on — surfaced to the runtime
+   * as `features.transcriptUpload` in the config bundle. Defaults to false.
+   */
+  transcriptUploadEnabled?: boolean;
 }
 
 // ─── Route definitions ────────────────────────────────────────────────────────
@@ -342,6 +352,11 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
       maxFindings: agent.maxFindings,
       cleanupMergedWorktrees: agent.cleanupMergedWorktrees,
       cleanupAfterDays: agent.cleanupAfterDays,
+      // COS-43.1: repoAccessCheck is wired by COS-44.1; false until then.
+      features: {
+        transcriptUpload: deps.transcriptUploadEnabled === true,
+        repoAccessCheck: false,
+      },
     };
 
     // The route's Zod schema requires phaseMethodology; a platform-only admin
