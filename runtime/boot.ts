@@ -373,7 +373,7 @@ export async function startAgent(
       process.env.SENTRY_DSN ? Sentry : undefined,
       undefined, // fileDownloaderFn — default
       config.voice,
-      undefined, // transcribeAudioFn — default
+      transcribeAudio, // transcribeAudioFn — live-env wrapper
       synthesizeSpeech,
       (userId, client) => resolveDisplayName(userId, client),
       undefined, // botUserId — resolved by Bolt
