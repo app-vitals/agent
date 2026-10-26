@@ -1176,6 +1176,34 @@ describe("handleCronRequest — telemetry forwarding", () => {
   });
 });
 
+describe("handleCronRequest — commandVariant (COS-42.1)", () => {
+  test("a run-now request creates its run with commandVariant run-now", async () => {
+    const created: unknown[][] = [];
+    const reporter: CronRunReporter = {
+      async createRun(...args: unknown[]) {
+        created.push(args);
+        return "run-now-1";
+      },
+      async completeRun() {},
+      async skipRun() {},
+      async recordProgress() {},
+      async recordSessionId() {},
+    };
+    await handleCronRequest(
+      {
+        jobId: "j-now",
+        prompt: "hello",
+        silent: true,
+        commandVariant: "run-now",
+      },
+      { ...deps, cronRunReporter: reporter },
+    );
+    expect(created).toHaveLength(1);
+    expect(created[0]?.[0]).toBe("j-now");
+    expect(created[0]?.[5]).toBe("run-now");
+  });
+});
+
 // ─── transcript upload hook (COS-43.1) ───────────────────────────────────────
 
 describe("handleCronRequest — transcript upload (COS-43.1)", () => {

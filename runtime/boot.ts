@@ -58,6 +58,7 @@ import { createContextStampReader } from "./context-stamp.ts";
 import { reportCronFailure } from "./cron-failure-reporter.ts";
 import type { CronHandlerDeps } from "./cron-handler.ts";
 import { handleCronRequest } from "./cron-handler.ts";
+import { createRunNowHonourer } from "./cron-run-now.ts";
 import {
   HttpCronRunReporter,
   NoopCronRunReporter,
@@ -699,6 +700,54 @@ export async function startAgent(
   const cronTasks = new Map<string, ReturnType<typeof nodeCron.schedule>>();
 
   if (runtimeClient && agentId) {
+    // Run-now requests (COS-42.1): honoured at most once each, in memory.
+    // Dispatch kind per job from the latest sync, so run-now takes the same
+    // path a scheduled tick would (loop-classified crons go through dispatchLoop).
+    let dispatchKinds = new Map<string, "loop" | "generic">();
+    const honourRunNow = createRunNowHonourer({
+      clock: SystemClock(),
+      dispatch: async (req) => {
+        if (dispatchKinds.get(req.jobId) === "loop") {
+          if (!extension.dispatchLoop) {
+            throw new Error(
+              `cron job ${req.jobId} classified as loop but the agent extension has no dispatchLoop`,
+            );
+          }
+          // dispatchLoop creates no run-now run of its own, so record one here:
+          // creating it clears the stamp and flips the audit row to honoured.
+          const reporter = cronRunReporter ?? new NoopCronRunReporter();
+          const startedAt = SystemClock().now();
+          const runId = await reporter.createRun(
+            req.jobId,
+            startedAt,
+            undefined,
+            undefined,
+            undefined,
+            req.commandVariant,
+          );
+          let outcome: "completed" | "failed" = "completed";
+          try {
+            await extension.dispatchLoop(req.jobId);
+          } catch (err) {
+            outcome = "failed";
+            throw err;
+          } finally {
+            await reporter
+              .completeRun(req.jobId, runId, SystemClock().now(), outcome)
+              .catch(() => {});
+          }
+          return;
+        }
+        await handleCronRequest(req, cronDeps);
+      },
+      onError: (jobId, err) =>
+        reportCronFailure(jobId, err, {
+          cronRunReporter: cronRunReporter ?? new NoopCronRunReporter(),
+          sentryClient: process.env.SENTRY_DSN ? Sentry : undefined,
+          clock: SystemClock(),
+        }),
+    });
+
     async function syncCrons() {
       if (!runtimeClient || !agentId) return;
       let jobs: Awaited<ReturnType<typeof runtimeClient.listAgentCronJobs>>;
@@ -720,6 +769,13 @@ export async function startAgent(
       // the coding extension's loop-cron-classifier.ts for the full decision.
       const scheduled = planCronSchedule(extension, jobs);
       const desired = new Map(scheduled.map((entry) => [entry.job.id, entry]));
+      dispatchKinds = new Map(
+        scheduled.map((entry) => [entry.job.id, entry.dispatch]),
+      );
+
+      // Fire-and-forget: a run can take minutes and must not hold up the sync.
+      // Only scheduled (enabled) jobs: a manually disabled cron is not run.
+      void honourRunNow(jobs.filter((job) => desired.has(job.id)));
 
       // Cancel removed/disabled jobs
       for (const [id, task] of cronTasks) {

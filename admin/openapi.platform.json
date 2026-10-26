@@ -730,6 +730,15 @@
             ],
             "example": null
           },
+          "runRequestedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "example": null,
+            "description": "Set by POST .../run-now; the runtime honours it once while fresh (15 minutes) and run creation with commandVariant run-now clears it."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
@@ -754,6 +763,7 @@
           "name",
           "system",
           "parentCronId",
+          "runRequestedAt",
           "createdAt",
           "updatedAt"
         ]
@@ -1992,6 +2002,19 @@
           "callerLabel",
           "createdAt",
           "repliedAt"
+        ]
+      },
+      "CronRunNowResponse": {
+        "type": "object",
+        "properties": {
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-10-26T12:00:00.000Z"
+          }
+        },
+        "required": [
+          "requestedAt"
         ]
       },
       "CronRunTranscriptUploadResult": {
@@ -4937,6 +4960,84 @@
           },
           "404": {
             "description": "Agent ask disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}/crons/{cronId}/run-now": {
+      "post": {
+        "summary": "Request an immediate run of a cron job",
+        "description": "Asks the agent's runtime to run the cron job once, now, with the job's own stored prompt. Takes no request body (any body is 400). Stamps `runRequestedAt` on the job and writes an AgentCronRunRequest audit row before returning 202; the runtime honours a fresh request (under 15 minutes old) once on its next cron sync. Callers: `*`, `platform.ops`, or the agent's own key. 404 unless SHIPWRIGHT_CRON_RUN_NOW_ENABLED is `enabled`; 409 when the trial-expiry lockdown disabled the cron.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx1234567890"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx0987654321"
+            },
+            "required": true,
+            "name": "cronId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Run requested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CronRunNowResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A request body was sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cron not found, or cron run-now disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Cron disabled by lockdown",
             "content": {
               "application/json": {
                 "schema": {

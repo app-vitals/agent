@@ -134,6 +134,11 @@ model AgentCronJob {
   // restoreLockdownDisabled() can re-enable exactly those crons. Null for
   // enabled crons and for crons the user disabled manually.
   lockdownDisabledAt DateTime?
+  // Run-now request (COS-42.1): stamped by POST .../run-now, cleared when the
+  // runtime creates the run (commandVariant "run-now"). The runtime honours a
+  // stamp at most once and only while it is fresh (15 minutes).
+  runRequestedAt DateTime?
+  runRequestedBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -424,6 +429,25 @@ model AgentAsk {
 
   @@index([toAgentId, createdAt])
   @@index([fromAgentId, createdAt])
+}
+
+// ─── Agent Cron Run Requests ────────────────────────────────────────────────
+// Audit row per POST /agents/{id}/crons/{cronId}/run-now (COS-42.1), written
+// before the 202 returns. status: requested | honoured | expired. Holds no
+// prompt text. honouredRunId links the AgentCronRun the runtime created.
+
+model AgentCronRunRequest {
+  id             String   @id @default(cuid())
+  cronId         String
+  agentId        String
+  requestedBy    String
+  requestedAt    DateTime
+  status         String   @default("requested")
+  honouredRunId  String?
+  createdAt      DateTime @default(now())
+
+  @@index([cronId, requestedAt])
+  @@index([agentId, requestedAt])
 }
 
 // ─── Cron-run transcripts (COS-43.1) ────────────────────────────────────────
