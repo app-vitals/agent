@@ -87,7 +87,7 @@ Asks the agent's runtime to run one cron job immediately, using the prompt store
 - **Callers:** `*`, `platform.ops`, or the agent's own key. `platform.read` and other agents' keys get `403`.
 - **Errors:** `404` for an unknown cron, `409` when the trial-expiry lockdown disabled the cron.
 - **Response:** `202 {"requestedAt": "<ISO>"}`. Before returning, admin stamps `runRequestedAt` / `runRequestedBy` on the job (visible on `GET /agents/{id}/crons` as `runRequestedAt`), writes an `AgentCronRunRequest` row (`requested`, later `honoured` with `honouredRunId`) and logs one `cron-run-now` line.
-- **Runtime:** on its next cron sync (60s) the runtime runs the job once with `commandVariant: "run-now"` when `runRequestedAt` is newer than the last request it honoured (held in memory) and at most 15 minutes old. An older request is logged as `expired` and never run. Creating a run with `commandVariant: "run-now"` clears `runRequestedAt` and links the newest requested audit row to the run.
+- **Runtime:** on its next cron sync (60s) the runtime runs the job once with `commandVariant: "run-now"` when `runRequestedAt` is newer than the last request it honoured (held in memory) and at most 15 minutes old. An older request is logged as `expired` and never run. Creating a run with `commandVariant: "run-now"` clears `runRequestedAt` and links the newest requested audit row to the run; older still-requested rows for the cron are marked `expired` (as are pending rows when a newer request is stamped). A loop-classified cron is run through the loop dispatch, as a scheduled tick would.
 - Run-now plus a scheduled firing in the same minute runs the cron twice; both runs are recorded and `preCheck` still applies.
 
 ## Related

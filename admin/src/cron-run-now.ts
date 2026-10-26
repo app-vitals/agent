@@ -92,6 +92,12 @@ export class CronRunNowService implements CronRunNowStore {
           runRequestedBy: input.requestedBy,
         },
       });
+      // A newer stamp overwrites the job's, so any request still pending can
+      // never be honoured: mark it expired.
+      await tx.agentCronRunRequest.updateMany({
+        where: { cronId: input.cronId, status: "requested" },
+        data: { status: "expired" },
+      });
       return tx.agentCronRunRequest.create({
         data: { ...input, status: "requested" },
       });

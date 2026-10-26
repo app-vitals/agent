@@ -661,9 +661,23 @@ export async function startAgent(
 
   if (runtimeClient && agentId) {
     // Run-now requests (COS-42.1): honoured at most once each, in memory.
+    // Dispatch kind per job from the latest sync, so run-now takes the same
+    // path a scheduled tick would (loop-classified crons go through dispatchLoop).
+    let dispatchKinds = new Map<string, "loop" | "generic">();
     const honourRunNow = createRunNowHonourer({
       clock: SystemClock(),
-      dispatch: (req) => handleCronRequest(req, cronDeps),
+      dispatch: async (req) => {
+        if (dispatchKinds.get(req.jobId) === "loop") {
+          if (!extension.dispatchLoop) {
+            throw new Error(
+              `cron job ${req.jobId} classified as loop but the agent extension has no dispatchLoop`,
+            );
+          }
+          await extension.dispatchLoop(req.jobId);
+          return;
+        }
+        await handleCronRequest(req, cronDeps);
+      },
       onError: (jobId, err) =>
         reportCronFailure(jobId, err, {
           cronRunReporter: cronRunReporter ?? new NoopCronRunReporter(),
@@ -685,9 +699,6 @@ export async function startAgent(
         return;
       }
 
-      // Fire-and-forget: a run can take minutes and must not hold up the sync.
-      void honourRunNow(jobs);
-
       // Hand the extension the fresh job list (every tick, regardless of whether
       // any job gets (re)scheduled below — the coding extension keeps its live
       // loop jobs ref current this way), then classify this agent's own job
@@ -696,6 +707,12 @@ export async function startAgent(
       // the coding extension's loop-cron-classifier.ts for the full decision.
       const scheduled = planCronSchedule(extension, jobs);
       const desired = new Map(scheduled.map((entry) => [entry.job.id, entry]));
+      dispatchKinds = new Map(
+        scheduled.map((entry) => [entry.job.id, entry.dispatch]),
+      );
+
+      // Fire-and-forget: a run can take minutes and must not hold up the sync.
+      void honourRunNow(jobs);
 
       // Cancel removed/disabled jobs
       for (const [id, task] of cronTasks) {

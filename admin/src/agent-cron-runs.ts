@@ -232,6 +232,12 @@ export class AgentCronRunService {
           where: { id: request.id },
           data: { status: "honoured", honouredRunId: run.id },
         });
+        // Older still-pending requests were superseded by this one and can
+        // never be honoured: record them as expired rather than pending.
+        await tx.agentCronRunRequest.updateMany({
+          where: { cronId, status: "requested", id: { not: request.id } },
+          data: { status: "expired" },
+        });
       }
       return run;
     });

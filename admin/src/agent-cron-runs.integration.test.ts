@@ -1554,7 +1554,11 @@ describeOrSkip(
       const stillRequested = await prisma.agentCronRunRequest.count({
         where: { cronId, status: "requested" },
       });
-      expect(stillRequested).toBe(1);
+      expect(stillRequested).toBe(0);
+      const superseded = await prisma.agentCronRunRequest.count({
+        where: { cronId, status: "expired" },
+      });
+      expect(superseded).toBe(1);
     });
 
     it("any other variant leaves the stamp and the request alone", async () => {
