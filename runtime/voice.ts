@@ -16,6 +16,56 @@ export interface VoiceConfig {
   whisperServiceUrl?: string;
 }
 
+/** Env vars that make up VoiceConfig — the keys per-agent env may set/remove live. */
+export const VOICE_ENV_KEYS = [
+  "GROQ_API_KEY",
+  "ELEVENLABS_API_KEY",
+  "ELEVENLABS_VOICE_ID",
+  "PIPER_VOICE",
+  "WHISPER_SERVICE_URL",
+] as const;
+
+/**
+ * Resolve VoiceConfig from the live process env (COS-62.1). Per-agent env only
+ * reaches process.env via syncConfig()'s applyEnvToProcess after boot, so the
+ * boot-time `config.voice` snapshot can never contain it — mirrors
+ * buildSlackAppConfig() in boot.ts. Empty strings count as unset.
+ */
+export function buildVoiceConfig(
+  env: Record<string, string | undefined> = process.env,
+): VoiceConfig {
+  return {
+    groqApiKey: env.GROQ_API_KEY || undefined,
+    elevenLabsApiKey: env.ELEVENLABS_API_KEY || undefined,
+    voiceId: env.ELEVENLABS_VOICE_ID || undefined,
+    piperVoice: env.PIPER_VOICE || undefined,
+    whisperServiceUrl: env.WHISPER_SERVICE_URL || undefined,
+  };
+}
+
+/**
+ * applyEnvToProcess only ever sets keys, so a voice key removed from the
+ * per-agent bundle would linger in process.env until restart. Restores each
+ * previously bundle-supplied voice key that is now absent to its pre-sync
+ * value (`baseline`: the pod env, e.g. fleet-wide admin.extraEnv) or deletes
+ * it. Returns the keys reverted.
+ */
+export function revertRemovedVoiceEnv(
+  previousBundleKeys: ReadonlySet<string>,
+  bundleEnv: Record<string, string>,
+  baseline: Record<string, string | undefined>,
+  processEnv: Record<string, string | undefined> = process.env,
+): string[] {
+  const reverted: string[] = [];
+  for (const key of VOICE_ENV_KEYS) {
+    if (!previousBundleKeys.has(key) || key in bundleEnv) continue;
+    if (baseline[key] === undefined) delete processEnv[key];
+    else processEnv[key] = baseline[key];
+    reverted.push(key);
+  }
+  return reverted;
+}
+
 // DI seam for the whisper-svc HTTP client — replaces spawnFn from the old local-Whisper path
 export type WhisperClientFn = (
   audioBuffer: Buffer,
@@ -203,6 +253,7 @@ export async function synthesizeSpeech(
   mkdirSync(VOICE_DIR, { recursive: true });
 
   const elevenKey = voiceConfig.elevenLabsApiKey;
+  console.log(`[voice] TTS backend: ${elevenKey ? "elevenlabs" : "piper"}`);
   if (elevenKey) {
     return synthesizeElevenLabs(
       text,

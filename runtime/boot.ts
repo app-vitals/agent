@@ -111,7 +111,13 @@ import {
 } from "./sync-config-clone.ts";
 import { createTranscriptUploader } from "./transcript-uploader.ts";
 import { resolveDisplayName, resolveUserEmail } from "./users.ts";
-import { synthesizeSpeech, transcribeAudio } from "./voice.ts";
+import {
+  buildVoiceConfig,
+  revertRemovedVoiceEnv,
+  synthesizeSpeech as synthesizeSpeechStatic,
+  transcribeAudio as transcribeAudioStatic,
+  VOICE_ENV_KEYS,
+} from "./voice.ts";
 import {
   buildProductionDeps as buildWorktreeReaperDeps,
   reconcileStaleWorktrees,
@@ -178,6 +184,16 @@ export async function startAgent(
   // saved to the admin DB after boot only reach this process via syncConfig()'s
   // `applyEnvToProcess(bundle.env)`, so re-reading `config.slack.*`
   // here would keep seeing the boot-time (absent) values forever.
+  // COS-62.1: voice settings are likewise resolved from live process.env at
+  // call time (per-agent ELEVENLABS_* arrive via syncConfig after boot). The
+  // config arg the call sites pass is the boot snapshot and is ignored.
+  const synthesizeSpeech: typeof synthesizeSpeechStatic = (
+    text,
+    _cfg,
+    ...rest
+  ) => synthesizeSpeechStatic(text, buildVoiceConfig(), ...rest);
+  const transcribeAudio: typeof transcribeAudioStatic = (path, _cfg, ...rest) =>
+    transcribeAudioStatic(path, buildVoiceConfig(), ...rest);
   function buildSlackAppConfig() {
     return {
       botToken: process.env.SLACK_BOT_TOKEN ?? "",
@@ -461,6 +477,10 @@ export async function startAgent(
 
   if (runtimeClient && agentId) {
     let configNotFoundLogged = false;
+    const voiceEnvBaseline: Record<string, string | undefined> = {
+      ...process.env,
+    };
+    let bundleVoiceKeys = new Set<string>();
 
     async function syncConfig() {
       if (!runtimeClient || !agentId) return;
@@ -472,6 +492,16 @@ export async function startAgent(
         // federation the Anthropic credential keys never reach process.env,
         // even if a stale admin still serves them.
         const changed = applyEnvToProcess(bundle.env);
+        changed.push(
+          ...revertRemovedVoiceEnv(
+            bundleVoiceKeys,
+            bundle.env,
+            voiceEnvBaseline,
+          ),
+        );
+        bundleVoiceKeys = new Set(
+          VOICE_ENV_KEYS.filter((k) => k in bundle.env),
+        );
         if (changed.length > 0) {
           console.log(`[config-sync] updated: ${changed.join(", ")}`);
         }
