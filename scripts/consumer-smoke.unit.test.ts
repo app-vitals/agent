@@ -3,11 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildChatDockerRunArgs,
   buildDockerRunArgs,
   buildProbeScript,
   checkAgentLibCopies,
   deriveEntries,
   evaluateBoot,
+  evaluateChatBoot,
   findEmptyWildcards,
   findUnreachableModules,
   parseArgs,
@@ -324,5 +326,44 @@ describe("findEmptyWildcards", () => {
       rmSync(checkout, { recursive: true });
       rmSync(installed, { recursive: true });
     }
+  });
+});
+
+describe("chat boot check", () => {
+  test("buildChatDockerRunArgs points the image at the throwaway Postgres on its network", () => {
+    const args = buildChatDockerRunArgs("chat:ci", "n", "net", "pg");
+    expect(args.slice(0, 3)).toEqual(["docker", "run", "-d"]);
+    expect(args).toContain("net");
+    expect(args).toContain(
+      "DATABASE_URL_SHIPWRIGHT_CHAT=postgres://postgres:smoke@pg:5432/chat",
+    );
+    expect(args.at(-1)).toBe("chat:ci");
+  });
+
+  test("evaluateChatBoot passes only when migrated and /health says ok", () => {
+    const logs = "[chat] running prisma migrate deploy...\n[chat] migrations complete";
+    expect(
+      evaluateChatBoot({ logs, healthBody: '{"status":"ok","service":"chat"}' })
+        .ok,
+    ).toBe(true);
+  });
+
+  test("evaluateChatBoot fails on resolution errors, missing migrations, no health or a bad body", () => {
+    const logs = "[chat] migrations complete";
+    expect(
+      evaluateChatBoot({ logs: "error: Cannot find module 'x'", healthBody: "{}" }).ok,
+    ).toBe(false);
+    expect(evaluateChatBoot({ logs: "[chat] starting", healthBody: '{"status":"ok"}' }).ok).toBe(false);
+    expect(evaluateChatBoot({ logs, healthBody: null }).ok).toBe(false);
+    expect(evaluateChatBoot({ logs, healthBody: '{"status":"down"}' }).ok).toBe(false);
+    expect(evaluateChatBoot({ logs, healthBody: "not json" }).ok).toBe(false);
+  });
+
+  test("parseArgs derives the chat image and honours --no-chat-boot", () => {
+    const a = parseArgs(["--version", "1.2.3"], {});
+    expect(a.chatImage).toBe("ghcr.io/app-vitals/agent-chat:1.2.3");
+    expect(a.bootChat).toBe(true);
+    expect(parseArgs(["--version", "1.2.3", "--no-chat-boot"], {}).bootChat).toBe(false);
+    expect(parseArgs(["--version", "1.2.3", "--no-agent-boot"], {}).bootAgent).toBe(false);
   });
 });

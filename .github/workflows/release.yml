@@ -5,8 +5,8 @@ name: Release
 #   1. workflow_dispatch without `tag`: semantic-release cuts the next version,
 #      creating the vX.Y.Z tag and GitHub release as the RELEASE_PAT identity.
 #   2. push of a vX.Y.Z tag (made by step 1, whose PAT push triggers workflows),
-#      or workflow_dispatch with `tag`: publish the three npm packages and both
-#      container images for that tag. Re-running is idempotent: versions and
+#      or workflow_dispatch with `tag`: publish the three npm packages and the
+#      three container images (agent, agent-admin, agent-chat) for that tag. Re-running is idempotent: versions and
 #      image tags that already exist are skipped.
 #   3. workflow_dispatch with `version` and dry_run=true, no tag: rehearse the
 #      publish at the dispatched commit (github.sha) before any tag exists.
@@ -79,7 +79,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHA: ${{ github.sha }}
         run: |
-          REQUIRED=("lint / typecheck / boundary / test" "runtime docker build" "admin docker build")
+          REQUIRED=("lint / typecheck / boundary / test" "runtime docker build" "admin docker build" "chat docker build")
           DEADLINE=$((SECONDS + 25 * 60))
           while true; do
             RUNS=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?per_page=100" --paginate --jq '.check_runs[] | {name, status, conclusion}' | jq -s '.')
@@ -323,6 +323,8 @@ jobs:
             dockerfile: runtime/Dockerfile
           - image: agent-admin
             dockerfile: admin/Dockerfile
+          - image: agent-chat
+            dockerfile: chat/Dockerfile
     permissions:
       contents: read
       packages: write
@@ -353,8 +355,8 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # The runtime Dockerfile's module-resolution guard (bun build over every
-      # runtime source file) runs inside this build.
+      # The Dockerfiles' module-resolution guards (bun build over every runtime /
+      # chat source file) run inside this build.
       - name: Build image
         if: ${{ steps.exists.outputs.exists != 'true' }}
         env:
@@ -408,7 +410,8 @@ jobs:
         run: |
           gh api --method POST repos/app-vitals/shipwright/dispatches \
             -f event_type=platform-release \
-            -f "client_payload[version]=$VERSION"
+            -f "client_payload[version]=$VERSION" \
+            -f "client_payload[chat_image]=ghcr.io/app-vitals/agent-chat:$VERSION"
 
       - name: Open an issue when the dispatch failed
         if: ${{ failure() && steps.dispatch.outcome == 'failure' }}
