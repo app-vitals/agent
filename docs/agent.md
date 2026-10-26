@@ -50,7 +50,9 @@ liveness probes. See [agent-runtime.md](agent-runtime.md) for the sequence.
 
 Slack is optional: without credentials the agent runs chat-only and `health` stays
 green, and Bolt starts as soon as a later config sync supplies the tokens. See
-[agent-web-ui.md](agent-web-ui.md) for the browser-facing chat and PWA surfaces.
+[agent-web-ui.md](agent-web-ui.md) for the browser-facing chat and PWA surfaces, and
+[chat-service.md](chat-service.md) for the chat service's authentication, data model and
+queue behavior.
 
 ## Running locally
 
