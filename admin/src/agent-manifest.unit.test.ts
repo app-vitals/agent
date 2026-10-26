@@ -17,6 +17,7 @@ import {
   buildAgentSecretManifest,
   resolveAgentContainerResources,
   sanitizeAgentName,
+  PodServiceAccountConflictError,
   TENANT_LABEL,
 } from "./agent-manifest.ts";
 
@@ -866,5 +867,61 @@ describe("buildAgentDeploymentManifest — anthropic federation", () => {
     expect(base).not.toContain("serviceAccountName");
     expect(base).not.toContain("anthropic");
     expect(base).not.toContain("ANTHROPIC_");
+  });
+});
+
+describe("buildAgentDeploymentManifest — pod service account", () => {
+  const anthropicFederation = {
+    serviceAccountName: "shipwright-agent",
+    ruleId: "fdrl_123",
+    organizationId: "org-uuid",
+    serviceAccountId: "svac_456",
+    audience: "https://api.anthropic.com",
+    expirationSeconds: 600,
+  };
+
+  it("sets spec.template.spec.serviceAccountName from the option", () => {
+    const d = buildAgentDeploymentManifest({
+      ...deployOpts,
+      podServiceAccountName: "agent-sa",
+    });
+    expect(d.spec.template.spec.serviceAccountName).toBe("agent-sa");
+  });
+
+  it("omits serviceAccountName entirely when undefined", () => {
+    const d = buildAgentDeploymentManifest({
+      ...deployOpts,
+      podServiceAccountName: undefined,
+    });
+    expect("serviceAccountName" in d.spec.template.spec).toBe(false);
+  });
+
+  it("leaves the base manifest byte-identical when the option is absent", () => {
+    expect(
+      JSON.stringify(
+        buildAgentDeploymentManifest({
+          ...deployOpts,
+          podServiceAccountName: undefined,
+        }),
+      ),
+    ).toBe(JSON.stringify(buildAgentDeploymentManifest(deployOpts)));
+  });
+
+  it("throws a typed error when federation is also supplied", () => {
+    expect(() =>
+      buildAgentDeploymentManifest({
+        ...deployOpts,
+        podServiceAccountName: "agent-sa",
+        anthropicFederation,
+      }),
+    ).toThrow(PodServiceAccountConflictError);
+  });
+
+  it("keeps the federation service account when only federation is set", () => {
+    const d = buildAgentDeploymentManifest({
+      ...deployOpts,
+      anthropicFederation,
+    });
+    expect(d.spec.template.spec.serviceAccountName).toBe("shipwright-agent");
   });
 });

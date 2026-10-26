@@ -1850,3 +1850,51 @@ describe("perAgentFederation()", () => {
     ).toBe(false);
   });
 });
+
+describe("KubernetesAgentProvisioner — pod service account (COS-48.1)", () => {
+  const agentId = "cmqalfjcm000m4101iharq28k";
+  const resourceName = sanitizeAgentName(agentId);
+
+  async function desiredSa(
+    config: KubernetesAgentProvisionerConfig,
+    target: { podServiceAccountName?: string | null },
+  ) {
+    const k8s = new RecordedKubernetesClient({
+      deployments: {},
+      secrets: {},
+      pvcs: {},
+    });
+    const provisioner = new KubernetesAgentProvisioner(
+      k8s,
+      stubTokens() as AgentTokenService,
+      config,
+    );
+    await provisioner.reconcile([{ id: agentId, ...target }]);
+    const dep = await k8s.getDeployment(NAMESPACE, resourceName);
+    return dep.spec.template.spec.serviceAccountName;
+  }
+
+  it("renders the Agent row value when the flag is on", async () => {
+    expect(
+      await desiredSa(
+        { ...BASE_CONFIG, podServiceAccount: { enabled: true } },
+        { podServiceAccountName: "agent-sa" },
+      ),
+    ).toBe("agent-sa");
+  });
+
+  it("never renders the Agent row value when the flag is off", async () => {
+    expect(
+      await desiredSa(
+        { ...BASE_CONFIG, podServiceAccount: { enabled: false } },
+        { podServiceAccountName: "agent-sa" },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("never renders the value when no flag config is supplied", async () => {
+    expect(
+      await desiredSa(BASE_CONFIG, { podServiceAccountName: "agent-sa" }),
+    ).toBeUndefined();
+  });
+});

@@ -60,6 +60,10 @@ model Agent {
   anthropicServiceAccountId String?
   anthropicFederationRuleId String?
   k8sServiceAccountName     String?
+  // COS-48.1: the pod's own Kubernetes ServiceAccount (cluster identity). A
+  // separate column from k8sServiceAccountName, which is the Anthropic-
+  // federation KSA. Only rendered when the pod-SA flag is on.
+  podServiceAccountName     String?
   // APM-1.1: the 6 agent policy fields (auto_post_reviews, allow_self_review,
   // min_confidence, max_findings, cleanup_merged_worktrees,
   // cleanup_after_days). Originally mirrored from the legacy

@@ -80,6 +80,7 @@ import type {
   PvcSpec,
   SecretSpec,
 } from "./kubernetes-client.ts";
+import type { PodServiceAccountConfig } from "./pod-service-account-config.ts";
 import {
   provisionableIntegrations,
   type ServiceIntegration,
@@ -148,6 +149,8 @@ export interface ReconcileTarget extends Partial<AgentAnthropicIdentity> {
   id: string;
   slug?: string;
   accountId?: string | null;
+  /** The Agent row's pod ServiceAccount (COS-48.1); rendered only when the flag is on. */
+  podServiceAccountName?: string | null;
 }
 
 export interface AgentProvisioner {
@@ -163,7 +166,11 @@ export interface AgentProvisioner {
   /** Mint a token and create the agent's Secret + Deployment. Idempotent. */
   provision(
     agentId: string,
-    opts?: { slug?: string; accountId?: string | null },
+    opts?: {
+      slug?: string;
+      accountId?: string | null;
+      podServiceAccountName?: string | null;
+    },
   ): Promise<ProvisionResult>;
   /**
    * Delete the agent's Deployment, Secret, and PVC. Tolerates already-absent
@@ -304,6 +311,12 @@ export interface KubernetesAgentProvisionerConfig {
    * exclusive with `anthropicFederation` (shared mode).
    */
   perAgentIdentity?: PerAgentIdentityConfig;
+  /**
+   * Per-agent pod ServiceAccount flag (COS-48.1). Only when `enabled` is the
+   * Agent row's podServiceAccountName passed to the manifest; absent or off
+   * means the value is never rendered, even if set in the DB.
+   */
+  podServiceAccount?: PodServiceAccountConfig;
 }
 
 // ─── perAgent identity ──────────────────────────────────────────────────────
@@ -841,6 +854,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
     slug: string | undefined,
     accountId: string | null | undefined,
     federation: AgentAnthropicFederation | undefined,
+    podServiceAccountName?: string | null,
   ) {
     const resourceName = this.resourceName(agentId);
     return buildAgentDeploymentManifest({
@@ -862,12 +876,19 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
       claudePolicy: this.config.claudePolicy,
       anthropicFederation: federation,
       accountId,
+      ...(this.config.podServiceAccount?.enabled && podServiceAccountName
+        ? { podServiceAccountName }
+        : {}),
     });
   }
 
   async provision(
     agentId: string,
-    opts?: { slug?: string; accountId?: string | null },
+    opts?: {
+      slug?: string;
+      accountId?: string | null;
+      podServiceAccountName?: string | null;
+    },
   ): Promise<ProvisionResult> {
     const resourceName = this.resourceName(agentId);
     const secretName = this.secretNameFor(resourceName);
@@ -1074,7 +1095,13 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
   /** Steps 2–4: token(s) → Secret → Deployment (the original provision flow). */
   private async provisionSecretAndDeployment(
     agentId: string,
-    opts: { slug?: string; accountId?: string | null } | undefined,
+    opts:
+      | {
+          slug?: string;
+          accountId?: string | null;
+          podServiceAccountName?: string | null;
+        }
+      | undefined,
     result: ProvisionResult,
     federation: AgentAnthropicFederation | undefined,
   ): Promise<ProvisionResult> {
@@ -1166,6 +1193,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
           opts?.slug,
           opts?.accountId,
           federation,
+          opts?.podServiceAccountName,
         ),
       );
     } catch (err) {
@@ -1312,6 +1340,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
             await this.provision(agent.id, {
               slug: agent.slug,
               accountId: agent.accountId,
+              podServiceAccountName: agent.podServiceAccountName,
             });
           }
           recreated.push(agent.id);
@@ -1376,6 +1405,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
             agent.slug,
             agent.accountId,
             desiredFederation,
+            agent.podServiceAccountName,
           );
           const desired = desiredDeployment.spec.template.spec.containers[0];
           const desiredLabels = desiredDeployment.spec.template.metadata.labels;
