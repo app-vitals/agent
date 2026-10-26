@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   buildDockerRunArgs,
   buildProbeScript,
+  checkAgentLibCopies,
   deriveEntries,
   evaluateBoot,
   parseArgs,
@@ -203,5 +204,28 @@ describe("parseArgs --no-admin-boot", () => {
     expect(
       parseArgs(["--version", "1.0.0", "--no-import-probe"], {}).importProbe,
     ).toBe(false);
+  });
+});
+
+describe("checkAgentLibCopies", () => {
+  const top = { path: "node_modules/@app-vitals/agent-lib/package.json", version: "0.1.2" };
+  const nested = {
+    path: "node_modules/@app-vitals/agent-admin/node_modules/@app-vitals/agent-lib/package.json",
+    version: "0.1.0",
+  };
+
+  test("passes a single copy at VERSION", () => {
+    expect(checkAgentLibCopies([top], "0.1.2")).toEqual([]);
+  });
+
+  test("fails a nested second copy and a copy not at VERSION", () => {
+    const out = checkAgentLibCopies([nested, top], "0.1.2");
+    expect(out).toHaveLength(2);
+    expect(out[0]).toContain("is 0.1.0, expected 0.1.2");
+    expect(out[1]).toContain("found 2");
+  });
+
+  test("fails when no copy is installed", () => {
+    expect(checkAgentLibCopies([], "0.1.2")[0]).toContain("found 0");
   });
 });
