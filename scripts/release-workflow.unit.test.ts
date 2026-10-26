@@ -112,11 +112,12 @@ describe("release workflow", () => {
     expect(run).toContain("FLAGS+=(--dry-run)");
   });
 
-  test("images are built for both repos and pushed only outside dry run when absent", () => {
+  test("images are built for all three repos and pushed only outside dry run when absent", () => {
     const job = wf.jobs["publish-image"];
     expect(job.strategy.matrix.include).toEqual([
       { image: "agent", dockerfile: "runtime/Dockerfile" },
       { image: "agent-admin", dockerfile: "admin/Dockerfile" },
+      { image: "agent-chat", dockerfile: "chat/Dockerfile" },
     ]);
     const push = stepsOf("publish-image").find((s) => s.name === "Push image");
     expect(push?.if).toContain("dry_run != 'true'");
@@ -169,6 +170,11 @@ describe("release workflow", () => {
     expect(dispatch.run).toContain("repos/app-vitals/shipwright/dispatches");
     expect(dispatch.run).toContain("event_type=platform-release");
     expect(dispatch.run).toContain("client_payload[version]=$VERSION");
+    // Chat takes the platform version; the payload names the image so the
+    // chart bump can pick it up.
+    expect(dispatch.run).toContain(
+      "client_payload[chat_image]=ghcr.io/app-vitals/agent-chat:$VERSION",
+    );
     expect(job.env.VERSION).toBe("${{ needs.resolve.outputs.version }}");
   });
 
@@ -184,6 +190,32 @@ describe("release workflow", () => {
     expect(alert.if).toContain("failure()");
     expect(alert.if).toContain("steps.dispatch.outcome == 'failure'");
     expect(alert.run).toContain("$VERSION");
+  });
+});
+
+describe("agent-chat image", () => {
+  test("is built from chat/Dockerfile, tagged with the plain platform semver and pushed with the others", () => {
+    const job = wf.jobs["publish-image"];
+    expect(job.env.IMAGE).toBe("ghcr.io/app-vitals/${{ matrix.image }}");
+    expect(job.env.VERSION).toBe("${{ needs.resolve.outputs.version }}");
+    expect(job.strategy.matrix.include).toContainEqual({
+      image: "agent-chat",
+      dockerfile: "chat/Dockerfile",
+    });
+    expect(job.permissions.packages).toBe("write");
+  });
+
+  test("the chat Dockerfile is standalone and keeps its module-resolution guard", () => {
+    const df = readFileSync(join(root, "chat/Dockerfile"), "utf8");
+    expect(df).toContain("bun build");
+    expect(df).toContain("USER 1000");
+    expect(df).toContain('ENTRYPOINT ["bun", "run", "chat/src/main.ts"]');
+    expect(df).not.toMatch(/COPY\s+(\.|runtime|admin)\s/);
+  });
+
+  test("the chat image is built by CI before a release can proceed", () => {
+    const ci = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
+    expect(ci).toContain("docker build -f chat/Dockerfile");
   });
 });
 
@@ -234,6 +266,7 @@ describe("automatic release on merge to main", () => {
       "lint / typecheck / boundary / test",
       "runtime docker build",
       "admin docker build",
+      "chat docker build",
     ]) {
       expect(run).toContain(name);
       // Must match the job names CI actually reports.

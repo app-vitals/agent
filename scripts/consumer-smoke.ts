@@ -32,7 +32,7 @@
  *   bun scripts/consumer-smoke.ts --version 1.2.3 --tarballs DIR  # prebuilt tgz
  * --no-import-probe skips step 2 (admin's entries need a generated Prisma
  * client, absent in the docker CI job). --no-admin-boot boots only the agent image (the admin image is built in a
- * separate CI job). Env: CONSUMER_SMOKE_VERSION, CONSUMER_SMOKE_DIR. Boot checks need docker and
+ * separate CI job). --no-chat-boot skips the chat image boot. Env: CONSUMER_SMOKE_VERSION, CONSUMER_SMOKE_DIR. Boot checks need docker and
  * are on by default for registry installs, off for --pack/--tarballs
  * (override with --boot / --no-boot).
  */
@@ -221,6 +221,52 @@ export function evaluateBoot(
   return { ok: true, reason: "started past module loading" };
 }
 
+/** Throwaway Postgres for the chat boot check; not a published artifact. */
+export const CHAT_SMOKE_POSTGRES_IMAGE = "postgres:17-alpine";
+const CHAT_SMOKE_DB_PASSWORD = "smoke";
+const CHAT_MIGRATIONS_MARKER = "[chat] migrations complete";
+
+/** `docker run` args for the chat image, pointed at the throwaway Postgres by name. */
+export function buildChatDockerRunArgs(
+  image: string,
+  name: string,
+  network: string,
+  pgHost: string,
+): string[] {
+  return [
+    "docker",
+    "run",
+    "-d",
+    "--name",
+    name,
+    "--network",
+    network,
+    "-e",
+    `DATABASE_URL_SHIPWRIGHT_CHAT=postgres://postgres:${CHAT_SMOKE_DB_PASSWORD}@${pgHost}:5432/chat`,
+    image,
+  ];
+}
+
+/** Verdict for a chat boot: no resolution error, migrations applied, healthy. */
+export function evaluateChatBoot(r: {
+  logs: string;
+  healthBody: string | null;
+}): { ok: boolean; reason: string } {
+  if (RESOLUTION_ERROR.test(r.logs))
+    return { ok: false, reason: "module resolution error in container logs" };
+  if (!r.logs.includes(CHAT_MIGRATIONS_MARKER))
+    return { ok: false, reason: `never logged "${CHAT_MIGRATIONS_MARKER}"` };
+  if (r.healthBody === null)
+    return { ok: false, reason: "GET /health never answered" };
+  try {
+    if ((JSON.parse(r.healthBody) as { status?: string }).status === "ok")
+      return { ok: true, reason: "migrated and healthy" };
+  } catch {
+    // fall through to the failure below
+  }
+  return { ok: false, reason: `unexpected /health body: ${r.healthBody}` };
+}
+
 export type Args = {
   version: string;
   dir?: string;
@@ -229,7 +275,9 @@ export type Args = {
   boot: boolean;
   agentImage: string;
   adminImage: string;
+  chatImage: string;
   bootAdmin: boolean;
+  bootChat: boolean;
   importProbe: boolean;
 };
 
@@ -266,8 +314,11 @@ export function parseArgs(
     agentImage: flag("agent-image") ?? `ghcr.io/app-vitals/agent:${version}`,
     importProbe: !argv.includes("--no-import-probe"),
     bootAdmin: !argv.includes("--no-admin-boot"),
+    bootChat: !argv.includes("--no-chat-boot"),
     adminImage:
       flag("admin-image") ?? `ghcr.io/app-vitals/agent-admin:${version}`,
+    chatImage:
+      flag("chat-image") ?? `ghcr.io/app-vitals/agent-chat:${version}`,
   };
 }
 
@@ -511,6 +562,67 @@ async function bootImage(
   return verdict.ok;
 }
 
+/** Boot the chat image against a throwaway Postgres; true when migrated and healthy. */
+async function bootChat(image: string): Promise<boolean> {
+  const id = `consumer-smoke-chat-${process.pid}`;
+  const pg = `${id}-pg`;
+  const cwd = process.cwd();
+  const local = run(["docker", "image", "inspect", image], cwd, true);
+  if (local.exitCode !== 0 && run(["docker", "pull", image], cwd).exitCode !== 0)
+    return false;
+  let logs = "";
+  let healthBody: string | null = null;
+  try {
+    if (run(["docker", "network", "create", id], cwd).exitCode !== 0) return false;
+    const db = run(
+      [
+        "docker", "run", "-d", "--name", pg, "--network", id,
+        "-e", `POSTGRES_PASSWORD=${CHAT_SMOKE_DB_PASSWORD}`,
+        "-e", "POSTGRES_DB=chat",
+        CHAT_SMOKE_POSTGRES_IMAGE,
+      ],
+      cwd,
+    );
+    if (db.exitCode !== 0) return false;
+    // Postgres needs a moment; the chat preflight fails fast if it is not up yet.
+    for (let i = 0; i < 30; i++) {
+      if (run(["docker", "exec", pg, "pg_isready", "-U", "postgres", "-d", "chat"], cwd, true).exitCode === 0) break;
+      await Bun.sleep(1_000);
+    }
+    if (run(buildChatDockerRunArgs(image, id, id, pg), cwd).exitCode !== 0) return false;
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      const l = run(["docker", "logs", id], cwd, true);
+      logs = l.stdout + l.stderr;
+      if (RESOLUTION_ERROR.test(logs)) break;
+      const st = run(["docker", "inspect", "-f", "{{.State.Running}}", id], cwd, true);
+      if (st.stdout.trim() === "false") break;
+      if (logs.includes(CHAT_MIGRATIONS_MARKER)) {
+        // The slim image has no curl; bun is always there.
+        const h = run(
+          ["docker", "exec", id, "bun", "-e",
+           'const r = await fetch("http://127.0.0.1:3000/health"); if (!r.ok) process.exit(1); console.log(await r.text());'],
+          cwd, true,
+        );
+        if (h.exitCode === 0) {
+          healthBody = h.stdout.trim();
+          break;
+        }
+      }
+      await Bun.sleep(2_000);
+    }
+  } finally {
+    run(["docker", "rm", "-f", id, pg], cwd, true);
+    run(["docker", "network", "rm", id], cwd, true);
+  }
+  const verdict = evaluateChatBoot({ logs, healthBody });
+  console.log(
+    `[consumer-smoke] boot chat ${image}: ${verdict.ok ? "ok" : "FAIL"} (${verdict.reason})`,
+  );
+  if (!verdict.ok) console.error(logs.split("\n").slice(-30).join("\n"));
+  return verdict.ok;
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2), process.env);
   const repoRoot = resolve(import.meta.dir, "..");
@@ -534,6 +646,7 @@ async function main(): Promise<void> {
     const results = [
       await bootImage("agent", args.agentImage),
       ...(args.bootAdmin ? [await bootImage("admin", args.adminImage)] : []),
+      ...(args.bootChat ? [await bootChat(args.chatImage)] : []),
     ];
     ok = ok && results.every(Boolean);
   } else {

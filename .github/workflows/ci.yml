@@ -138,6 +138,20 @@ jobs:
       - name: Build admin Docker image
         run: docker build -f admin/Dockerfile -t agent-admin:ci .
 
+  chat-docker-build:
+    name: chat docker build
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The Dockerfile's module-resolution guard (bun build over every chat
+      # source file) runs inside this build.
+      - name: Build chat Docker image
+        run: docker build -f chat/Dockerfile -t agent-chat:ci .
+
   runtime-docker-build:
     name: runtime docker build
     timeout-minutes: 20

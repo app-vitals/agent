@@ -1,39 +1,31 @@
-# Shipwright Chat Service — container image
+# Chat service image (ghcr.io/app-vitals/agent-chat)
 #
-# Build from repo root:
-#   docker build -f chat/Dockerfile -t shipwright-chat .
+# Build from the repository root:  docker build -f chat/Dockerfile .
 #
 # Run:
-#   docker run \
-#     -e DATABASE_URL_SHIPWRIGHT_CHAT=postgres://... \
-#     -p 3000:3000 \
-#     shipwright-chat
+#   docker run -e DATABASE_URL_SHIPWRIGHT_CHAT=postgres://... -p 3000:3000 agent-chat
 
-# ─── Stage 1: dependencies ────────────────────────────────────────────────────
 FROM oven/bun:1-slim AS deps
 
 WORKDIR /app
 
-# Copy workspace manifests for dependency install
-COPY package.json bun.lock ./
-COPY admin/package.json ./admin/
-COPY task-store/package.json ./task-store/
-COPY task-store/prisma ./task-store/prisma/
+# Every workspace manifest is needed so the frozen lockfile resolves; only the
+# manifests are copied, so runtime/admin source never reaches this image.
+COPY package.json bunfig.toml bun.lock* ./
 COPY chat/package.json ./chat/
 COPY chat/prisma ./chat/prisma/
-COPY agent/package.json ./agent/
-COPY metrics/package.json ./metrics/
-COPY plugins/shipwright/package.json ./plugins/shipwright/
-COPY agent/src/runtime/package.json ./agent/src/runtime/
-COPY mcp-server/package.json ./mcp-server/
+COPY chat/prisma.config.ts ./chat/
+COPY lib/package.json ./lib/
+COPY runtime/package.json ./runtime/
+COPY admin/package.json ./admin/
 COPY patches/ ./patches/
 
-RUN bun install --frozen-lockfile
+# --ignore-scripts: chat's postinstall (prisma generate) runs below, after the
+# source is in place; the other workspaces' scripts are not needed here.
+RUN if [ -f bun.lock ]; then bun install --frozen-lockfile --ignore-scripts; else bun install --ignore-scripts; fi
 
-# ─── Stage 2: production image ────────────────────────────────────────────────
 FROM oven/bun:1-slim AS production
 
-# Install system dependencies (ca-certificates only — no Claude Code, no gh CLI, no mise)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -42,34 +34,30 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Copy hoisted + workspace-local node_modules from the deps stage. bun workspaces
-# install package-specific deps under the workspace dir (/app/chat/node_modules),
-# NOT the hoisted root — both are required at runtime. The root node_modules also
-# carries bun's package store (node_modules/.bun), which is where the registry
-# package @app-vitals/agent-lib (and its own deps, e.g. @sentry/bun) lives; the
-# workspace-local @app-vitals/agent-lib entries are symlinks into it.
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/chat/node_modules ./chat/node_modules
+COPY --from=deps /app/lib/node_modules ./lib/node_modules
 
-# Copy entire monorepo source
-COPY . .
+# Only what chat needs: its own source and the shared lib it imports.
+COPY package.json bunfig.toml ./
+COPY lib ./lib
+COPY chat ./chat
 
-# Lib resolution guard (AGR-4.1): resolve every @app-vitals/agent-lib/* and
-# import of the service from the final filesystem, so an image
-# missing the registry package fails here instead of crash-looping at
-# boot (the 0.100.0 class).
-RUN bun agent/scripts/check-lib-resolution.ts --require @app-vitals/agent-lib chat/src
-
-# Generate Prisma client
+# The generated Prisma client is not committed.
 RUN cd chat && bunx prisma generate --schema=prisma/schema.prisma
+
+# Module-resolution guard: bundle every chat source file as its own entry point
+# so an unresolvable import (e.g. a missing @app-vitals/agent-lib subpath) fails
+# the build itself rather than crash-looping after the image ships. Tests and
+# test fakes are not shipped code paths and are skipped.
+RUN find chat/src -name "*.ts" ! -name "*.test.ts" ! -name "test-fakes.ts" \
+    | xargs bun build --target=bun --outdir=/tmp/module-check \
+    && rm -rf /tmp/module-check
 
 EXPOSE 3000
 
-# Run as a non-root user. The GKE deployment sets `runAsNonRoot: true`, and the
-# kubelet can only verify that when the image's USER is a numeric UID (it does
-# not read the image's /etc/passwd). uid 1000 is the `bun` user baked into the
-# oven/bun base image. Without this the container is refused at admission with
-# "container has runAsNonRoot and image will run as root".
+# Numeric UID so the kubelet can verify runAsNonRoot (uid 1000 is the `bun`
+# user in the oven/bun base image).
 USER 1000
 
 ENTRYPOINT ["bun", "run", "chat/src/main.ts"]
