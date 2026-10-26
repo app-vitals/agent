@@ -284,4 +284,45 @@ describe("findEmptyWildcards", () => {
       rmSync(dir, { recursive: true });
     }
   });
+
+  const GENERATED = { "./prisma/client/*": "./prisma/client/*" };
+
+  test("a generated-path wildcard with no checkout files passes when the installed package has them", () => {
+    const checkout = fixture(["src/a.ts"]);
+    const installed = fixture(["prisma/client/index.js"]);
+    try {
+      expect(findEmptyWildcards(GENERATED, checkout, installed)).toEqual([]);
+    } finally {
+      rmSync(checkout, { recursive: true });
+      rmSync(installed, { recursive: true });
+    }
+  });
+
+  test("a generated-path wildcard still fails when the installed package lacks the files", () => {
+    const checkout = fixture(["src/a.ts"]);
+    const installed = fixture(["src/a.ts"]);
+    try {
+      expect(findEmptyWildcards(GENERATED, checkout, installed)).toHaveLength(1);
+    } finally {
+      rmSync(checkout, { recursive: true });
+      rmSync(installed, { recursive: true });
+    }
+  });
+
+  test("an empty source wildcard still fails even when an installed dir is given", () => {
+    const checkout = fixture(["src/a.ts"]);
+    const installed = fixture(["src/coding/x.ts", "prisma/client/index.js"]);
+    try {
+      const out = findEmptyWildcards(
+        { ...GENERATED, "./coding/*": "./src/coding/*.ts" },
+        checkout,
+        installed,
+      );
+      expect(out).toHaveLength(1);
+      expect(out[0]).toContain("./coding/*");
+    } finally {
+      rmSync(checkout, { recursive: true });
+      rmSync(installed, { recursive: true });
+    }
+  });
 });
