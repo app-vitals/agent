@@ -1,0 +1,1 @@
+{{ include "agent-platform.httproute" (dict "context" . "extensions" (include "shipwright.platformExtensions" . | fromYaml)) }}

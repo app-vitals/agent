@@ -1,0 +1,482 @@
+suite: extension lists (routes, health checks, network-policy rules, databases, NOTES)
+# The library's shared networking/database/NOTES templates own the mechanism;
+# consumers pass extension lists (see templates/_components.tpl). These cases
+# drive the lists directly through the fixture's test-only values:
+#   fixture.platformOnly=true  -> no extensions (platform-only render)
+#   fixture.extensions={...}   -> arbitrary lists, passed through verbatim
+#   fixture.rootContext=true   -> templates/platform-only.yaml calls every
+#                                 extensible template with the bare root context
+release:
+  name: shipwright
+  namespace: shipwright
+tests:
+  # ---- platform-only (no extensions): a valid minimal set ----
+  - it: "platform-only gateway: only the admin HTTPRoute (plus the redirect route with TLS)"
+    template: templates/httproute.yaml
+    set:
+      fixture.platformOnly: true
+      networking.type: gateway
+      tls.certManager.enabled: true
+      tls.certManager.issuerRef.name: le
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.name
+          value: shipwright-http-redirect
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: shipwright-admin
+        documentIndex: 1
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /
+        documentIndex: 1
+
+  - it: "platform-only gateway: a single admin HealthCheckPolicy"
+    template: templates/healthcheckpolicy.yaml
+    set:
+      fixture.platformOnly: true
+      networking.type: gateway
+      networking.gateway.healthCheckPolicy.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.targetRef.name
+          value: shipwright-admin
+
+  - it: "platform-only ingress: one plain Prefix \"/\" admin path, no rewrite annotation"
+    template: templates/ingress.yaml
+    set:
+      fixture.platformOnly: true
+      networking.type: ingress
+    asserts:
+      - lengthEqual:
+          path: spec.rules[0].http.paths
+          count: 1
+      - equal:
+          path: spec.rules[0].http.paths[0]
+          value:
+            path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shipwright-admin
+                port:
+                  name: http
+      - notExists:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/rewrite-target"]
+
+  - it: "platform-only traefik: no StripPrefix Middleware, router.middlewares unset"
+    templates:
+      - templates/ingress.yaml
+      - templates/ingress-traefik-middleware.yaml
+    set:
+      fixture.platformOnly: true
+      networking.type: ingress
+      networking.ingress.controller: traefik
+      networking.ingress.className: traefik
+      networking.ingress.tls.enabled: true
+      networking.ingress.tls.redirect: true
+    asserts:
+      - notExists:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.middlewares"]
+        template: templates/ingress.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/ingress-traefik-middleware.yaml
+      - equal:
+          path: metadata.name
+          value: shipwright-redirect-https
+        template: templates/ingress-traefik-middleware.yaml
+
+  - it: "platform-only tenant NetworkPolicy: DNS, admin, chat, internet"
+    template: templates/tenant-networkpolicy.yaml
+    set:
+      fixture.platformOnly: true
+      selfServe.networkPolicy.enabled: true
+      selfServe.networkPolicy.dnsCidrs: []
+    asserts:
+      - lengthEqual:
+          path: spec.egress
+          count: 4
+      - equal:
+          path: spec.egress[1].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: admin
+      - equal:
+          path: spec.egress[2].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: chat
+      - equal:
+          path: spec.egress[3].to[0].ipBlock.cidr
+          value: 0.0.0.0/0
+
+  - it: "platform-only initdb ConfigMap: just the chat database"
+    template: templates/postgres-initdb-configmap.yaml
+    set:
+      fixture.platformOnly: true
+      postgresql.enabled: true
+    asserts:
+      - equal:
+          path: data
+          value:
+            02-create-chat-db.sql: |
+              SELECT 'CREATE DATABASE shipwright_chat OWNER shipwright'
+              WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'shipwright_chat')\gexec
+
+  - it: "platform-only NOTES: no product name, no extension ports or sections"
+    template: templates/NOTES.txt
+    set:
+      fixture.platformOnly: true
+      taskStore.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: "Thank you for installing shipwright — chart version"
+      - matchRegexRaw:
+          pattern: "admin:      3001"
+      - notMatchRegexRaw:
+          pattern: "metrics:|task-store:|Metrics dashboard access|Task-store access"
+
+  - it: "root context (no dict arg) renders the same platform-only set"
+    template: templates/platform-only.yaml
+    set:
+      fixture.rootContext: true
+      networking.type: gateway
+      networking.gateway.healthCheckPolicy.enabled: true
+      selfServe.networkPolicy.enabled: true
+      selfServe.networkPolicy.dnsCidrs: []
+      postgresql.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 4
+      - isKind:
+          of: HTTPRoute
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: shipwright-admin
+        documentIndex: 0
+      - isKind:
+          of: HealthCheckPolicy
+        documentIndex: 1
+      - lengthEqual:
+          path: spec.egress
+          count: 4
+        documentIndex: 2
+      - equal:
+          path: data
+          value:
+            02-create-chat-db.sql: |
+              SELECT 'CREATE DATABASE shipwright_chat OWNER shipwright'
+              WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'shipwright_chat')\gexec
+        documentIndex: 3
+
+  # ---- routes ----
+  - it: "routes: one HTTPRoute per entry, in list order, before the admin catch-all"
+    template: templates/httproute.yaml
+    set:
+      networking.type: gateway
+      fixture.extensions:
+        routes:
+          - component: docs
+            pathPrefix: /docs
+            port: 8080
+          - component: api
+            name: custom-api
+            pathPrefix: /api
+            port: 9090
+            stripPrefix: true
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: metadata.name
+          value: shipwright-docs
+        documentIndex: 0
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: docs
+        documentIndex: 0
+      - equal:
+          path: spec.rules[0]
+          value:
+            matches:
+              - path:
+                  type: PathPrefix
+                  value: /docs
+            backendRefs:
+              - name: shipwright-docs
+                port: 8080
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: custom-api
+        documentIndex: 1
+      - equal:
+          path: spec.rules[0].filters[0].urlRewrite.path.replacePrefixMatch
+          value: /
+        documentIndex: 1
+      - equal:
+          path: spec.rules[0].backendRefs[0]
+          value:
+            name: custom-api
+            port: 9090
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: shipwright-admin
+        documentIndex: 2
+
+  - it: "routes: HTTPS listener attachment follows tls.certManager.enabled"
+    template: templates/httproute.yaml
+    set:
+      networking.type: gateway
+      tls.certManager.enabled: true
+      tls.certManager.issuerRef.name: le
+      fixture.extensions:
+        routes:
+          - component: docs
+            pathPrefix: /docs
+            port: 8080
+    asserts:
+      - equal:
+          path: spec.parentRefs[0]
+          value:
+            name: shipwright
+            sectionName: https
+        documentIndex: 1
+
+  - it: "routes (nginx): a stripPrefix route turns on rewrite-target and every other path round-trips through $2"
+    template: templates/ingress.yaml
+    set:
+      networking.type: ingress
+      fixture.extensions:
+        routes:
+          - component: docs
+            pathPrefix: /docs
+          - component: api
+            pathPrefix: /api
+            stripPrefix: true
+    asserts:
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/rewrite-target"]
+          value: /$2
+      - equal:
+          path: spec.rules[0].http.paths
+          value:
+            - path: /()(docs.*)
+              pathType: ImplementationSpecific
+              backend:
+                service:
+                  name: shipwright-docs
+                  port:
+                    name: http
+            - path: /api(/|$)(.*)
+              pathType: ImplementationSpecific
+              backend:
+                service:
+                  name: shipwright-api
+                  port:
+                    name: http
+            - path: /()(.*)
+              pathType: ImplementationSpecific
+              backend:
+                service:
+                  name: shipwright-admin
+                  port:
+                    name: http
+
+  - it: "routes (nginx): without a stripPrefix route every path is a plain Prefix"
+    template: templates/ingress.yaml
+    set:
+      networking.type: ingress
+      fixture.extensions:
+        routes:
+          - component: docs
+            pathPrefix: /docs
+    asserts:
+      - notExists:
+          path: metadata.annotations
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /docs
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: Prefix
+      - equal:
+          path: spec.rules[0].http.paths[1].path
+          value: /
+
+  - it: "routes (traefik): one StripPrefix Middleware per stripPrefix route, all attached to the router"
+    templates:
+      - templates/ingress.yaml
+      - templates/ingress-traefik-middleware.yaml
+    release:
+      name: shipwright
+      namespace: ns
+    set:
+      networking.type: ingress
+      networking.ingress.controller: traefik
+      networking.ingress.className: traefik
+      fixture.extensions:
+        routes:
+          - component: docs
+            pathPrefix: /docs
+          - component: api
+            pathPrefix: /api
+            stripPrefix: true
+          - component: hooks
+            pathPrefix: /hooks
+            stripPrefix: true
+    asserts:
+      - equal:
+          path: metadata.annotations["traefik.ingress.kubernetes.io/router.middlewares"]
+          value: ns-shipwright-api-strip@kubernetescrd,ns-shipwright-hooks-strip@kubernetescrd
+        template: templates/ingress.yaml
+      - equal:
+          path: spec.rules[0].http.paths[1].path
+          value: /api
+        template: templates/ingress.yaml
+      - hasDocuments:
+          count: 2
+        template: templates/ingress-traefik-middleware.yaml
+      - equal:
+          path: metadata.name
+          value: shipwright-api-strip
+        documentIndex: 0
+        template: templates/ingress-traefik-middleware.yaml
+      - equal:
+          path: spec.stripPrefix.prefixes
+          value: [/hooks]
+        documentIndex: 1
+        template: templates/ingress-traefik-middleware.yaml
+
+  # ---- health checks ----
+  - it: "healthChecks: one policy per entry after admin; requestPath defaults to /health"
+    template: templates/healthcheckpolicy.yaml
+    set:
+      networking.type: gateway
+      networking.gateway.healthCheckPolicy.enabled: true
+      fixture.extensions:
+        healthChecks:
+          - component: docs
+          - component: api
+            name: custom-api
+            requestPath: /livez
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: metadata.name
+          value: shipwright-admin
+        documentIndex: 0
+      - equal:
+          path: spec.targetRef.name
+          value: shipwright-docs
+        documentIndex: 1
+      - equal:
+          path: spec.default.config.httpHealthCheck.requestPath
+          value: /health
+        documentIndex: 1
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: api
+        documentIndex: 2
+      - equal:
+          path: spec.targetRef.name
+          value: custom-api
+        documentIndex: 2
+      - equal:
+          path: spec.default.config.httpHealthCheck.requestPath
+          value: /livez
+        documentIndex: 2
+
+  # ---- network-policy rules ----
+  - it: "networkPolicyEgress: one in-namespace peer per entry, between admin and chat"
+    template: templates/tenant-networkpolicy.yaml
+    release:
+      name: shipwright
+      namespace: platform
+    set:
+      selfServe.networkPolicy.enabled: true
+      selfServe.networkPolicy.dnsCidrs: []
+      fixture.extensions:
+        networkPolicyEgress:
+          - component: task-store
+          - component: mcp-server
+    asserts:
+      - lengthEqual:
+          path: spec.egress
+          count: 6
+      - equal:
+          path: spec.egress[2].to[0]
+          value:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: platform
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: shipwright
+                app.kubernetes.io/instance: shipwright
+                app.kubernetes.io/component: task-store
+      - equal:
+          path: spec.egress[3].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: mcp-server
+      - equal:
+          path: spec.egress[4].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: chat
+
+  # ---- databases ----
+  - it: "databases: one guarded CREATE DATABASE script per entry, plus chat"
+    template: templates/postgres-initdb-configmap.yaml
+    set:
+      postgresql.enabled: true
+      fixture.extensions:
+        databases:
+          - file: 00-create-docs-db.sql
+            name: docs_db
+    asserts:
+      - equal:
+          path: data
+          value:
+            00-create-docs-db.sql: |
+              SELECT 'CREATE DATABASE docs_db OWNER shipwright'
+              WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'docs_db')\gexec
+            02-create-chat-db.sql: |
+              SELECT 'CREATE DATABASE shipwright_chat OWNER shipwright'
+              WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'shipwright_chat')\gexec
+
+  - it: "databases: Shipwright's lists create the metrics and task-store databases"
+    template: templates/postgres-initdb-configmap.yaml
+    set:
+      postgresql.enabled: true
+      metrics.database.name: m_db
+    asserts:
+      - matchRegex:
+          path: data["00-create-metrics-db.sql"]
+          pattern: "CREATE DATABASE m_db OWNER shipwright"
+      - matchRegex:
+          path: data["01-create-task-store-db.sql"]
+          pattern: "CREATE DATABASE shipwright_task_store OWNER shipwright"
+
+  # ---- NOTES ----
+  - it: "notes: product name, extension ports and sections render between admin and chat"
+    template: templates/NOTES.txt
+    set:
+      chat.enabled: true
+      fixture.extensions:
+        notes:
+          productName: Example Product
+          servicePorts:
+            - name: docs
+              port: 8080
+          sections:
+            - "Docs access:\n  open the docs\n"
+    asserts:
+      - matchRegexRaw:
+          pattern: "Thank you for installing shipwright \\(Example Product\\) — chart version"
+      - matchRegexRaw:
+          pattern: "  • admin:      3001\n  • docs:       8080\n  • chat:       3000\n"
+      - matchRegexRaw:
+          pattern: "PRESERVED across `helm upgrade`.\n\nDocs access:\n  open the docs\n\nChat service access:"
