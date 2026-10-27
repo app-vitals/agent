@@ -43,6 +43,9 @@ model Agent {
   patchAuthorAllowlist   String[] @default([])
   restrictSlackToMembers Boolean  @default(false)
   typeName               String   @default("coding")
+  // AGR-6.1: typeName -> specialty rename (ADD step). Nullable; written
+  // alongside typeName, reads fall back to typeName when NULL.
+  specialty              String?
   // SSP-1.2: owning account. Nullable/additive — existing agents keep NULL.
   accountId              String?
   account                Account? @relation(fields: [accountId], references: [id], onDelete: Restrict)

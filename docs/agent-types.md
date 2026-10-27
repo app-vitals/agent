@@ -57,12 +57,15 @@ own directory (for self-contained types).
 
 ## Resolution at runtime
 
-`admin/src/specialty-manifest-loader.ts` maps an agent's stored `typeName` to its
-manifest by reading `<specialties dir>/<typeName>/manifest.yaml`.
+`admin/src/specialty-manifest-loader.ts` maps an agent's stored specialty to its
+manifest by reading `<specialties dir>/<specialty>/manifest.yaml`. The specialty is
+resolved from the Agent row as `specialty ?? typeName` (AGR-6.1 ADD step: the
+`specialty` column is preferred when set; `typeName` is used for legacy agents that
+predate the column).
 
 - `SHIPWRIGHT_SPECIALTIES_DIR` overrides the specialties directory.
 - `SHIPWRIGHT_DEFAULT_AGENT_TYPE` overrides the fallback type (default `coding`).
-- An unknown `typeName` falls back to the default type with a warning, so the
+- An unknown specialty falls back to the default type with a warning, so the
   cron reconcile route keeps working for renamed or removed types.
 - If the default type itself fails to load or validate, the error propagates; it is a
   configuration error and is never degraded into "no crons".

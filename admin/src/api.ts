@@ -23,6 +23,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AgentCronJob } from "./agent-cron-jobs.ts";
 import type { AgentEnvBundle } from "./agent-envs.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
+import { resolveSpecialty } from "./agent-specialty.ts";
 import { anthropicCredentialKeysIn } from "./anthropic-credential-guard.ts";
 import { type AdminApiKey, createAdminAuthMiddleware } from "./api-auth.ts";
 import {
@@ -71,6 +72,8 @@ export interface AgentConfigResponse {
    * the agent runtime treats an absent value as "coding".
    */
   typeName?: string;
+  /** AGR-6.1: specialty (specialty ?? typeName); additive, optional for doubles. */
+  specialty?: string;
   /**
    * PMC-1.1: phase -> subagentType (or null) map, covering all six pipeline
    * phases regardless of whether the agent has an explicit override row for
@@ -134,6 +137,7 @@ interface AgentServiceLike {
     /** SSP-8.3: owning account status; optional for pre-existing test doubles. */
     accountStatus?: string | null;
     typeName?: string;
+    specialty?: string | null;
     /** WIF-2.1: optional so pre-existing test doubles keep compiling; absent is treated as not self-hosted. */
     selfHosted?: boolean;
     /** APM-1.5: the 6 agent-policy fields, direct-passthrough into the response. */
@@ -346,6 +350,13 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
         : null,
       accountStatus: agent.accountStatus ?? null,
       typeName: agent.typeName,
+      specialty:
+        agent.typeName === undefined
+          ? undefined
+          : resolveSpecialty({
+              typeName: agent.typeName,
+              specialty: agent.specialty,
+            }),
       // Omitted entirely when no phase-methodology service was supplied
       // (platform-only admin, no coding extension).
       ...(agentPhaseMethodologyService ? { phaseMethodology } : {}),

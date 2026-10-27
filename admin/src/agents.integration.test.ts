@@ -510,3 +510,93 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
     });
   });
 });
+
+describeOrSkip("Agent.specialty — dual-write + fallback read (AGR-6.1)", () => {
+  let prisma: PrismaClient;
+  let agentService: AgentService;
+  const createdIds: string[] = [];
+
+  beforeEach(() => {
+    prisma = makePrisma();
+    agentService = new AgentService(prisma, fakeSpecialtyRegistry());
+  });
+
+  afterEach(async () => {
+    await prisma.agent.deleteMany({ where: { id: { in: createdIds } } });
+    createdIds.length = 0;
+    await prisma.$disconnect();
+  });
+
+  it("create() writes specialty and typeName with the same value", async () => {
+    const created = await agentService.create({
+      name: "Dual Write",
+      typeName: "coding",
+    });
+    createdIds.push(created.id);
+
+    const row = await prisma.agent.findUniqueOrThrow({
+      where: { id: created.id },
+    });
+    expect(row.typeName).toBe("coding");
+    expect(row.specialty).toBe("coding");
+    expect(created.typeName).toBe("coding");
+    expect(created.specialty).toBe("coding");
+  });
+
+  it("reads prefer specialty over typeName", async () => {
+    const created = await agentService.create({
+      name: "Prefers Specialty",
+      typeName: "coding",
+    });
+    createdIds.push(created.id);
+    await prisma.agent.update({
+      where: { id: created.id },
+      data: { specialty: "research" },
+    });
+
+    const detail = await agentService.getDetail(created.id);
+    expect(detail?.typeName).toBe("coding");
+    expect(detail?.specialty).toBe("research");
+    expect((await agentService.getSummary(created.id))?.specialty).toBe(
+      "research",
+    );
+    expect(
+      (await agentService.list()).find((a) => a.id === created.id)?.specialty,
+    ).toBe("research");
+  });
+
+  it("falls back to typeName when specialty is NULL (pre-migration row)", async () => {
+    const created = await agentService.create({
+      name: "Legacy Row",
+      typeName: "coding",
+    });
+    createdIds.push(created.id);
+    await prisma.agent.update({
+      where: { id: created.id },
+      data: { specialty: null },
+    });
+
+    const detail = await agentService.getDetail(created.id);
+    expect(detail?.specialty).toBe("coding");
+    expect((await agentService.getSummary(created.id))?.specialty).toBe(
+      "coding",
+    );
+    expect((await agentService.getById(created.id))?.specialty).toBe("coding");
+    expect((await agentService.listByIds([created.id]))[0]?.specialty).toBe(
+      "coding",
+    );
+  });
+
+  it("createAgent() leaves both columns populated", async () => {
+    const created = await agentService.create({ name: "No Type" });
+    createdIds.push(created.id);
+    const row = await prisma.agent.findUniqueOrThrow({
+      where: { id: created.id },
+    });
+    // typeName omitted: column default applies and specialty stays NULL,
+    // so the fallback read still yields the default.
+    expect(row.typeName).toBe("coding");
+    expect(row.specialty).toBeNull();
+    expect(created.specialty).toBe("coding");
+  });
+});

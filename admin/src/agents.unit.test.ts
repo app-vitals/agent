@@ -409,8 +409,20 @@ describe("AgentService.list", () => {
     const result = await service.list();
 
     expect(result).toEqual([
-      { id: "a2", name: "Alpha", selfHosted: true, typeName: "coding" },
-      { id: "a1", name: "Zeta", selfHosted: false, typeName: "coding" },
+      {
+        id: "a2",
+        name: "Alpha",
+        selfHosted: true,
+        typeName: "coding",
+        specialty: "coding",
+      },
+      {
+        id: "a1",
+        name: "Zeta",
+        selfHosted: false,
+        typeName: "coding",
+        specialty: "coding",
+      },
     ]);
   });
 
@@ -435,6 +447,7 @@ describe("AgentService.getSummary", () => {
       name: "Existing",
       selfHosted: true,
       typeName: "coding",
+      specialty: "coding",
     });
   });
 
@@ -475,6 +488,7 @@ describe("AgentService.getDetail", () => {
       patchAuthorAllowlist: [],
       restrictSlackToMembers: false,
       typeName: "coding",
+      specialty: "coding",
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       missingRequiredEnv: [],
@@ -735,6 +749,7 @@ describe("AgentService.getById", () => {
       accountStatus: null,
       // ARD-6.1: getById() now selects typeName for the runtime config response.
       typeName: "coding",
+      specialty: "coding",
       selfHosted: false,
       // APM-1.5: getById() now selects these 6 policy fields too.
       autoPostReviews: true,
@@ -772,6 +787,7 @@ describe("AgentService.getById", () => {
       accountStatus: null,
       // ARD-6.1: getById() now selects typeName for the runtime config response.
       typeName: "coding",
+      specialty: "coding",
       selfHosted: false,
       // APM-1.5: getById() now selects these 6 policy fields too.
       autoPostReviews: true,
@@ -1040,6 +1056,7 @@ describe("AgentService.updateFields", () => {
       patchAuthorAllowlist: [],
       restrictSlackToMembers: false,
       typeName: "coding",
+      specialty: "coding",
       createdAt: row.createdAt,
       updatedAt: new Date("2024-01-02"),
       missingRequiredEnv: [],

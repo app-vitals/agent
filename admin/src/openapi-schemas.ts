@@ -35,6 +35,7 @@ export const AgentSummarySchema = z
     name: z.string().openapi({ example: "Bodhi" }),
     selfHosted: z.boolean().openapi({ example: false }),
     typeName: z.string().openapi({ example: "coding" }),
+    specialty: z.string().openapi({ example: "coding" }),
   })
   .openapi("AgentSummary");
 
@@ -1344,6 +1345,8 @@ export const AgentConfigResponseSchema = z
      * falls back to "coding" templates when absent.
      */
     typeName: z.string().optional().openapi({ example: "coding" }),
+    /** AGR-6.1: specialty (specialty ?? typeName); additive next to typeName. */
+    specialty: z.string().optional().openapi({ example: "coding" }),
     /**
      * PMC-1.1: phase -> subagentType (or null) map, covering all six pipeline
      * phases (see AGENT_PHASES) regardless of whether the agent has an
