@@ -40,18 +40,81 @@ const TYPE = TYPE_MANIFEST.metadata.name;
 // ─── Auth redirect tests ──────────────────────────────────────────────────────
 
 describe("admin UI — unauthenticated redirects", () => {
-  it("unauthenticated GET /admin/agents redirects to /admin/login", async () => {
+  const NAV = { "Sec-Fetch-Mode": "navigate" };
+
+  it("unauthenticated GET /admin/agents redirects to /admin/login with returnTo", async () => {
     const app = createAdminUIApp(makeMockDeps());
-    const res = await app.request("/admin/agents");
+    const res = await app.request("/admin/agents", { headers: NAV });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/admin/login");
+    expect(res.headers.get("Location")).toBe(
+      "/admin/login?returnTo=%2Fadmin%2Fagents",
+    );
   });
 
-  it("unauthenticated GET /admin/agents/:id redirects to /admin/login", async () => {
+  it("unauthenticated GET /admin/agents/:id redirects to /admin/login with returnTo", async () => {
     const app = createAdminUIApp(makeMockDeps());
-    const res = await app.request(`/admin/agents/${AGENT_ID}`);
+    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      headers: { Accept: "text/html,application/xhtml+xml" },
+    });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/admin/login");
+    expect(res.headers.get("Location")).toBe(
+      `/admin/login?returnTo=${encodeURIComponent(`/admin/agents/${AGENT_ID}`)}`,
+    );
+  });
+
+  it("navigation redirect preserves the query string in returnTo", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const res = await app.request("/admin/agents?x=1&y=2", { headers: NAV });
+    expect(res.headers.get("Location")).toBe(
+      `/admin/login?returnTo=${encodeURIComponent("/admin/agents?x=1&y=2")}`,
+    );
+  });
+
+  it("unauthenticated fetch-style request gets 401 signed_out JSON", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const res = await app.request("/admin/agents", {
+      headers: { Accept: "application/json", "Sec-Fetch-Mode": "cors" },
+    });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "signed_out" });
+  });
+
+  it("request with no navigation hints gets 401 signed_out JSON", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const res = await app.request("/admin/agents");
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "signed_out" });
+  });
+
+  it("unauthenticated POST fetch gets 401 signed_out JSON", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const res = await app.request("/admin/agents", { method: "POST" });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "signed_out" });
+  });
+
+  it("returnTo is never an open redirect (protocol-relative path dropped)", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const res = await app.request("//evil.com/x", { headers: NAV });
+    expect(res.headers.get("Location") ?? "").not.toContain("evil.com");
+  });
+});
+
+describe("admin UI — GET /admin/session.json", () => {
+  it("returns 200 {signedIn:true} with a valid session", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const res = await app.request("/admin/session.json", {
+      headers: { Cookie: `admin_session=${await makeSessionCookie()}` },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ signedIn: true });
+  });
+
+  it("returns 401 without a session", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const res = await app.request("/admin/session.json");
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "signed_out" });
   });
 });
 

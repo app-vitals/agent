@@ -413,9 +413,13 @@ function makeBaseDeps(overrides?: Partial<AdminUIDeps>): AdminUIDeps {
 describe("GET /admin/chat — auth gate", () => {
   it("returns 302 redirect to login without session cookie", async () => {
     const app = createAdminUIApp(makeBaseDeps());
-    const res = await app.request("/admin/chat");
+    const res = await app.request("/admin/chat", {
+      headers: { Accept: "text/html" },
+    });
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("/admin/login");
+    expect(res.headers.get("location")).toBe(
+      "/admin/login?returnTo=%2Fadmin%2Fchat",
+    );
   });
 });
 
@@ -616,14 +620,15 @@ describe("GET /admin/chat/:agentId/threads/:threadId — thread detail", () => {
     sessionCookie = await makeSessionCookie();
   });
 
-  it("returns 401 without session cookie", async () => {
+  it("redirects navigations to login with returnTo without session cookie", async () => {
     const chatClient = makeMockChatClient();
     const app = createAdminUIApp(makeBaseDeps({ chatClient }));
     const res = await app.request(
       `/admin/chat/${AGENT_ID}/threads/${THREAD_ID}`,
+      { headers: { "Sec-Fetch-Mode": "navigate" } },
     );
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("/admin/login");
+    expect(res.headers.get("location")).toContain("/admin/login?returnTo=");
   });
 
   it("returns 200 with messages when chatClient present", async () => {
@@ -1026,14 +1031,14 @@ describe("GET /admin/chat/:agentId/threads/:threadId/messages.json", () => {
     sessionCookie = await makeSessionCookie();
   });
 
-  it("returns 302 to login without session cookie", async () => {
+  it("returns 401 signed_out without session cookie", async () => {
     const chatClient = makeMockChatClient();
     const app = createAdminUIApp(makeBaseDeps({ chatClient }));
     const res = await app.request(
       `/admin/chat/${AGENT_ID}/threads/${THREAD_ID}/messages.json`,
     );
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("/admin/login");
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "signed_out" });
   });
 
   it("returns 200 JSON with messages array when chatClient present", async () => {
@@ -1148,7 +1153,7 @@ describe("POST /admin/chat/:agentId/threads/:threadId/messages.json", () => {
     sessionCookie = await makeSessionCookie();
   });
 
-  it("returns 302 to login without session cookie", async () => {
+  it("returns 401 signed_out without session cookie", async () => {
     const chatClient = makeMockChatClient();
     const app = createAdminUIApp(makeBaseDeps({ chatClient }));
     const res = await app.request(
@@ -1159,8 +1164,8 @@ describe("POST /admin/chat/:agentId/threads/:threadId/messages.json", () => {
         body: JSON.stringify({ body: "test message" }),
       },
     );
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("/admin/login");
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "signed_out" });
   });
 
   it("returns 200 JSON with message when chatClient present", async () => {
@@ -1237,7 +1242,7 @@ describe("POST /admin/chat/:agentId/threads/:threadId/messages/upload", () => {
     sessionCookie = await makeSessionCookie();
   });
 
-  it("returns 302 to login without session cookie", async () => {
+  it("returns 401 signed_out without session cookie", async () => {
     const chatClient = makeMockChatClient();
     const app = createAdminUIApp(makeBaseDeps({ chatClient }));
     const res = await app.request(
@@ -1248,8 +1253,8 @@ describe("POST /admin/chat/:agentId/threads/:threadId/messages/upload", () => {
         body: "body=test+message",
       },
     );
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("/admin/login");
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "signed_out" });
   });
 
   it("returns 201 JSON with message when chatClient present", async () => {
@@ -1368,14 +1373,14 @@ describe("GET /admin/chat/:agentId/threads/:threadId/messages/:messageId/attachm
     sessionCookie = await makeSessionCookie();
   });
 
-  it("returns 302 to login without session cookie", async () => {
+  it("returns 401 signed_out without session cookie", async () => {
     const chatClient = makeMockChatClient();
     const app = createAdminUIApp(makeBaseDeps({ chatClient }));
     const res = await app.request(
       `/admin/chat/${AGENT_ID}/threads/${THREAD_ID}/messages/msg-1/attachment`,
     );
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("/admin/login");
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "signed_out" });
   });
 
   it("streams bytes with an audio/* Content-Type for a .webm attachment", async () => {

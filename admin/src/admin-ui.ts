@@ -516,6 +516,28 @@ async function getSessionUser(
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 
+/**
+ * Accepts a `returnTo` value only when it is a same-origin relative path:
+ * must start with a single "/", so protocol-relative (//evil.com), absolute
+ * (https://evil.com) and backslash-smuggled (/\\evil.com) values are dropped.
+ */
+export function validateReturnTo(
+  raw: string | undefined | null,
+): string | undefined {
+  return raw?.startsWith("/") && !raw.startsWith("//") && !raw.includes("\\")
+    ? raw
+    : undefined;
+}
+
+/** True for browser page navigations (as opposed to fetch/XHR calls). */
+function isNavigationRequest(c: Context): boolean {
+  if (c.req.header("Sec-Fetch-Mode") === "navigate") return true;
+  return (
+    c.req.method === "GET" &&
+    (c.req.header("Accept") ?? "").includes("text/html")
+  );
+}
+
 export function createUIAuthMiddleware(
   sessionSecret: string,
 ): MiddlewareHandler<AdminUIEnv> {
@@ -525,7 +547,20 @@ export function createUIAuthMiddleware(
       ? await getSessionUser(sessionToken, sessionSecret)
       : null;
     if (!user) {
-      return c.redirect("/admin/login", 302);
+      if (!isNavigationRequest(c)) {
+        return c.json({ error: "signed_out" }, 401);
+      }
+      const url = new URL(c.req.url);
+      const returnTo =
+        c.req.method === "GET"
+          ? validateReturnTo(url.pathname + url.search)
+          : undefined;
+      return c.redirect(
+        returnTo
+          ? `/admin/login?returnTo=${encodeURIComponent(returnTo)}`
+          : "/admin/login",
+        302,
+      );
     }
     c.set("userEmail", user.email);
     c.set("isAdmin", user.isAdmin);
@@ -862,10 +897,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       path: "/",
     });
     // Redirect to returnTo if it's a valid same-origin relative path, otherwise default.
-    const destination =
-      returnTo?.startsWith("/") && !returnTo.startsWith("//")
-        ? returnTo
-        : "/admin/agents";
+    const destination = validateReturnTo(returnTo) ?? "/admin/agents";
     return c.redirect(destination, 302);
   }
 
@@ -881,10 +913,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     const nonce = crypto.randomUUID();
 
     const rawReturnTo = c.req.query("returnTo");
-    const returnTo =
-      rawReturnTo?.startsWith("/") && !rawReturnTo.startsWith("//")
-        ? rawReturnTo
-        : undefined;
+    const returnTo = validateReturnTo(rawReturnTo);
 
     const oauthState = JSON.stringify({ nonce, returnTo });
     setCookie(c, OAUTH_STATE_COOKIE, oauthState, {
@@ -999,6 +1028,12 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       return c.json({ error: "Internal server error" }, 500);
     }
   });
+
+  // Cheap signed-in probe for client JS (a 401 {error:"signed_out"} from
+  // requireAuth means the session is gone).
+  app.get("/admin/session.json", requireAuth, (c) =>
+    c.json({ signedIn: true }),
+  );
 
   app.get("/admin/login", (c) => {
     const error = c.req.query("error") ?? undefined;

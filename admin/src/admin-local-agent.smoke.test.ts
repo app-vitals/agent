@@ -388,9 +388,13 @@ describe("admin UI — new local agent create flow", () => {
 
   it("GET /admin/agents/new — unauthenticated redirects to /admin/login", async () => {
     const app = createAdminUIApp(makeMockDeps());
-    const res = await app.request("/admin/agents/new");
+    const res = await app.request("/admin/agents/new", {
+      headers: { Accept: "text/html" },
+    });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/admin/login");
+    expect(res.headers.get("Location")).toBe(
+      "/admin/login?returnTo=%2Fadmin%2Fagents%2Fnew",
+    );
   });
 
   // ── POST /admin/agents ────────────────────────────────────────────────────
