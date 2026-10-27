@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -102,7 +103,7 @@ function fakeGitHub(bare: string, opts: FakeOptions = {}) {
     if (method === "POST" && p === "/git/trees") {
       const idx = join(bare, `fake-index-${++n}`);
       const env = { GIT_INDEX_FILE: idx };
-      git(bare, ["read-tree", body.base_tree], env);
+      if (body.base_tree) git(bare, ["read-tree", body.base_tree], env);
       for (const e of body.tree) {
         if (e.path === opts.dropFileFromTree) continue;
         if (e.sha === null) {
@@ -399,29 +400,98 @@ describe("signedPush", () => {
     expect(git(work, ["rev-parse", "HEAD"])).toBe(oldHead);
   });
 
-  test("refuses a new executable file with the bypass hint, no API calls", async () => {
+  test("pushes a new executable, a symlink and a submodule pointer with exact modes", async () => {
     writeFileSync(join(work, "run.sh"), "#!/bin/sh\n", { mode: 0o755 });
-    git(work, ["add", "."]);
-    git(work, ["commit", "-m", "feat: script"]);
+    symlinkSync("README.md", join(work, "link"));
+    git(work, [
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      `160000,${"1".repeat(40)},vendor/sub`,
+    ]);
+    git(work, ["add", "run.sh", "link"]);
+    git(work, ["commit", "-m", "feat: modes"]);
+    git(work, ["update-index", "--chmod=+x", "README.md"]);
+    git(work, ["commit", "-m", "chore: chmod"]);
+    const localTree = git(work, ["rev-parse", "HEAD^{tree}"]);
     const gh = fakeGitHub(bare);
-    let err: unknown;
-    try {
-      await signedPush({
-        argv: ["origin", "feat/x"],
-        env: env(),
-        cwd: work,
-        fetch: gh.fetch,
-        repo: "acme/widgets",
-      });
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeInstanceOf(Refusal);
-    expect((err as Error).message).toContain("run.sh");
-    expect((err as Error).message.trimEnd()).toEndWith(
-      "SHIPWRIGHT_SIGNED_COMMITS=off git push origin feat/x",
+    await signedPush({
+      argv: ["origin", "feat/x"],
+      env: env(),
+      cwd: work,
+      fetch: gh.fetch,
+      repo: "acme/widgets",
+    });
+    expect(git(bare, ["rev-parse", "feat/x^{tree}"])).toBe(localTree);
+    const ls = git(bare, ["ls-tree", "-r", "feat/x"]);
+    expect(ls).toContain("100755 blob");
+    expect(ls).toMatch(/120000 blob \w+\tlink/);
+    expect(ls).toMatch(
+      new RegExp(`160000 commit ${"1".repeat(40)}\\tvendor/sub`),
     );
-    expect(git(bare, ["branch", "--list", "feat/x"])).toBe("");
+    expect(ls).toMatch(/100755 blob \w+\tREADME.md/);
+  });
+
+  test("a merge of main with a second parent from the base keeps both parents", async () => {
+    // feature branch diverges, main moves on (and is on the remote), then main
+    // is merged into the feature branch with a resolved conflict.
+    writeFileSync(join(work, "README.md"), "feature\n");
+    git(work, ["commit", "-am", "feat: readme"]);
+    const other = join(root, "other");
+    git(root, ["clone", bare, other]);
+    writeFileSync(join(other, "README.md"), "main\n");
+    git(other, ["commit", "-am", "main: readme"]);
+    git(other, ["push", "origin", "main"]);
+    git(work, ["fetch", "origin"]);
+    const mainTip = git(work, ["rev-parse", "origin/main"]);
+    // The merge conflicts on README.md; its non-zero exit is expected.
+    expect(() =>
+      git(work, ["merge", "origin/main", "-m", "merge main"]),
+    ).toThrow();
+    writeFileSync(join(work, "README.md"), "resolved\n");
+    git(work, ["commit", "-am", "merge main"]);
+    expect(
+      git(work, ["rev-list", "--parents", "-n1", "HEAD"]).split(" "),
+    ).toHaveLength(3);
+    const localTree = git(work, ["rev-parse", "HEAD^{tree}"]);
+    const gh = fakeGitHub(bare);
+    await signedPush({
+      argv: ["origin", "feat/x"],
+      env: env(),
+      cwd: work,
+      fetch: gh.fetch,
+      repo: "acme/widgets",
+    });
+    const tip = git(bare, ["rev-parse", "feat/x"]);
+    const parents = git(bare, ["rev-list", "--parents", "-n1", tip]).split(" ");
+    expect(parents).toHaveLength(3);
+    // first parent is the replayed feature commit, second is main's real tip
+    expect(parents[2]).toBe(mainTip);
+    expect(git(bare, ["rev-parse", `${tip}^{tree}`])).toBe(localTree);
+    // main's own commit was not replayed
+    expect(git(bare, ["rev-list", "--count", "main..feat/x"])).toBe("2");
+    expect(git(bare, ["show", `${tip}:README.md`])).toBe("resolved");
+  });
+
+  test("a root commit on unrelated history pushes with no parents", async () => {
+    git(work, ["checkout", "--orphan", "unrelated"]);
+    git(work, ["rm", "-rf", "."]);
+    writeFileSync(join(work, "only.txt"), "alone\n");
+    git(work, ["add", "."]);
+    git(work, ["commit", "-m", "chore: unrelated root"]);
+    const localTree = git(work, ["rev-parse", "HEAD^{tree}"]);
+    const gh = fakeGitHub(bare);
+    await signedPush({
+      argv: ["origin", "unrelated"],
+      env: env(),
+      cwd: work,
+      fetch: gh.fetch,
+      repo: "acme/widgets",
+    });
+    expect(git(bare, ["rev-parse", "unrelated^{tree}"])).toBe(localTree);
+    expect(
+      git(bare, ["rev-list", "--parents", "-n1", "unrelated"]).split(" "),
+    ).toHaveLength(1);
   });
 
   test("refuses payloads over the size cap", async () => {

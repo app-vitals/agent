@@ -45,15 +45,23 @@ interface RunOpts {
 }
 
 function runGit(args: string[], opts: RunOpts = {}) {
-  return spawnSync(opts.path ? join(opts.path[0] as string, "git") : GIT_WRAPPER, args, {
-    cwd: root,
-    encoding: "utf8",
-    env: {
-      PATH: [...(opts.path ?? []), BIN_DIR, stubDir, "/usr/bin", "/bin"].join(":"),
-      ...(opts.app === false ? {} : { GH_TOKEN_FILE: join(home, "gh-token") }),
-      ...opts.env,
+  return spawnSync(
+    opts.path ? join(opts.path[0] as string, "git") : GIT_WRAPPER,
+    args,
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        PATH: [...(opts.path ?? []), BIN_DIR, stubDir, "/usr/bin", "/bin"].join(
+          ":",
+        ),
+        ...(opts.app === false
+          ? {}
+          : { GH_TOKEN_FILE: join(home, "gh-token") }),
+        ...opts.env,
+      },
     },
-  });
+  );
 }
 
 beforeEach(() => {

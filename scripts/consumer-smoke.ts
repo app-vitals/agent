@@ -172,7 +172,10 @@ export function findUnreachableModules(
     .filter((f) => MODULE_FILE.test(f) && !TEST_FILE.test(f))
     .filter((f) => !privateModules.has(f) && !reaches(f))
     .sort()
-    .map((f) => `${f} is shipped but not reachable through exports (export it or allowlist it as private)`);
+    .map(
+      (f) =>
+        `${f} is shipped but not reachable through exports (export it or allowlist it as private)`,
+    );
 }
 
 /** Non-test modules in admin/src that are intentionally NOT exported. */
@@ -319,8 +322,7 @@ export function parseArgs(
     bootChat: !argv.includes("--no-chat-boot"),
     adminImage:
       flag("admin-image") ?? `ghcr.io/app-vitals/agent-admin:${version}`,
-    chatImage:
-      flag("chat-image") ?? `ghcr.io/app-vitals/agent-chat:${version}`,
+    chatImage: flag("chat-image") ?? `ghcr.io/app-vitals/agent-chat:${version}`,
   };
 }
 
@@ -406,8 +408,12 @@ async function install(args: Args, scratch: string): Promise<void> {
 }
 
 /** Paths of every installed @app-vitals/agent-lib under `scratch`, nested copies included. */
-function findAgentLibCopies(scratch: string): { path: string; version: string }[] {
-  const glob = new Bun.Glob("**/node_modules/@app-vitals/agent-lib/package.json");
+function findAgentLibCopies(
+  scratch: string,
+): { path: string; version: string }[] {
+  const glob = new Bun.Glob(
+    "**/node_modules/@app-vitals/agent-lib/package.json",
+  );
   return [...glob.scanSync({ cwd: scratch })].sort().map((f) => ({
     path: f,
     version: JSON.parse(readFileSync(join(scratch, f), "utf8")).version,
@@ -446,7 +452,11 @@ function importProbe(repoRoot: string, scratch: string): boolean {
       failures.push(`${name}: ${f}`);
     if (dir === "admin") {
       const srcFiles = [...new Bun.Glob("src/**/*").scanSync({ cwd: pkgDir })];
-      for (const f of findUnreachableModules(exports, srcFiles, PRIVATE_ADMIN_MODULES))
+      for (const f of findUnreachableModules(
+        exports,
+        srcFiles,
+        PRIVATE_ADMIN_MODULES,
+      ))
         failures.push(`${name}: ${f}`);
     }
   }
@@ -570,17 +580,29 @@ async function bootChat(image: string): Promise<boolean> {
   const pg = `${id}-pg`;
   const cwd = process.cwd();
   const local = run(["docker", "image", "inspect", image], cwd, true);
-  if (local.exitCode !== 0 && run(["docker", "pull", image], cwd).exitCode !== 0)
+  if (
+    local.exitCode !== 0 &&
+    run(["docker", "pull", image], cwd).exitCode !== 0
+  )
     return false;
   let logs = "";
   let healthBody: string | null = null;
   try {
-    if (run(["docker", "network", "create", id], cwd).exitCode !== 0) return false;
+    if (run(["docker", "network", "create", id], cwd).exitCode !== 0)
+      return false;
     const db = run(
       [
-        "docker", "run", "-d", "--name", pg, "--network", id,
-        "-e", `POSTGRES_PASSWORD=${CHAT_SMOKE_DB_PASSWORD}`,
-        "-e", "POSTGRES_DB=chat",
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        pg,
+        "--network",
+        id,
+        "-e",
+        `POSTGRES_PASSWORD=${CHAT_SMOKE_DB_PASSWORD}`,
+        "-e",
+        "POSTGRES_DB=chat",
         CHAT_SMOKE_POSTGRES_IMAGE,
       ],
       cwd,
@@ -588,23 +610,42 @@ async function bootChat(image: string): Promise<boolean> {
     if (db.exitCode !== 0) return false;
     // Postgres needs a moment; the chat preflight fails fast if it is not up yet.
     for (let i = 0; i < 30; i++) {
-      if (run(["docker", "exec", pg, "pg_isready", "-U", "postgres", "-d", "chat"], cwd, true).exitCode === 0) break;
+      if (
+        run(
+          ["docker", "exec", pg, "pg_isready", "-U", "postgres", "-d", "chat"],
+          cwd,
+          true,
+        ).exitCode === 0
+      )
+        break;
       await Bun.sleep(1_000);
     }
-    if (run(buildChatDockerRunArgs(image, id, id, pg), cwd).exitCode !== 0) return false;
+    if (run(buildChatDockerRunArgs(image, id, id, pg), cwd).exitCode !== 0)
+      return false;
     const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
       const l = run(["docker", "logs", id], cwd, true);
       logs = l.stdout + l.stderr;
       if (RESOLUTION_ERROR.test(logs)) break;
-      const st = run(["docker", "inspect", "-f", "{{.State.Running}}", id], cwd, true);
+      const st = run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", id],
+        cwd,
+        true,
+      );
       if (st.stdout.trim() === "false") break;
       if (logs.includes(CHAT_MIGRATIONS_MARKER)) {
         // The slim image has no curl; bun is always there.
         const h = run(
-          ["docker", "exec", id, "bun", "-e",
-           'const r = await fetch("http://127.0.0.1:3000/health"); if (!r.ok) process.exit(1); console.log(await r.text());'],
-          cwd, true,
+          [
+            "docker",
+            "exec",
+            id,
+            "bun",
+            "-e",
+            'const r = await fetch("http://127.0.0.1:3000/health"); if (!r.ok) process.exit(1); console.log(await r.text());',
+          ],
+          cwd,
+          true,
         );
         if (h.exitCode === 0) {
           healthBody = h.stdout.trim();
@@ -641,9 +682,14 @@ async function main(): Promise<void> {
     packLocal(repoRoot, args.version, args.tarballs);
   }
   await install(args, scratch);
-  const libFailures = checkAgentLibCopies(findAgentLibCopies(scratch), args.version);
+  const libFailures = checkAgentLibCopies(
+    findAgentLibCopies(scratch),
+    args.version,
+  );
   for (const f of libFailures) console.error(`  FAIL agent-lib: ${f}`);
-  let ok = (args.importProbe ? importProbe(repoRoot, scratch) : true) && libFailures.length === 0;
+  let ok =
+    (args.importProbe ? importProbe(repoRoot, scratch) : true) &&
+    libFailures.length === 0;
   if (args.boot) {
     const results = [
       ...(args.bootAgent ? [await bootImage("agent", args.agentImage)] : []),

@@ -5,9 +5,9 @@
  * `git push` replacement for GitHub App agents. Commits pushed with plain git
  * are unsigned; commits created through the REST Git Data API with no
  * author/committer are signed by GitHub. This helper replays the local commits
- * in `<remoteHead>..HEAD` (topological order) through that API using the
+ * not yet on the remote (topological order) through that API using the
  * per-owner installation token: per commit `POST /git/trees` (base tree = the
- * first parent's tree, entries from `git diff-tree`) then `POST /git/commits`
+ * first parent's tree, entries from `git diff-tree` against it) then `POST /git/commits`
  * with the mapped parents and the original message, checking
  * `verification.verified` on every response. Nothing is visible on the remote
  * until the branch ref moves, so a failure mid-replay leaves only unreferenced
@@ -24,10 +24,15 @@
  * scripts/bin/git-credential-shipwright.sh; owner validation shared with
  * runtime/gh-token-files.ts).
  *
+ * Merge commits keep every parent (a parent that is not part of the replay is
+ * already on the remote and is used as-is), tree entries carry the real mode
+ * and type (executables, symlinks, submodules as commit entries, deletes as
+ * `sha: null`), and root commits / unrelated history are fine because the ref
+ * is only created at the final tip.
+ *
  * A push the helper cannot reproduce exactly must not silently differ, so it
  * refuses (exit 1, message ending in the `SHIPWRIGHT_SIGNED_COMMITS=off git
- * push ...` bypass): new executable files, mode changes, symlinks, submodules,
- * merge and root commits, force/tag/delete pushes and oversized commits.
+ * push ...` bypass): force/tag/delete pushes and oversized commits.
  * Other failures read like git's own: a non-fast-forward push prints
  * `! [rejected] <branch> -> <branch> (fetch first)` and `error: failed to push
  * some refs to <url>`. A short hint is added only where the cause is the agent
@@ -169,19 +174,22 @@ export interface Addition {
   sha: string;
   mode: string;
 }
+export interface Deletion {
+  path: string;
+  mode: string;
+}
 export interface Classified {
   additions: Addition[];
-  deletions: string[];
-  problems: string[];
+  deletions: Deletion[];
 }
 
 /**
  * Classify `git diff-tree -r -z --no-renames --raw` output. Renames never
- * appear (they arrive as delete + add). Problems list everything the commit
- * API cannot express.
+ * appear (they arrive as delete + add). Modes are kept as-is: regular files,
+ * executables, symlinks (120000) and submodules (160000) are all expressible.
  */
 export function classifyDiff(raw: string): Classified {
-  const out: Classified = { additions: [], deletions: [], problems: [] };
+  const out: Classified = { additions: [], deletions: [] };
   const tokens = raw.split("\0");
   for (let i = 0; i + 1 < tokens.length; i += 2) {
     const meta = (tokens[i] as string).replace(/^:/, "").split(" ");
@@ -194,22 +202,25 @@ export function classifyDiff(raw: string): Classified {
       string,
     ];
     if (newMode === "000000" || status === "D") {
-      out.deletions.push(path);
-      continue;
-    }
-    if (newMode === "160000") {
-      out.problems.push(`submodule change at ${path}`);
-    } else if (newMode === "120000") {
-      out.problems.push(`symlink at ${path}`);
-    } else if (oldMode === "000000" && newMode === "100755") {
-      out.problems.push(`new executable file ${path}`);
-    } else if (oldMode !== "000000" && oldMode !== newMode) {
-      out.problems.push(`mode change (${oldMode} -> ${newMode}) on ${path}`);
+      out.deletions.push({ path, mode: oldMode });
     } else {
       out.additions.push({ path, sha: newSha, mode: newMode });
     }
   }
   return out;
+}
+
+/** A submodule pointer is a `commit` entry; everything else is a blob. */
+export const entryType = (mode: string) =>
+  mode === "160000" ? "commit" : "blob";
+
+/** Map parents through the old->new SHA map; unmapped ones are already on the remote. */
+export const mapParents = (parents: string[], newSha: Map<string, string>) =>
+  parents.map((p) => newSha.get(p) ?? p);
+
+/** Tree entry that deletes `path` (`sha: null`) with its previous mode/type. */
+export function deletionEntry(d: Deletion) {
+  return { path: d.path, mode: d.mode, type: entryType(d.mode), sha: null };
 }
 
 export function readMaxBytes(env: Record<string, string | undefined>): number {
@@ -358,8 +369,14 @@ interface Plan {
   sha: string;
   parents: string[];
   message: string;
-  additions: { path: string; mode: string; contents: Buffer }[];
-  deletions: string[];
+  /** `contents` is the blob (or symlink target); submodules carry `commit`. */
+  additions: {
+    path: string;
+    mode: string;
+    contents?: Buffer;
+    commit?: string;
+  }[];
+  deletions: Deletion[];
 }
 
 export async function signedPush(
@@ -416,7 +433,10 @@ export async function signedPush(
 
   const remoteHead = await readRef(branch);
   const isNew = remoteHead === undefined;
-  let base: string;
+  // Everything reachable from these is already on the remote and is not replayed.
+  const exclude: string[] = [];
+  const repoInfo = await api<{ default_branch: string }>("GET", repoPath);
+  const defaultHead = await readRef(repoInfo.default_branch);
   if (remoteHead) {
     if (!ensureObject(remoteHead)) rejected();
     if (
@@ -424,28 +444,24 @@ export async function signedPush(
       0
     )
       rejected();
-    base = remoteHead;
+    exclude.push(remoteHead);
   } else {
-    const repoInfo = await api<{ default_branch: string }>("GET", repoPath);
-    const def = await readRef(repoInfo.default_branch);
-    if (!def || !ensureObject(def)) {
+    if (!defaultHead || !ensureObject(defaultHead)) {
       return refuse(
         "cannot find the default branch to create the new branch from",
       );
     }
-    const mb = runGit(cwd, ["merge-base", def, "HEAD"]);
-    if (mb.code !== 0 || !mb.text) {
-      return refuse("HEAD shares no history with the default branch");
-    }
-    base = mb.text;
   }
+  if (defaultHead && ensureObject(defaultHead)) exclude.push(defaultHead);
 
   const lines = gitOk(cwd, [
     "rev-list",
     "--reverse",
     "--topo-order",
     "--parents",
-    `${base}..HEAD`,
+    "HEAD",
+    "--not",
+    ...exclude,
   ])
     .split("\n")
     .filter(Boolean);
@@ -454,27 +470,26 @@ export async function signedPush(
   }
 
   // Validate every commit before any API call so a refusal changes nothing.
+  const emptyTree = gitOk(cwd, ["hash-object", "-t", "tree", "/dev/null"]);
   const plans: Plan[] = lines.map((line) => {
     const [sha, ...parents] = line.split(" ") as [string, ...string[]];
-    if (parents.length > 1) {
-      refuse(`merge commit ${sha.slice(0, 7)} would be flattened`);
-    }
-    if (parents.length < 1) refuse(`root commit ${sha.slice(0, 7)}`);
+    // Diff against the first parent (or the empty tree for a root commit): the
+    // tree entries are relative to the first parent's tree.
     const diff = runGit(cwd, [
       "diff-tree",
       "-r",
       "-z",
       "--no-renames",
       "--raw",
-      `${sha}^`,
+      parents[0] ?? emptyTree,
       sha,
     ]);
     const c = classifyDiff(diff.stdout.toString());
-    if (c.problems.length) {
-      refuse(`commit ${sha.slice(0, 7)}: ${c.problems.join("; ")}`);
-    }
     let bytes = 0;
     const additions = c.additions.map((a) => {
+      if (entryType(a.mode) === "commit") {
+        return { path: a.path, mode: a.mode, commit: a.sha };
+      }
       const contents = runGit(cwd, ["cat-file", "blob", a.sha]).stdout;
       bytes += Math.ceil((contents.length * 4) / 3);
       if (bytes > maxBytes) {
@@ -491,15 +506,29 @@ export async function signedPush(
   const bypass = `SHIPWRIGHT_SIGNED_COMMITS=off ${["git", "push", ...args.raw].join(" ")}`;
   const newSha = new Map<string, string>();
   const newTree = new Map<string, string>();
-  let head = base;
-  let headTree = gitOk(cwd, ["rev-parse", `${base}^{tree}`]);
+  let head = gitOk(cwd, ["rev-parse", "HEAD"]);
+  let headTree = gitOk(cwd, ["rev-parse", "HEAD^{tree}"]);
   for (const [i, plan] of plans.entries()) {
-    const parent = plan.parents[0] as string;
+    // A parent outside the replay is already on the remote: use it as-is.
+    const parent = plan.parents[0];
     const baseTree =
-      newTree.get(parent) ?? gitOk(cwd, ["rev-parse", `${parent}^{tree}`]);
+      parent === undefined
+        ? undefined
+        : (newTree.get(parent) ??
+          gitOk(cwd, ["rev-parse", `${parent}^{tree}`]));
     const entries: Record<string, unknown>[] = [];
     for (const a of plan.additions) {
-      const text = asInlineText(a.contents);
+      if (a.commit !== undefined) {
+        entries.push({
+          path: a.path,
+          mode: a.mode,
+          type: "commit",
+          sha: a.commit,
+        });
+        continue;
+      }
+      const contents = a.contents as Buffer;
+      const text = asInlineText(contents);
       if (text !== undefined) {
         entries.push({
           path: a.path,
@@ -512,7 +541,7 @@ export async function signedPush(
           "POST",
           `${repoPath}/git/blobs`,
           {
-            content: a.contents.toString("base64"),
+            content: contents.toString("base64"),
             encoding: "base64",
           },
         );
@@ -524,9 +553,7 @@ export async function signedPush(
         });
       }
     }
-    for (const path of plan.deletions) {
-      entries.push({ path, mode: "100644", type: "blob", sha: null });
-    }
+    for (const d of plan.deletions) entries.push(deletionEntry(d));
     const tree = await api<{ sha: string }>("POST", `${repoPath}/git/trees`, {
       base_tree: baseTree,
       tree: entries,
@@ -535,7 +562,7 @@ export async function signedPush(
     const commit = await api<CreatedCommit>("POST", `${repoPath}/git/commits`, {
       message: plan.message,
       tree: tree.sha,
-      parents: plan.parents.map((p) => newSha.get(p) ?? p),
+      parents: mapParents(plan.parents, newSha),
     });
     if (!commit.verification?.verified) {
       throw new Error(

@@ -252,10 +252,7 @@ describe("collectTsFiles", () => {
   test("recurses into nested subdirectories", () => {
     mkdirSync(join(scratchDir, "nested", "deeper"), { recursive: true });
     writeFileSync(join(scratchDir, "top.ts"), "export const t = 1;");
-    writeFileSync(
-      join(scratchDir, "nested", "mid.ts"),
-      "export const m = 1;",
-    );
+    writeFileSync(join(scratchDir, "nested", "mid.ts"), "export const m = 1;");
     writeFileSync(
       join(scratchDir, "nested", "deeper", "leaf.ts"),
       "export const l = 1;",
@@ -296,7 +293,13 @@ describe("collectTsFiles", () => {
   });
 
   test("skips node_modules, .git, dist, worktrees, and build directories", () => {
-    for (const skipped of ["node_modules", ".git", "dist", "worktrees", "build"]) {
+    for (const skipped of [
+      "node_modules",
+      ".git",
+      "dist",
+      "worktrees",
+      "build",
+    ]) {
       mkdirSync(join(scratchDir, skipped), { recursive: true });
       writeFileSync(
         join(scratchDir, skipped, "should-not-appear.ts"),
