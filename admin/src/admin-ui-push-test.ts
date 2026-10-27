@@ -83,9 +83,13 @@ export function renderPushTestControl(): string {
     btn.addEventListener('click', function() {
       btn.disabled = true;
       status.textContent = 'Sending…';
-      fetch(${JSON.stringify(PUSH_TEST_PATH)}, { method: 'POST', credentials: 'same-origin' })
+      fetch(${JSON.stringify(PUSH_TEST_PATH)}, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
         .then(function(res) { return res.json().then(function(body) { return { status: res.status, body: body }; }); })
         .then(function(r) {
+          if (r.status === 401) {
+            window.location.href = '/admin/login?returnTo=' + encodeURIComponent(location.pathname + location.search);
+            return;
+          }
           if (r.status !== 200 || !r.body || !r.body.ok) {
             status.textContent = 'Push is not enabled on this server.';
           } else if (r.body.delivered === 0) {

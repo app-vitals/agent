@@ -3059,8 +3059,15 @@ export function renderChatThreadPage(
   }
 
   function poll() {
-    fetch(messagesJsonUrl)
-      .then(function(r) { return r.json(); })
+    fetch(messagesJsonUrl, { headers: { 'Accept': 'application/json' } })
+      .then(function(r) {
+        if (r.status === 401) {
+          stopPolling();
+          window.location.href = '/admin/login?returnTo=' + encodeURIComponent(location.pathname + location.search);
+          return { messages: [] };
+        }
+        return r.json();
+      })
       .then(function(data) {
         var msgs = data.messages || [];
 
@@ -3246,8 +3253,14 @@ export function renderChatThreadPage(
     // POST multipart to the upload endpoint
     fetch(uploadUrl, {
       method: 'POST',
+      headers: { 'Accept': 'application/json' },
       body: fd
     }).then(function(r) {
+      if (r.status === 401) {
+        stopAll();
+        window.location.href = '/admin/login?returnTo=' + encodeURIComponent(location.pathname + location.search);
+        return;
+      }
       if (!r.ok) {
         return r.json().then(function(data) {
           stopAll();

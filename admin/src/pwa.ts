@@ -115,6 +115,7 @@ export function buildManifest(
 const NON_NAVIGABLE_EXACT_PATHS: readonly string[] = [
   "/admin/manifest.webmanifest",
   "/admin/sw.js",
+  "/admin/session.json",
   "/admin/offline.html",
   "/admin/login",
   "/admin/logout",

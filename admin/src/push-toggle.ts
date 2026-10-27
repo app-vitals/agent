@@ -114,14 +114,18 @@ export function renderPushToggle(args: PushToggleArgs): string {
         var json = subscription.toJSON();
         return fetch(SUBSCRIBE_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({
             endpoint: subscription.endpoint,
             p256dh: json.keys && json.keys.p256dh,
             auth: json.keys && json.keys.auth,
           }),
         });
-      }).then(function() {
+      }).then(function(res) {
+        if (res && res.status === 401) {
+          window.location.href = '/admin/login?returnTo=' + encodeURIComponent(location.pathname + location.search);
+          return;
+        }
         setStatus('Notifications enabled.');
         btn.textContent = 'Notifications on';
       });
