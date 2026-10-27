@@ -1,0 +1,10 @@
+apiVersion: v2
+name: shipwright
+description: Test-only consumer of the agent-platform library chart (renders each shared helper into a ConfigMap)
+type: application
+version: 0.0.0
+appVersion: "1.2.3"
+dependencies:
+  - name: agent-platform
+    version: ">=0.0.0"
+    repository: file://../../..

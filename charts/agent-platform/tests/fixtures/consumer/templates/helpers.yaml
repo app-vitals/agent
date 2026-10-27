@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: helper-output
+data:
+  name: {{ include "agent-platform.name" . | quote }}
+  fullname: {{ include "agent-platform.fullname" . | quote }}
+  chart: {{ include "agent-platform.chart" . | quote }}
+  labels: {{ include "agent-platform.labels" . | quote }}
+  selectorLabels: {{ include "agent-platform.selectorLabels" . | quote }}
+  podLabels: {{ include "agent-platform.podLabels" (dict "podLabels" .Values.admin.podLabels "selectorLabels" .Values.podLabelsSelector) | quote }}
+  serviceAccountName: {{ include "agent-platform.serviceAccountName" . | quote }}
+  imageRef: {{ include "agent-platform.imageRef" (dict "context" . "repository" .Values.image.repository "tag" .Values.image.tag "digest" .Values.image.digest) | quote }}
+  adminFullname: {{ include "agent-platform.admin.fullname" . | quote }}
+  adminSelectorLabels: {{ include "agent-platform.admin.selectorLabels" . | quote }}
+  adminLabels: {{ include "agent-platform.admin.labels" . | quote }}
+  adminServiceAccountName: {{ include "agent-platform.admin.serviceAccountName" . | quote }}
+  adminSecretName: {{ include "agent-platform.admin.secretName" . | quote }}
+  agentFullname: {{ include "agent-platform.agent.fullname" . | quote }}
+  agentLabels: {{ include "agent-platform.agent.labels" . | quote }}
+  agentServiceAccountName: {{ include "agent-platform.agent.serviceAccountName" . | quote }}
+  whisperFullname: {{ include "agent-platform.whisper.fullname" . | quote }}
+  whisperSelectorLabels: {{ include "agent-platform.whisper.selectorLabels" . | quote }}
+  whisperLabels: {{ include "agent-platform.whisper.labels" . | quote }}
+  whisperServiceUrl: {{ include "agent-platform.whisper.serviceUrl" . | quote }}
+  voiceSecretName: {{ include "agent-platform.voice.secretName" . | quote }}

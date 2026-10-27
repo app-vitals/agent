@@ -1,0 +1,260 @@
+# Pins every agent-platform.* shared helper through the consumer fixture chart.
+# Run: helm dependency build charts/agent-platform/tests/fixtures/consumer &&
+#      helm unittest charts/agent-platform/tests/fixtures/consumer
+suite: agent-platform shared helpers
+templates:
+  - templates/helpers.yaml
+tests:
+  - it: renders release-derived names for release "shipwright"
+    release:
+      name: shipwright
+    asserts:
+      - equal: {path: data.name, value: shipwright}
+      - equal: {path: data.fullname, value: shipwright}
+      - equal: {path: data.chart, value: shipwright-0.0.0}
+      - equal: {path: data.serviceAccountName, value: shipwright}
+      - equal: {path: data.adminFullname, value: shipwright-admin}
+      - equal: {path: data.adminSecretName, value: shipwright-admin}
+      - equal: {path: data.adminServiceAccountName, value: shipwright-admin}
+      - equal: {path: data.agentFullname, value: shipwright-agent}
+      - equal: {path: data.agentServiceAccountName, value: shipwright-agent}
+      - equal: {path: data.whisperFullname, value: shipwright-whisper}
+      - equal: {path: data.whisperServiceUrl, value: "http://shipwright-whisper:9000"}
+      - equal: {path: data.voiceSecretName, value: shipwright-voice}
+
+  - it: renders label helpers for release "shipwright"
+    release:
+      name: shipwright
+    asserts:
+      - equal:
+          path: data.selectorLabels
+          value: "app.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: shipwright"
+      - equal:
+          path: data.labels
+          value: "helm.sh/chart: shipwright-0.0.0\napp.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: shipwright\napp.kubernetes.io/version: \"1.2.3\"\napp.kubernetes.io/managed-by: Helm"
+      - equal:
+          path: data.adminSelectorLabels
+          value: "app.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: shipwright\napp.kubernetes.io/component: admin"
+      - equal:
+          path: data.adminLabels
+          value: "helm.sh/chart: shipwright-0.0.0\napp.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: shipwright\napp.kubernetes.io/version: \"1.2.3\"\napp.kubernetes.io/managed-by: Helm\napp.kubernetes.io/component: admin"
+      - equal:
+          path: data.agentLabels
+          value: "helm.sh/chart: shipwright-0.0.0\napp.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: shipwright\napp.kubernetes.io/version: \"1.2.3\"\napp.kubernetes.io/managed-by: Helm\napp.kubernetes.io/component: agent"
+      - equal:
+          path: data.whisperSelectorLabels
+          value: "app.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: shipwright\napp.kubernetes.io/component: whisper"
+      - equal:
+          path: data.whisperLabels
+          value: "helm.sh/chart: shipwright-0.0.0\napp.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: shipwright\napp.kubernetes.io/version: \"1.2.3\"\napp.kubernetes.io/managed-by: Helm\napp.kubernetes.io/component: whisper"
+
+  - it: derives names from a differently named release ("acme")
+    release:
+      name: acme
+    asserts:
+      - equal: {path: data.name, value: shipwright}
+      - equal: {path: data.fullname, value: acme-shipwright}
+      - equal: {path: data.serviceAccountName, value: acme-shipwright}
+      - equal: {path: data.adminFullname, value: acme-shipwright-admin}
+      - equal: {path: data.adminSecretName, value: acme-shipwright-admin}
+      - equal: {path: data.adminServiceAccountName, value: acme-shipwright-admin}
+      - equal: {path: data.agentFullname, value: acme-shipwright-agent}
+      - equal: {path: data.agentServiceAccountName, value: acme-shipwright-agent}
+      - equal: {path: data.whisperFullname, value: acme-shipwright-whisper}
+      - equal: {path: data.whisperServiceUrl, value: "http://acme-shipwright-whisper:9000"}
+      - equal: {path: data.voiceSecretName, value: acme-shipwright-voice}
+      - equal:
+          path: data.selectorLabels
+          value: "app.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: acme"
+      - equal:
+          path: data.adminSelectorLabels
+          value: "app.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: acme\napp.kubernetes.io/component: admin"
+      - equal:
+          path: data.whisperLabels
+          value: "helm.sh/chart: shipwright-0.0.0\napp.kubernetes.io/name: shipwright\napp.kubernetes.io/instance: acme\napp.kubernetes.io/version: \"1.2.3\"\napp.kubernetes.io/managed-by: Helm\napp.kubernetes.io/component: whisper"
+
+  - it: uses the release name alone when it already contains the chart name
+    release:
+      name: shipwright-prod
+    asserts:
+      - equal: {path: data.fullname, value: shipwright-prod}
+      - equal: {path: data.adminFullname, value: shipwright-prod-admin}
+
+  - it: fullnameOverride wins over release and nameOverride
+    release:
+      name: acme
+    set:
+      fullnameOverride: custom-full
+      nameOverride: ignored
+    asserts:
+      - equal: {path: data.fullname, value: custom-full}
+      - equal: {path: data.name, value: ignored}
+      - equal: {path: data.adminFullname, value: custom-full-admin}
+      - equal: {path: data.agentFullname, value: custom-full-agent}
+      - equal: {path: data.whisperFullname, value: custom-full-whisper}
+      - equal: {path: data.voiceSecretName, value: custom-full-voice}
+      - equal: {path: data.adminSecretName, value: custom-full-admin}
+
+  - it: nameOverride replaces the chart name in name, fullname and selector labels
+    release:
+      name: acme
+    set:
+      nameOverride: foo
+    asserts:
+      - equal: {path: data.name, value: foo}
+      - equal: {path: data.fullname, value: acme-foo}
+      - equal:
+          path: data.selectorLabels
+          value: "app.kubernetes.io/name: foo\napp.kubernetes.io/instance: acme"
+
+  - it: nameOverride contained in the release name collapses fullname to the release name
+    release:
+      name: acme-foo
+    set:
+      nameOverride: foo
+    asserts:
+      - equal: {path: data.fullname, value: acme-foo}
+
+  - it: truncates name and fullnameOverride at 63 characters
+    release:
+      name: acme
+    set:
+      nameOverride: nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+      fullnameOverride: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    asserts:
+      - equal: {path: data.name, value: nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn}
+      - equal: {path: data.fullname, value: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+
+  - it: truncates the release-derived fullname at 63 characters
+    release:
+      name: acme
+    set:
+      nameOverride: nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+    asserts:
+      - equal: {path: data.fullname, value: "acme-nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"}
+
+  - it: trims a trailing dash left by 63-character truncation
+    release:
+      name: acme
+    set:
+      fullnameOverride: shipwright-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy-zzzz
+    asserts:
+      - equal: {path: data.fullname, value: shipwright-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy}
+      - equal: {path: data.adminFullname, value: shipwright-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy}
+      - equal: {path: data.agentFullname, value: shipwright-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy}
+      - equal: {path: data.whisperFullname, value: shipwright-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy}
+      - equal: {path: data.adminSecretName, value: shipwright-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy}
+      - equal: {path: data.voiceSecretName, value: shipwright-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy}
+
+  - it: truncates component names to 63 characters
+    release:
+      name: acme
+    set:
+      fullnameOverride: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    asserts:
+      - equal: {path: data.adminFullname, value: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+      - equal: {path: data.voiceSecretName, value: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+      - equal: {path: data.agentFullname, value: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+      - equal: {path: data.whisperFullname, value: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+
+  - it: replaces "+" with "_" in the chart label
+    release:
+      name: shipwright
+    asserts:
+      - matchRegex: {path: data.chart, pattern: "^shipwright-0\\.0\\.0$"}
+
+  - it: serviceAccountName honours create=false and explicit names
+    release:
+      name: acme
+    set:
+      serviceAccount: {create: false, name: ""}
+      admin.serviceAccount: {create: false, name: ""}
+      agent.provisioning.serviceAccount: {create: false, name: ""}
+    asserts:
+      - equal: {path: data.serviceAccountName, value: default}
+      - equal: {path: data.adminServiceAccountName, value: default}
+      - equal: {path: data.agentServiceAccountName, value: default}
+
+  - it: serviceAccountName uses explicit names with create true or false
+    release:
+      name: acme
+    set:
+      serviceAccount: {create: true, name: sa-main}
+      admin.serviceAccount: {create: false, name: sa-admin}
+      agent.provisioning.serviceAccount: {create: true, name: sa-agent}
+    asserts:
+      - equal: {path: data.serviceAccountName, value: sa-main}
+      - equal: {path: data.adminServiceAccountName, value: sa-admin}
+      - equal: {path: data.agentServiceAccountName, value: sa-agent}
+
+  - it: whisper service URL reflects the configured port
+    release:
+      name: shipwright
+    set:
+      agent.voice.whisper.service.port: 8080
+    asserts:
+      - equal: {path: data.whisperServiceUrl, value: "http://shipwright-whisper:8080"}
+
+  - it: imageRef renders a fully-qualified repository verbatim even with a registry
+    set:
+      global.imageRegistry: registry.example.com
+    asserts:
+      - equal: {path: data.imageRef, value: "ghcr.io/app-vitals/shipwright-admin:v1"}
+
+  - it: imageRef prefixes global.imageRegistry onto a bare repository
+    set:
+      global.imageRegistry: registry.example.com
+      image.repository: shipwright-admin
+    asserts:
+      - equal: {path: data.imageRef, value: "registry.example.com/shipwright-admin:v1"}
+
+  - it: imageRef leaves a bare repository alone without a registry
+    set:
+      image.repository: shipwright-admin
+    asserts:
+      - equal: {path: data.imageRef, value: "shipwright-admin:v1"}
+
+  - it: imageRef treats a host:port first segment as fully-qualified
+    set:
+      global.imageRegistry: registry.example.com
+      image.repository: localhost:5000/shipwright-admin
+    asserts:
+      - equal: {path: data.imageRef, value: "localhost:5000/shipwright-admin:v1"}
+
+  - it: imageRef digest takes precedence over tag and uses "@"
+    set:
+      global.imageRegistry: registry.example.com
+      image.repository: shipwright-admin
+      image.digest: sha256:abc123
+    asserts:
+      - equal: {path: data.imageRef, value: "registry.example.com/shipwright-admin@sha256:abc123"}
+
+  - it: imageRef digest on a fully-qualified repository
+    set:
+      image.digest: sha256:abc123
+    asserts:
+      - equal: {path: data.imageRef, value: "ghcr.io/app-vitals/shipwright-admin@sha256:abc123"}
+
+  - it: podLabels emits nothing for the default empty map
+    asserts:
+      - equal: {path: data.podLabels, value: ""}
+
+  - it: podLabels drops reserved selector keys and stringifies values
+    set:
+      admin.podLabels:
+        team: platform
+        enabled: true
+        replicas: 3
+        app.kubernetes.io/name: hijack
+        app.kubernetes.io/instance: hijack
+    asserts:
+      - equal:
+          path: data.podLabels
+          value: "enabled: \"true\"\nreplicas: \"3\"\nteam: platform"
+
+  - it: podLabels emits nothing when every key is reserved
+    set:
+      admin.podLabels:
+        app.kubernetes.io/name: hijack
+    asserts:
+      - equal: {path: data.podLabels, value: ""}
