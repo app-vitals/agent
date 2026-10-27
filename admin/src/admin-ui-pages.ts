@@ -2800,6 +2800,14 @@ export function renderChatThreadPage(
   const safeAgentId = escapeHtml(agentId);
   const safeThreadId = escapeHtml(threadId);
 
+  // Signed-out banner (ASX-1.2): hidden until a 401 from the poll, the upload
+  // or the /admin/session.json probe reveals it. A plain link so a tap
+  // returns the user to this exact thread after sign-in.
+  const signedOutReturnTo = encodeURIComponent(
+    `/admin/chat/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}`,
+  );
+  const signedOutBanner = `<a id="signed-out-banner" class="chat-signed-out-banner" href="/admin/login?returnTo=${signedOutReturnTo}" role="alert" style="display:none;padding:10px 14px;margin-bottom:8px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;text-align:center">You're signed out. Tap to sign in.</a>`;
+
   const renameForm = `
     <form method="POST" action="/admin/chat/${escapeHtml(agentId)}/threads/${escapeHtml(threadId)}/rename" style="margin-top:12px">
       <div class="form-row" style="align-items:center;gap:8px">
@@ -2851,6 +2859,11 @@ export function renderChatThreadPage(
   var container = document.getElementById('messages-container');
   var agentId = ${JSON.stringify(agentId)};
   var threadId = ${JSON.stringify(thread.id)};
+  var sessionUrl = '/admin/session.json';
+  var signedOutBanner = document.getElementById('signed-out-banner');
+  var draftKey = 'chat-draft:' + agentId + ':' + threadId;
+  var signedOut = false;
+  var pendingUserBubble = null;
   var messagesJsonUrl = '/admin/chat/' + encodeURIComponent(agentId) + '/threads/' + encodeURIComponent(threadId) + '/messages.json';
   var uploadUrl = '/admin/chat/' + encodeURIComponent(agentId) + '/threads/' + encodeURIComponent(threadId) + '/messages/upload';
 
@@ -3046,10 +3059,56 @@ export function renderChatThreadPage(
   function stopAll() { stopPolling(); stopTicker(); }
 
   function enableSend() {
+    if (signedOut) return;
     sendBtn.disabled = false;
     sendBtn.textContent = 'Send';
     if (micBtn) micBtn.disabled = false;
   }
+
+  // Draft persistence (ASX-1.2): unsent text survives a sign-in round trip.
+  // localStorage can throw (private mode, quota), so every access is guarded.
+  function saveDraft(text) {
+    try {
+      if (text) localStorage.setItem(draftKey, text);
+      else localStorage.removeItem(draftKey);
+    } catch (e) {}
+  }
+  function loadDraft() {
+    try { return localStorage.getItem(draftKey) || ''; } catch (e) { return ''; }
+  }
+  function clearDraft() { saveDraft(''); }
+
+  // Signed-out state (ASX-1.2): a 401 from the poll, the upload or the
+  // session probe. Shows the banner, halts the poll loop and live ticker,
+  // drops the pending bubble and disables send/mic. Idempotent.
+  function showSignedOut() {
+    signedOut = true;
+    stopAll();
+    removeLiveStatusBubble();
+    if (pendingUserBubble && pendingUserBubble.parentNode) {
+      pendingUserBubble.parentNode.removeChild(pendingUserBubble);
+    }
+    pendingUserBubble = null;
+    saveDraft(input.value.trim());
+    sendBtn.disabled = true;
+    if (micBtn) micBtn.disabled = true;
+    if (signedOutBanner) signedOutBanner.style.display = 'block';
+  }
+
+  // Cheap probe so an app left open learns it is signed out as soon as the
+  // user comes back, before they record or send anything. Network errors are
+  // ignored — only an explicit 401 means signed out.
+  function checkSession() {
+    if (signedOut) return;
+    fetch(sessionUrl, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+      .then(function(r) { if (r.status === 401) showSignedOut(); })
+      .catch(function() {});
+  }
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') checkSession();
+  });
+  window.addEventListener('focus', checkSession);
+  window.addEventListener('pageshow', checkSession);
 
   // Adaptive poll: fast while a reply is pending, slow while idle (so
   // agent-initiated messages still appear without a reload).
@@ -3062,13 +3121,13 @@ export function renderChatThreadPage(
     fetch(messagesJsonUrl, { headers: { 'Accept': 'application/json' } })
       .then(function(r) {
         if (r.status === 401) {
-          stopPolling();
-          window.location.href = '/admin/login?returnTo=' + encodeURIComponent(location.pathname + location.search);
-          return { messages: [] };
+          showSignedOut();
+          return null;
         }
         return r.json();
       })
       .then(function(data) {
+        if (!data || signedOut) return;
         var msgs = data.messages || [];
 
         // Capture before rendering new bubbles grows scrollHeight.
@@ -3123,6 +3182,7 @@ export function renderChatThreadPage(
       .catch(function() {
         // Network error — Layer 1 ticker keeps going untouched; just retry the
         // poll on the pending cadence.
+        if (signedOut) return;
         schedulePoll(POLL_PENDING_MS);
       });
   }
@@ -3241,7 +3301,7 @@ export function renderChatThreadPage(
     if (file) fd.append('file', file);
 
     // Add user bubble optimistically (with attachment preview if present).
-    addUserBubble(text, file);
+    pendingUserBubble = addUserBubble(text, file);
 
     // Show the live status bubble + start the ticker immediately — Layer 1
     // begins ticking with zero network dependency.
@@ -3257,8 +3317,9 @@ export function renderChatThreadPage(
       body: fd
     }).then(function(r) {
       if (r.status === 401) {
-        stopAll();
-        window.location.href = '/admin/login?returnTo=' + encodeURIComponent(location.pathname + location.search);
+        // Keep the unsent text so it survives the sign-in round trip.
+        if (text) input.value = text;
+        showSignedOut();
         return;
       }
       if (!r.ok) {
@@ -3279,10 +3340,14 @@ export function renderChatThreadPage(
           if (data && data.message && data.message.id) {
             renderedIds[data.message.id] = true;
           }
+          pendingUserBubble = null;
+          clearDraft();
         });
       }
     }).catch(function() {
       // POST failed — Layer 1 ticker keeps going; poll loop still starts.
+      // Keep the text as a draft in case the user reloads.
+      if (text) saveDraft(text);
     });
 
     // Start the fast poll loop.
@@ -3293,11 +3358,17 @@ export function renderChatThreadPage(
     e.preventDefault();
     var text = input.value.trim();
     var file = fileInput && fileInput.files && fileInput.files[0];
-    if (!text && !file) return;
+    if (signedOut || (!text && !file)) return;
+    // Persist before clearing so a failed send never loses the text.
+    saveDraft(text);
     input.value = '';
     clearFile();
     sendText(text, file);
   });
+
+  input.addEventListener('input', function() { saveDraft(input.value.trim()); });
+  var restoredDraft = loadDraft();
+  if (restoredDraft && !input.value) input.value = restoredDraft;
 
   // Retry buttons (CFB-2.4) resend the exact user message body that
   // triggered the errored/cancelled/incomplete/stalled reply — rendered
@@ -3542,6 +3613,7 @@ export function renderChatThreadPage(
       ${sidebar}
       ${drawerScrim}
       <div style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column">
+        ${signedOutBanner}
         <!-- Messages area (scrollable) -->
         <div id="messages-container" class="chat-messages-container">
           ${messageBubbles}

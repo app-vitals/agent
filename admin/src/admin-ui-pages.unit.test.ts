@@ -3079,6 +3079,42 @@ describe("renderChatThreadPage", () => {
     );
     expect(html).toContain("chat-thread-sidebar");
   });
+
+  describe("signed-out handling (ASX-1.2)", () => {
+    const page = () =>
+      renderChatThreadPage("agent-xyz", THREAD, [USER_MSG], "alice");
+
+    test("renders the hidden signed-out banner linking to login with this thread as returnTo", () => {
+      const html = page();
+      expect(html).toContain('id="signed-out-banner"');
+      expect(html).toContain("You're signed out. Tap to sign in.");
+      expect(html).toContain(
+        `href="/admin/login?returnTo=${encodeURIComponent("/admin/chat/agent-xyz/threads/thread-abc")}"`,
+      );
+    });
+
+    test("probes /admin/session.json on visibilitychange, focus and pageshow", () => {
+      const html = page();
+      expect(html).toContain("/admin/session.json");
+      expect(html).toContain("'visibilitychange'");
+      expect(html).toContain("'focus'");
+      expect(html).toContain("'pageshow'");
+    });
+
+    test("poll and upload 401 paths call showSignedOut instead of redirecting", () => {
+      const html = page();
+      expect(html).toContain("function showSignedOut()");
+      expect(html.match(/r\.status === 401/g)?.length).toBe(3);
+      expect(html).not.toContain("window.location.href = '/admin/login");
+    });
+
+    test("persists the draft per agent+thread in localStorage", () => {
+      const html = page();
+      expect(html).toContain("'chat-draft:' + agentId + ':' + threadId");
+      expect(html).toContain("localStorage.setItem(draftKey");
+      expect(html).toContain("clearDraft()");
+    });
+  });
 });
 
 // ─── renderChatThreadPage — inline styles moved to classes (CFB-1.3) ────────
@@ -4085,6 +4121,7 @@ describe("renderChatThreadPage — poll auto-scroll (CSR-1.1)", () => {
             : makeEl(),
       createElement: makeEl,
       querySelectorAll: () => [],
+      addEventListener() {},
     };
     const fetchStub = () =>
       Promise.resolve({ json: () => Promise.resolve({ messages: [] }) });
