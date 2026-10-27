@@ -2808,6 +2808,11 @@ export function renderChatThreadPage(
   );
   const signedOutBanner = `<a id="signed-out-banner" class="chat-signed-out-banner" href="/admin/login?returnTo=${signedOutReturnTo}" role="alert" style="display:none;padding:10px 14px;margin-bottom:8px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;text-align:center">You're signed out. Tap to sign in.</a>`;
 
+  // Held-upload prompt (ASX-1.3): hidden until the thread loads with a
+  // voice note / file that failed on a 401 and is waiting in IndexedDB.
+  // Never auto-sent; the user chooses Resend or Discard.
+  const heldUploadPrompt = `<div id="held-upload-prompt" class="chat-held-upload" role="status" style="display:none;padding:10px 14px;margin-bottom:8px;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;border-radius:8px;font-size:14px"><span>You have an unsent voice note.</span> <button type="button" id="held-upload-resend" style="margin-left:8px;padding:4px 10px;border-radius:6px;border:1px solid #1e3a8a;background:#1e3a8a;color:#fff;cursor:pointer">Resend</button> <button type="button" id="held-upload-discard" style="margin-left:4px;padding:4px 10px;border-radius:6px;border:1px solid #93c5fd;background:#fff;color:#1e3a8a;cursor:pointer">Discard</button></div>`;
+
   const renameForm = `
     <form method="POST" action="/admin/chat/${escapeHtml(agentId)}/threads/${escapeHtml(threadId)}/rename" style="margin-top:12px">
       <div class="form-row" style="align-items:center;gap:8px">
@@ -3093,6 +3098,76 @@ export function renderChatThreadPage(
     sendBtn.disabled = true;
     if (micBtn) micBtn.disabled = true;
     if (signedOutBanner) signedOutBanner.style.display = 'block';
+    hideHeldPrompt();
+  }
+
+  // Held uploads (ASX-1.3): a voice note / file whose upload hit a 401 is
+  // kept in IndexedDB, keyed by agent+thread (one record per thread, the most
+  // recent wins). Every call is wrapped so a missing or failing IndexedDB
+  // (private mode, quota) silently degrades to the plain signed-out banner.
+  var HELD_DB = 'chat-held-uploads';
+  var HELD_STORE = 'held-uploads';
+  var heldKey = agentId + ':' + threadId;
+  var heldPrompt = document.getElementById('held-upload-prompt');
+  function openHeldDb(cb) {
+    try {
+      if (!window.indexedDB) { cb(null); return; }
+      var req = indexedDB.open(HELD_DB, 1);
+      req.onupgradeneeded = function() {
+        try { req.result.createObjectStore(HELD_STORE); } catch (e) {}
+      };
+      req.onsuccess = function() { cb(req.result); };
+      req.onerror = function() { cb(null); };
+      req.onblocked = function() { cb(null); };
+    } catch (e) { cb(null); }
+  }
+  function heldOp(mode, run, done) {
+    openHeldDb(function(db) {
+      if (!db) { done(null); return; }
+      var result = null;
+      try {
+        var tx = db.transaction(HELD_STORE, mode);
+        var req = run(tx.objectStore(HELD_STORE));
+        if (req) req.onsuccess = function() { result = req.result; };
+        tx.oncomplete = function() { try { db.close(); } catch (e) {} done(result); };
+        tx.onerror = tx.onabort = function() { try { db.close(); } catch (e) {} done(null); };
+      } catch (e) {
+        try { db.close(); } catch (e2) {}
+        done(null);
+      }
+    });
+  }
+  function holdUpload(file, then) {
+    var called = false;
+    function finish() { if (!called) { called = true; if (then) then(); } }
+    try {
+      heldOp('readwrite', function(store) {
+        return store.put({ file: file, name: file.name, type: file.type, savedAt: Date.now() }, heldKey);
+      }, finish);
+    } catch (e) { finish(); }
+  }
+  function loadHeld(cb) {
+    try {
+      heldOp('readonly', function(store) { return store.get(heldKey); }, function(rec) {
+        try { cb(rec && rec.file ? rec : null); } catch (e) {}
+      });
+    } catch (e) { cb(null); }
+  }
+  function deleteHeld(then) {
+    var called = false;
+    function finish() { if (!called) { called = true; if (then) then(); } }
+    try {
+      heldOp('readwrite', function(store) { return store.delete(heldKey); }, finish);
+    } catch (e) { finish(); }
+  }
+  function hideHeldPrompt() {
+    if (heldPrompt) heldPrompt.style.display = 'none';
+  }
+  function showHeldPromptIfAny() {
+    if (signedOut || !heldPrompt) return;
+    loadHeld(function(rec) {
+      if (rec && !signedOut) heldPrompt.style.display = 'block';
+    });
   }
 
   // Cheap probe so an app left open learns it is signed out as soon as the
@@ -3319,7 +3394,8 @@ export function renderChatThreadPage(
       if (r.status === 401) {
         // Keep the unsent text so it survives the sign-in round trip.
         if (text) input.value = text;
-        showSignedOut();
+        if (file) holdUpload(file, showSignedOut);
+        else showSignedOut();
         return;
       }
       if (!r.ok) {
@@ -3367,6 +3443,24 @@ export function renderChatThreadPage(
   });
 
   input.addEventListener('input', function() { saveDraft(input.value.trim()); });
+
+  // Held-upload prompt actions (ASX-1.3). Resend goes through sendText; the
+  // record is deleted first so a repeat 401 simply re-holds it.
+  var heldResendBtn = document.getElementById('held-upload-resend');
+  var heldDiscardBtn = document.getElementById('held-upload-discard');
+  if (heldResendBtn) heldResendBtn.addEventListener('click', function() {
+    if (signedOut) return;
+    loadHeld(function(rec) {
+      hideHeldPrompt();
+      if (!rec) return;
+      deleteHeld(function() { sendText('', rec.file); });
+    });
+  });
+  if (heldDiscardBtn) heldDiscardBtn.addEventListener('click', function() {
+    hideHeldPrompt();
+    deleteHeld();
+  });
+  showHeldPromptIfAny();
   var restoredDraft = loadDraft();
   if (restoredDraft && !input.value) input.value = restoredDraft;
 
@@ -3614,6 +3708,7 @@ export function renderChatThreadPage(
       ${drawerScrim}
       <div style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column">
         ${signedOutBanner}
+        ${heldUploadPrompt}
         <!-- Messages area (scrollable) -->
         <div id="messages-container" class="chat-messages-container">
           ${messageBubbles}
