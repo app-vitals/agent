@@ -47,12 +47,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout gh-pages
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: gh-pages
-          path: gh-pages
-          persist-credentials: false
+      - name: Prepare gh-pages
+        # actions/checkout fails on a missing ref, so fetch gh-pages by hand and
+        # fall back to an empty orphan branch on the first publish. The branch is
+        # created by the push in the final step.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init --quiet --initial-branch=gh-pages gh-pages
+          cd gh-pages
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch --quiet --depth=1 "$REMOTE" gh-pages; then
+            git checkout --quiet -B gh-pages FETCH_HEAD
+          else
+            echo "No gh-pages branch yet; starting an empty orphan branch."
+          fi
 
       - name: Configure Git identity
         run: |
