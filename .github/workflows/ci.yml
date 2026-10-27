@@ -104,8 +104,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Run from admin/ so the browser revision matches admin's @playwright/test
+      # (the root playwright pin can resolve a different chromium revision).
       - name: Install Playwright chromium-headless-shell
-        run: bunx playwright install --with-deps chromium-headless-shell
+        run: cd admin && bunx playwright install --with-deps chromium-headless-shell
 
       # Boots admin/e2e/test-server.ts (in-memory deps, no database) per spec
       # file and drives it with headless Chromium. `bun test` does not pick
