@@ -24,6 +24,7 @@ import {
   SpecialtyRegistry,
 } from "./specialty-manifest-loader.ts";
 import { ANTHROPIC_CREDENTIALS_BLOCKED_CODE } from "./anthropic-credential-guard.ts";
+import { resolveSpecialty, withResolvedSpecialty } from "./agent-specialty.ts";
 import type { PrismaTransactionClient } from "./prisma-tx.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -54,6 +55,8 @@ export interface AgentRecord {
   slackId: string | null;
   selfHosted: boolean;
   typeName: string;
+  /** AGR-6.1: resolved specialty (specialty ?? typeName). */
+  specialty?: string;
   createdAt: Date;
   updatedAt: Date;
   /** Owning account (SSP-5.2 admin Account column); null for legacy agents. */
@@ -82,6 +85,8 @@ export interface AgentSummary extends Partial<AgentAnthropicIdentity> {
   name: string;
   selfHosted: boolean;
   typeName: string;
+  /** AGR-6.1: resolved specialty (specialty ?? typeName). */
+  specialty?: string;
   /** Owning account; null/absent for platform agents. */
   accountId?: string | null;
 }
@@ -98,6 +103,8 @@ export interface AgentDetail extends Partial<AgentAnthropicIdentity> {
   patchAuthorAllowlist: string[];
   restrictSlackToMembers: boolean;
   typeName: string;
+  /** AGR-6.1: resolved specialty (specialty ?? typeName). */
+  specialty?: string;
   /**
    * Owning account, null for unassigned (platform) agents. Optional here so
    * existing test doubles constructing a narrower AgentDetail literal don't
@@ -205,6 +212,8 @@ interface AgentIdAndRepos {
    * Optional for the same fixture-compat reason as trialExpiresAt.
    */
   typeName?: string;
+  /** AGR-6.1: resolved specialty (specialty ?? typeName). */
+  specialty?: string;
   /**
    * APM-1.5: the 6 agent-policy fields, read by the runtime GET /:id/config
    * route for direct passthrough. Required (not optional) since the Prisma
@@ -255,6 +264,7 @@ const SUMMARY_SELECT = {
   name: true,
   selfHosted: true,
   typeName: true,
+  specialty: true,
   accountId: true,
   ownerEmail: true,
   anthropicIdentityName: true,
@@ -274,6 +284,7 @@ const DETAIL_SELECT = {
   patchAuthorAllowlist: true,
   restrictSlackToMembers: true,
   typeName: true,
+  specialty: true,
   accountId: true,
   createdAt: true,
   updatedAt: true,
@@ -327,7 +338,9 @@ export class AgentService {
         name: input.name,
         slackId: input.slackId ?? null,
         selfHosted: input.selfHosted ?? false,
-        ...(input.typeName !== undefined ? { typeName: input.typeName } : {}),
+        ...(input.typeName !== undefined
+          ? { typeName: input.typeName, specialty: input.typeName }
+          : {}),
         ...(input.repos !== undefined ? { repos: input.repos } : {}),
         ...(input.reviewAuthorAllowlist !== undefined
           ? { reviewAuthorAllowlist: input.reviewAuthorAllowlist }
@@ -348,10 +361,10 @@ export class AgentService {
     });
     const missingRequiredEnv = await this.computeMissingRequiredEnv(
       row.id,
-      row.typeName,
+      resolveSpecialty(row),
       client,
     );
-    return { ...row, missingRequiredEnv };
+    return { ...withResolvedSpecialty(row), missingRequiredEnv };
   }
 
   /**
@@ -385,10 +398,11 @@ export class AgentService {
    * List all agents (id + name + selfHosted + typeName), ordered by name asc.
    */
   async list(): Promise<AgentSummary[]> {
-    return this.prisma.agent.findMany({
+    const rows = await this.prisma.agent.findMany({
       select: SUMMARY_SELECT,
       orderBy: { name: "asc" },
     });
+    return rows.map(withResolvedSpecialty);
   }
 
   /**
@@ -396,10 +410,11 @@ export class AgentService {
    * not found.
    */
   async getSummary(id: string): Promise<AgentSummary | null> {
-    return this.prisma.agent.findUnique({
+    const row = await this.prisma.agent.findUnique({
       where: { id },
       select: SUMMARY_SELECT,
     });
+    return row ? withResolvedSpecialty(row) : null;
   }
 
   /**
@@ -445,9 +460,9 @@ export class AgentService {
 
     const missingRequiredEnv = await this.computeMissingRequiredEnv(
       id,
-      row.typeName,
+      resolveSpecialty(row),
     );
-    return { ...row, missingRequiredEnv };
+    return { ...withResolvedSpecialty(row), missingRequiredEnv };
   }
 
   /**
@@ -516,9 +531,9 @@ export class AgentService {
     });
     const missingRequiredEnv = await this.computeMissingRequiredEnv(
       id,
-      row.typeName,
+      resolveSpecialty(row),
     );
-    return { ...row, missingRequiredEnv };
+    return { ...withResolvedSpecialty(row), missingRequiredEnv };
   }
 
   /**
@@ -539,6 +554,7 @@ export class AgentService {
         trialExpiresAt: true,
         selfHosted: true,
         typeName: true,
+        specialty: true,
         account: { select: { status: true } },
         autoPostReviews: true,
         allowSelfReview: true,
@@ -553,7 +569,11 @@ export class AgentService {
     const members = await this.agentMemberService.listByAgentId(id);
     const memberEmails = members.map((m) => m.email);
     const { account, ...rest } = row;
-    return { ...rest, memberEmails, accountStatus: account?.status ?? null };
+    return {
+      ...withResolvedSpecialty(rest),
+      memberEmails,
+      accountStatus: account?.status ?? null,
+    };
   }
 
   /**
@@ -563,7 +583,7 @@ export class AgentService {
    * order Prisma returns.
    */
   async listAll(): Promise<AgentRecord[]> {
-    return this.prisma.agent.findMany();
+    return (await this.prisma.agent.findMany()).map(withResolvedSpecialty);
   }
 
   /**
@@ -572,7 +592,10 @@ export class AgentService {
    * and agentNames-resolution on the tasks/PRs pages).
    */
   async listByIds(ids: string[]): Promise<AgentRecord[]> {
-    return this.prisma.agent.findMany({ where: { id: { in: ids } } });
+    const rows = await this.prisma.agent.findMany({
+      where: { id: { in: ids } },
+    });
+    return rows.map(withResolvedSpecialty);
   }
 
   /**
@@ -580,9 +603,10 @@ export class AgentService {
    * /admin/tasks agent-name filter.
    */
   async searchByName(query: string): Promise<AgentRecord[]> {
-    return this.prisma.agent.findMany({
+    const rows = await this.prisma.agent.findMany({
       where: { name: { contains: query, mode: "insensitive" } },
     });
+    return rows.map(withResolvedSpecialty);
   }
 
   /**
@@ -653,10 +677,10 @@ export class AgentService {
     });
     const missingRequiredEnv = await this.computeMissingRequiredEnv(
       id,
-      row.typeName,
+      resolveSpecialty(row),
       client,
     );
-    return { ...row, missingRequiredEnv };
+    return { ...withResolvedSpecialty(row), missingRequiredEnv };
   }
 }
 

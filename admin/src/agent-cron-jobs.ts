@@ -17,6 +17,7 @@ import {
 } from "./specialty-manifest-loader.ts";
 import type { SpecialtyManifest } from "./specialty-registry.ts";
 import { type Clock, SystemClock } from "./clock.ts";
+import { resolveSpecialty } from "./agent-specialty.ts";
 import { NotFoundError, UnprocessableEntityError } from "./errors.ts";
 
 /**
@@ -488,15 +489,16 @@ export class AgentCronJobService {
     // than leaving its crons untouched.
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
-      select: { typeName: true },
+      select: { typeName: true, specialty: true },
     });
     if (!agent) {
       throw new NotFoundError(`agent ${agentId} not found`);
     }
-    const manifest = this.specialtyRegistry.tryGetManifest(agent.typeName);
+    const specialty = resolveSpecialty(agent);
+    const manifest = this.specialtyRegistry.tryGetManifest(specialty);
     if (!manifest) {
       const defaultName = resolveDefaultSpecialtyName();
-      if (agent.typeName === defaultName) {
+      if (specialty === defaultName) {
         throw missingDefaultSpecialtyError(
           defaultName,
           resolveSpecialtiesDir(),
@@ -504,7 +506,7 @@ export class AgentCronJobService {
         );
       }
       console.error(
-        `reconcileSystemCrons: no loadable manifest for typeName "${agent.typeName}" (agent ${agentId}) — leaving crons untouched`,
+        `reconcileSystemCrons: no loadable manifest for specialty "${specialty}" (agent ${agentId}) — leaving crons untouched`,
       );
       return { created: 0, updated: 0, deleted: 0 };
     }

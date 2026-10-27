@@ -3176,6 +3176,7 @@ export interface components {
             patchAuthorAllowlist: string[];
             restrictSlackToMembers: boolean;
             typeName: string;
+            specialty: string;
             podServiceAccountName: string | null;
             accountId: string | null;
             /** Format: date-time */
@@ -3303,6 +3304,8 @@ export interface components {
             selfHosted: boolean;
             /** @example coding */
             typeName: string;
+            /** @example coding */
+            specialty: string;
         };
         CreateAgentBody: {
             /** @example Bodhi */
@@ -4281,6 +4284,7 @@ export interface components {
             accountStatus?: string | null;
             /** @example coding */
             typeName?: string;
+            specialty?: string;
             /**
              * @example {
              *       "prd": null,

@@ -65,6 +65,7 @@ import type { AgentEnvService } from "./agent-envs.ts";
 import type { AgentGitHubInstallationsService } from "./agent-github-installations.ts";
 import type { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
+import { resolveSpecialty } from "./agent-specialty.ts";
 import {
   type AgentProvisioner,
   hasPerAgentIdentity,
@@ -411,6 +412,8 @@ const GetAgentResultSchema = z
     patchAuthorAllowlist: z.array(z.string()),
     restrictSlackToMembers: z.boolean(),
     typeName: z.string(),
+    /** AGR-6.1: specialty (specialty ?? typeName); additive next to typeName. */
+    specialty: z.string(),
     /** COS-49.1: the pod ServiceAccount; null when unset. */
     podServiceAccountName: z.string().nullable(),
     /** Owning account; null for unassigned agents (task-store maps null to its 'default' account). */
@@ -1905,7 +1908,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         anthropicFederationRuleId: _r,
         k8sServiceAccountName: _k,
         ...summary
-      }) => summary,
+      }) => ({ ...summary, specialty: resolveSpecialty(summary) }),
     );
     if (c.get("isAdmin") === true || email === undefined) {
       return c.json(agents, 200);
@@ -2816,6 +2819,7 @@ function serializeAgent(
     patchAuthorAllowlist?: string[];
     restrictSlackToMembers?: boolean;
     typeName: string;
+    specialty?: string | null;
     accountId?: string | null;
     podServiceAccountName?: string | null;
     createdAt: Date;
@@ -2846,6 +2850,7 @@ function serializeAgent(
     patchAuthorAllowlist: agent.patchAuthorAllowlist ?? [],
     restrictSlackToMembers: agent.restrictSlackToMembers ?? false,
     typeName: agent.typeName,
+    specialty: resolveSpecialty(agent),
     accountId: agent.accountId ?? null,
     podServiceAccountName: agent.podServiceAccountName ?? null,
     createdAt: agent.createdAt.toISOString(),

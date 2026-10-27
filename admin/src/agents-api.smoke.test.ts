@@ -2349,6 +2349,7 @@ describe("admin API — POST /agents/reconcile", () => {
       name: "Regular Agent",
       selfHosted: false,
       typeName: "coding",
+      specialty: "coding",
     });
   });
 });
