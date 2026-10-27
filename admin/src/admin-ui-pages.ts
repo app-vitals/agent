@@ -2446,9 +2446,25 @@ export function renderChatMessageBubble(
   // filename extension (see attachment-validation.ts's isAudioFilename); the
   // src hits the admin attachment-proxy route, which streams the message's
   // bytes from the chat service with a real audio/* Content-Type.
+  const attachmentUrl = m.attachmentFilename
+    ? `/admin/chat/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(m.threadId)}/messages/${encodeURIComponent(m.id)}/attachment`
+    : "";
+  // Assistant voice replies get a large tap-to-play control (COS-63.1) driven
+  // by a hidden <audio>; user-uploaded clips keep the native controls.
+  const voiceControl = `<div class="chat-voice" data-voice>
+          <button type="button" class="chat-voice-play" aria-label="Play">&#9654;</button>
+          <div class="chat-voice-meta">
+            <div class="chat-voice-progress"><div class="chat-voice-bar"></div></div>
+            <span class="chat-voice-time">0:00 / 0:00</span>
+          </div>
+          <audio hidden preload="metadata" src="${escapeHtml(attachmentUrl)}"></audio>
+          <div class="chat-voice-error" hidden>Could not play this reply <a download href="${escapeHtml(attachmentUrl)}">Download</a></div>
+        </div>`;
   const attachmentMedia = m.attachmentFilename
     ? isAudioFilename(m.attachmentFilename)
-      ? `<audio controls style="display:block;margin-top:8px;max-width:100%" src="${escapeHtml(`/admin/chat/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(m.threadId)}/messages/${encodeURIComponent(m.id)}/attachment`)}"></audio>`
+      ? isAssistant
+        ? voiceControl
+        : `<audio controls style="display:block;margin-top:8px;max-width:100%" src="${escapeHtml(attachmentUrl)}"></audio>`
       : `<div style="display:inline-block;margin-top:8px;padding:3px 8px;background:#e5e7eb;color:#374151;border-radius:6px;font-size:12px">📎 ${escapeHtml(m.attachmentFilename)}</div>`
     : "";
 
@@ -2545,6 +2561,16 @@ const chatThreadStyles = `
     .chat-composer-btn--attach { padding:0 16px }
     .chat-composer-btn--mic { padding:0 16px }
     .chat-composer-btn--mic.chat-mic-recording { background:#fee2e2;color:#b91c1c;border-color:#b91c1c }
+    /* Voice reply control (COS-63.1): 56px round tap target + progress. */
+    .chat-voice { display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap }
+    .chat-voice-play { width:56px;height:56px;min-width:56px;border-radius:50%;border:0;background:#2563eb;color:#fff;font-size:22px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0 }
+    .chat-voice-play:focus-visible { outline:3px solid #93c5fd;outline-offset:2px }
+    .chat-voice-meta { flex:1;min-width:120px }
+    .chat-voice-progress { height:4px;border-radius:2px;background:#d1d5db;overflow:hidden }
+    .chat-voice-bar { height:100%;width:0;background:#2563eb }
+    .chat-voice-time { display:block;margin-top:4px;font-size:12px;color:#6b7280;font-variant-numeric:tabular-nums }
+    .chat-voice-error { flex-basis:100%;font-size:13px;color:#b91c1c }
+    .chat-voice-error[hidden] { display:none }
     .chat-composer-btn--send { padding:0 20px }
     /* Live-progress stall state (CFB-2.3): when progressSeq hasn't advanced for
        STALL_WARN_AFTER_MS the status bubble gains .${STALL_INDICATOR_CLASS},
@@ -3302,6 +3328,66 @@ export function renderChatThreadPage(
 })();
 </script>`;
 
+  // Voice reply control (COS-63.1). Standalone block: media events don't
+  // bubble, so listen in the capture phase on document — that also covers
+  // bubbles inserted later by polling with no per-node wiring.
+  const voiceScript = `
+<script>
+(function() {
+  function fmt(t) {
+    if (!isFinite(t) || t < 0) t = 0;
+    var m = Math.floor(t / 60), s = Math.floor(t % 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  function root(el) { return el && el.closest ? el.closest('[data-voice]') : null; }
+  function paint(audio) {
+    var box = root(audio);
+    if (!box) return;
+    var dur = audio.duration, cur = audio.currentTime || 0;
+    box.querySelector('.chat-voice-time').textContent = fmt(cur) + ' / ' + fmt(dur);
+    box.querySelector('.chat-voice-bar').style.width = (isFinite(dur) && dur > 0 ? Math.min(100, cur / dur * 100) : 0) + '%';
+  }
+  function setPlaying(audio, playing) {
+    var box = root(audio);
+    if (!box) return;
+    var btn = box.querySelector('.chat-voice-play');
+    btn.innerHTML = playing ? '&#10074;&#10074;' : '&#9654;';
+    btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  }
+  function showError(audio) {
+    var box = root(audio);
+    if (!box) return;
+    box.querySelector('.chat-voice-play').hidden = true;
+    box.querySelector('.chat-voice-meta').hidden = true;
+    box.querySelector('.chat-voice-error').hidden = false;
+  }
+  ['timeupdate', 'loadedmetadata', 'durationchange'].forEach(function(ev) {
+    document.addEventListener(ev, function(e) { if (e.target.tagName === 'AUDIO') paint(e.target); }, true);
+  });
+  document.addEventListener('play', function(e) { if (e.target.tagName === 'AUDIO') setPlaying(e.target, true); }, true);
+  document.addEventListener('pause', function(e) { if (e.target.tagName === 'AUDIO') setPlaying(e.target, false); }, true);
+  document.addEventListener('ended', function(e) {
+    if (e.target.tagName !== 'AUDIO') return;
+    setPlaying(e.target, false);
+    paint(e.target);
+  }, true);
+  document.addEventListener('error', function(e) { if (e.target.tagName === 'AUDIO' && root(e.target)) showError(e.target); }, true);
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest ? e.target.closest('.chat-voice-play') : null;
+    var box = root(btn);
+    if (!box) return;
+    var audio = box.querySelector('audio');
+    if (!audio) return;
+    if (!audio.paused) { audio.pause(); return; }
+    var others = document.querySelectorAll('[data-voice] audio');
+    for (var i = 0; i < others.length; i++) if (others[i] !== audio) others[i].pause();
+    var p;
+    try { p = audio.play(); } catch (err) { showError(audio); return; }
+    if (p && p.catch) p.catch(function() { if (audio.error) showError(audio); });
+  });
+})();
+</script>`;
+
   // Standalone drawer + keyboard-inset script (CFB-3.2). Deliberately emitted
   // as its OWN <script> block — NOT inside the progress IIFE above — so the two
   // concerns don't fight the ongoing live-progress rewrite. Three tiny jobs:
@@ -3484,6 +3570,6 @@ export function renderChatThreadPage(
       </div>
     </div>
   </div>`,
-    bodyEnd: `${inlineScript}\n${drawerScript}`,
+    bodyEnd: `${inlineScript}\n${voiceScript}\n${drawerScript}`,
   });
 }

@@ -1397,6 +1397,63 @@ describe("GET /admin/chat/:agentId/threads/:threadId/messages/:messageId/attachm
     expect(Array.from(body)).toEqual(Array.from(bytes));
   });
 
+  describe("Range support", () => {
+    const bytes = new Uint8Array(Array.from({ length: 100 }, (_, i) => i));
+    async function get(range?: string) {
+      const chatClient = makeMockChatClient({
+        getAttachment: async () => ({ bytes, filename: "reply.wav" }),
+      });
+      const app = createAdminUIApp(makeBaseDeps({ chatClient }));
+      return app.request(
+        `/admin/chat/${AGENT_ID}/threads/${THREAD_ID}/messages/msg-1/attachment`,
+        {
+          headers: {
+            Cookie: `admin_session=${sessionCookie}`,
+            ...(range ? { Range: range } : {}),
+          },
+        },
+      );
+    }
+
+    it("200 with Accept-Ranges and Content-Length when no Range is sent", async () => {
+      const res = await get();
+      expect(res.status).toBe(200);
+      expect(res.headers.get("accept-ranges")).toBe("bytes");
+      expect(res.headers.get("content-length")).toBe("100");
+      expect((await res.arrayBuffer()).byteLength).toBe(100);
+    });
+
+    it("206 with Content-Range for a mid-file range", async () => {
+      const res = await get("bytes=10-19");
+      expect(res.status).toBe(206);
+      expect(res.headers.get("content-range")).toBe("bytes 10-19/100");
+      expect(res.headers.get("accept-ranges")).toBe("bytes");
+      expect(res.headers.get("content-length")).toBe("10");
+      expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(
+        Array.from(bytes.slice(10, 20)),
+      );
+    });
+
+    it("206 for an open-ended range", async () => {
+      const res = await get("bytes=90-");
+      expect(res.status).toBe(206);
+      expect(res.headers.get("content-range")).toBe("bytes 90-99/100");
+      expect((await res.arrayBuffer()).byteLength).toBe(10);
+    });
+
+    it("206 for a suffix range", async () => {
+      const res = await get("bytes=-5");
+      expect(res.status).toBe(206);
+      expect(res.headers.get("content-range")).toBe("bytes 95-99/100");
+    });
+
+    it("416 with Content-Range bytes */total when unsatisfiable", async () => {
+      const res = await get("bytes=500-600");
+      expect(res.status).toBe(416);
+      expect(res.headers.get("content-range")).toBe("bytes */100");
+    });
+  });
+
   it("returns 404 when the chat client reports no attachment", async () => {
     const chatClient = makeMockChatClient({ getAttachment: async () => null });
     const app = createAdminUIApp(makeBaseDeps({ chatClient }));
