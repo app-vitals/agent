@@ -37,6 +37,25 @@ release-derived names are whatever the consumer defines.
   `chat.adminTokenSecretKey`, `chat.databaseName`, `chat.useBundledDatabase`
 - Database: `postgresql.fullname`, `postgresql.password`, `postgresql.dsn`,
   `cloudSqlProxy.container`
+- Support: `publicHost`, `publicScheme`, `admin.appBaseUrl`,
+  `agent.claudePolicy.configMapName`, `agent.claudePolicy.json`,
+  `validate.claudePolicy`, `validate.anthropicFederation`
+
+## Manifests
+
+Whole-object templates the consumer includes from a one-line stub file
+(e.g. `templates/admin-deployment.yaml` containing
+`{{ include "agent-platform.admin.deployment" . }}`), so every rendered name,
+label and annotation is unchanged:
+
+- Admin: `admin.deployment`, `admin.service`, `admin.secret`,
+  `admin.serviceaccount`, `admin.pdb`
+- Agent provisioning: `agent.serviceaccount`, `agent.provisioningRbac`,
+  `agent.claudePolicyConfigMap`
+
+They read the consumer's `.Values` (`admin`, `auth`, `agent`, `postgresql`,
+`externalDatabase`, `cloudSqlProxy`, `chat`, `networking`, `selfServe`, ...), so
+the consumer's values file must define those keys.
 
 ## Workload templates
 
@@ -57,7 +76,8 @@ names as the shipwright chart they were ported from.
 ## Tests
 
 A library chart cannot render itself, so the helpers are tested through a
-minimal consumer chart in `tests/fixtures/consumer`, using the
+minimal consumer chart in `tests/fixtures/consumer` (a stub per manifest plus a
+shipwright-shaped `values.yaml`; the `admin_*`, `agent_*`, `chat_*`, `voice_*` and `names_*` suites run against it), using the
 [helm-unittest](https://github.com/helm-unittest/helm-unittest) plugin:
 
 ```bash

@@ -1,22 +1,658 @@
+# Default values for the shipwright chart.
+# This is a YAML-formatted file. Minikube-friendly defaults throughout.
+#
+# With defaults, `helm template` renders admin + metrics + the bundled PostgreSQL.
+# task-store, chat and agent provisioning are opt-in (see their `enabled` flags);
+# examples/values-minikube.yaml turns the whole stack on.
+#
+# NOTE: agents are NOT a Deployment in this chart. The admin service provisions
+# agent workloads at runtime via the Kubernetes API when
+# agent.provisioning.enabled=true, so agents are created from the admin console.
+
+# -- Global values shared with subcharts (including Bitnami PostgreSQL).
+global:
+  # -- Override the registry for ALL images (chart + subcharts) in one place.
+  # Shipwright service images (admin, metrics, taskStore, chat) default to
+  # fully-qualified ghcr.io/app-vitals/shipwright-<svc> repositories, so this is
+  # mainly relevant for the Bitnami PostgreSQL subchart and the whisper/cloud-sql
+  # sidecar images. Set this to a mirror registry if the pinned Bitnami
+  # PostgreSQL digest becomes unavailable. See README "Bitnami registry risk".
+  #
+  # Fully-qualified-repository detection (DCC-3.1): setting this does NOT
+  # re-prefix a service image whose repository already names a registry host —
+  # i.e. its first "/"-delimited segment contains a "." or ":" (e.g. "ghcr.io",
+  # "docker.io", "localhost:5000"). This avoids double-prefixing the
+  # ghcr.io/app-vitals defaults (which would render registry/ghcr.io/...). Only
+  # BARE repository names (no registry host, e.g. an override like
+  # "shipwright-admin", or the whisper "onerahmet/..." image) receive the prefix.
+  imageRegistry: ""
+  # -- Global image pull secrets (list of secret names) applied to all pods.
+  imagePullSecrets: []
+  # -- Global storage class for PersistentVolumeClaims (chart + subcharts).
+  storageClass: ""
+
+# -- Default image pull policy for shipwright service images.
+imagePullPolicy: IfNotPresent
+
+# -- Naming overrides.
 nameOverride: ""
 fullnameOverride: ""
-global:
-  imageRegistry: ""
-  imagePullSecrets: []
-imagePullPolicy: IfNotPresent
-serviceAccount:
-  create: true
-  name: ""
-admin:
-  podLabels: {}
-  serviceAccount:
-    create: true
-    name: ""
-agent:
-  provisioning:
-    serviceAccount:
-      create: true
+
+# -- Networking exposure strategy for shipwright services.
+networking:
+  # -- How services are exposed:
+  #    "ClusterIP" | "NodePort" | "LoadBalancer" | "ingress" | "gateway".
+  # Minikube-friendly default is ClusterIP (reach via `minikube service` / port-forward).
+  # Set to "ingress" to render an Ingress (templates/ingress.yaml) routing the admin
+  # UI/API at "/" and the metrics dashboard at "/dashboard"; the Services keep their
+  # own ClusterIP type (admin.service.type / metrics.service.type).
+  # Set to "gateway" to render a Gateway API Gateway + HTTPRoute(s)
+  # (templates/gateway.yaml, templates/httproute.yaml) instead — mutually exclusive
+  # with "ingress" (only one of Ingress / Gateway is ever rendered).
+  type: ClusterIP
+  # -- Ingress settings (used ONLY when networking.type=ingress).
+  ingress:
+    # -- IngressClass to use: "nginx" for the Minikube/NGINX ingress addon,
+    # "alb" for the AWS Load Balancer Controller on EKS, etc.
+    className: nginx
+    # -- Host the Ingress answers for. Minikube-friendly default; for the NGINX
+    # addon add it to /etc/hosts pointing at `minikube ip`.
+    host: shipwright.local
+    # -- Extra annotations for the Ingress (controller-specific). For ALB, e.g.
+    # alb.ingress.kubernetes.io/scheme, /target-type; for NGINX, rewrite/ssl rules.
+    annotations: {}
+    # -- Which ingress controller flavor networking.ingress.className targets:
+    # "nginx" (the Minikube/NGINX addon default) or "traefik". Feeds
+    # shipwright.bundled.* / shipwright.validate helper checks, and
+    # templates/ingress.yaml gates the nginx-specific ssl-redirect annotation
+    # on this being "nginx" (CNH-3.1). Kept independent from `className` (a
+    # free-form string, e.g. "alb") so validation can flag a className that
+    # contradicts this selector without over-constraining className itself.
+    controller: nginx
+    # -- TLS settings for the Ingress (used ONLY when networking.type=ingress).
+    tls:
+      # -- Whether the Ingress should terminate TLS. Default false preserves the
+      # existing plain-HTTP Ingress behavior.
+      enabled: false
+      # -- Name of the Secret holding the TLS certificate/key. Empty →
+      # shipwright.ingress.tlsSecretName falls back to "<fullname>-tls" (the
+      # same naming convention templates/certificate.yaml uses for the Gateway
+      # path), so cert-manager's Certificate and a future Ingress `tls:` block
+      # can share one Secret name by default.
+      secretName: ""
+      # -- Whether to add controller-specific HTTP→HTTPS redirect annotations
+      # when tls.enabled=true. Default true (the standard expectation once TLS
+      # is on); set false if your ingress controller/edge already handles the
+      # redirect.
+      redirect: true
+    # -- Traefik-specific settings (used ONLY when networking.ingress.controller=traefik).
+    traefik:
+      # -- Traefik entrypoint names for HTTP/HTTPS. Traefik (unlike NGINX) routes
+      # by named entrypoint rather than a fixed :80/:443 pair, so these are
+      # configurable. Defaults match Traefik's own conventional entrypoint names.
+      entrypoints:
+        # -- Entrypoint name for plain HTTP.
+        web: web
+        # -- Entrypoint name for TLS-terminated HTTPS.
+        websecure: websecure
+  # -- Gateway API settings (used ONLY when networking.type=gateway). Renders a
+  # gateway.networking.k8s.io/v1 Gateway plus HTTPRoute(s) routing the admin UI/API
+  # at "/" and the metrics dashboard at "/dashboard". Requires the Gateway API CRDs
+  # (and a controller for the chosen gatewayClassName) installed in the cluster.
+  gateway:
+    # -- GatewayClass to bind to. Default targets GKE's managed external L7 LB
+    # (gke-l7-global-external-managed). On other platforms set the class your
+    # Gateway controller provides (e.g. "istio", "nginx", "cilium").
+    gatewayClassName: gke-l7-global-external-managed
+    # -- Host the Gateway listener + HTTPRoutes answer for.
+    host: shipwright.local
+    # -- Extra annotations for the Gateway (controller-specific).
+    annotations: {}
+    # -- GKE HealthCheckPolicy. When enabled, renders a networking.gke.io/v1
+    # HealthCheckPolicy for the admin and metrics Services so the GKE load
+    # balancer probes /health instead of the default "/". Without this, both
+    # services answer "/" with 404 and the backend is marked UNHEALTHY (external
+    # 503). Only applies when networking.type=gateway.
+    healthCheckPolicy:
+      enabled: false
+
+# -- TLS / certificate management for the gateway/ingress host.
+tls:
+  # -- cert-manager integration. Behavior depends on networking.type:
+  #    - networking.type=gateway: renders a cert-manager.io/v1 Certificate
+  #      (templates/certificate.yaml) for networking.gateway.host and the
+  #      Gateway adds an HTTPS (:443) listener referencing the issued Secret.
+  #      An HTTP→HTTPS redirect HTTPRoute is also rendered on the Gateway's
+  #      "http" listener so that plaintext traffic is redirected (301) to
+  #      HTTPS — the standard expectation for GKE
+  #      gke-l7-global-external-managed and any TLS-enabled Gateway deployment.
+  #    - networking.type=ingress: renders NO chart-managed Certificate CR.
+  #      Instead, templates/ingress.yaml adds the cert-manager ingress-shim
+  #      annotation (cert-manager.io/issuer or cert-manager.io/cluster-issuer,
+  #      keyed by the effective issuer name/kind) so cert-manager itself
+  #      watches the Ingress and creates/manages the Certificate — this way
+  #      TLS works on first install regardless of cert-manager readiness.
+  #    Has no effect for any other networking.type. Disabled by default
+  #    (Minikube = plain HTTP, no cert-manager installed).
+  certManager:
+    enabled: false
+    # -- Reference to the cert-manager Issuer/ClusterIssuer that signs the cert.
+    issuerRef:
+      # -- Name of the (Cluster)Issuer (e.g. "letsencrypt-prod"). Required
+      # unless issuer.create=true (see below), in which case the chart derives
+      # the name it creates instead.
       name: ""
+      # -- Issuer kind: "ClusterIssuer" (cluster-scoped) or "Issuer" (namespaced).
+      kind: ClusterIssuer
+    # -- Optional CHART-MANAGED (Cluster)Issuer. When create=true, the chart
+    # renders templates/cert-manager-issuer.yaml (CNH-5.1), via
+    # shipwright.certManager.issuerManifest. Default create=false preserves
+    # today's bring-your-own-Issuer behavior (issuerRef.name points at an
+    # Issuer/ClusterIssuer you created yourself, outside this chart). An
+    # explicit issuerRef.name always suppresses chart-managed creation, even
+    # when create=true is also set (see shipwright.certManager.createIssuer).
+    issuer:
+      # -- When true, the chart creates a (Cluster)Issuer instead of requiring a
+      # pre-existing one via issuerRef.name. Mutually exclusive in spirit with
+      # issuerRef.name (see shipwright.validate) — set create=true and leave
+      # issuerRef.name empty, or set issuerRef.name and leave create=false.
+      create: false
+      # -- Kind of Issuer to create: "ClusterIssuer" (cluster-scoped) or
+      # "Issuer" (namespaced). Independent from issuerRef.kind so a
+      # chart-created Issuer's scope can differ from a bring-your-own
+      # reference's scope (only one of the two paths is active at a time).
+      kind: Issuer
+      # -- Issuer type to create: "letsencrypt" (ACME via Let's Encrypt,
+      # HTTP-01 challenge) or "selfsigned" (spec.selfSigned: {}, no ACME
+      # account, no external dependency — good for internal/dev clusters).
+      type: letsencrypt
+      # -- ACME account email. REQUIRED when create=true and type=letsencrypt —
+      # Let's Encrypt requires a contact email on every ACME account, and
+      # shipwright.validate fails the render if this is empty in that case.
+      email: ""
+      # -- ACME server URL. Empty → the chart-managed Issuer manifest defaults
+      # to the Let's Encrypt production endpoint. Override with the Let's
+      # Encrypt staging endpoint (https://acme-staging-v02.api.letsencrypt.org/directory)
+      # while testing to avoid production rate limits.
+      server: ""
+    # -- Bootstrap hook for the BUNDLED cert-manager path (CNH-7.1). When
+    # cert-manager is bundled in the same release (cert-manager.enabled=true),
+    # its CRDs are templates in this release and do not exist at first-install
+    # apply time, so the chart-managed Issuer/Certificate cannot be plain
+    # manifests. Instead they ship inside a ConfigMap applied by a
+    # post-install/post-upgrade Job that waits for cert-manager to be Available.
+    # This block only takes effect when shipwright.certManager.viaHook is true
+    # (tls.certManager.enabled && cert-manager.enabled && (issuer.create ||
+    # networking.type=gateway)); it is inert for the common
+    # bring-your-own-cert-manager path.
+    bootstrap:
+      # -- Render a pre-delete cleanup Job that deletes the applied Issuer/
+      # Certificate CRs on `helm uninstall`. The issued TLS Secret and the ACME
+      # account Secret are intentionally KEPT (deleting them would force a fresh
+      # ACME order / re-issuance on the next install). Set false to leave the
+      # CRs in place on delete.
+      cleanupOnDelete: true
+      # -- backoffLimit for the apply Job. The initContainer waits for
+      # cert-manager to be Available first, so retries here only cover a
+      # cert-manager that is slow to reconcile the applied CRs.
+      backoffLimit: 10
+      # -- Hard wall-clock deadline (seconds) for the apply Job. Slightly under
+      # the initContainer's 300s Available wait plus apply time.
+      activeDeadlineSeconds: 540
+      # -- Compute resources for the bootstrap Job pods (apply + cleanup).
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 250m
+          memory: 128Mi
+
+# -- ServiceAccount for shipwright workloads.
+serviceAccount:
+  # -- Whether a ServiceAccount is created.
+  create: true
+  # -- Annotations to add to the ServiceAccount.
+  annotations: {}
+  # -- Name of the ServiceAccount. If empty and create=true, a name is generated.
+  name: ""
+
+# -- Admin service (@shipwright/admin) — CRUD API + UI. Port 3001.
+admin:
+  enabled: true
+  image:
+    repository: ghcr.io/app-vitals/shipwright-admin
+    tag: admin-v1.306.3
+    pullPolicy: ""    # defaults to top-level imagePullPolicy when empty
+  service:
+    # -- Service type for the admin service. ClusterIP is Minikube-friendly.
+    type: ClusterIP
+    port: 3001
+  replicas: 1
+  # -- Compute resources for the admin container. Minikube-friendly defaults.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  # -- ServiceAccount for the admin workload.
+  serviceAccount:
+    # -- Whether a ServiceAccount is created for the admin workload.
+    create: true
+    # -- Annotations to add to the admin ServiceAccount.
+    annotations: {}
+    # -- Name of the admin ServiceAccount. Generated if empty and create=true.
+    name: ""
+  # -- Stable encryption and session keys via an existing Secret.
+  # When existingSecret is non-empty, SHIPWRIGHT_ENCRYPTION_KEY and
+  # SHIPWRIGHT_SESSION_SECRET are sourced from that pre-existing Secret instead
+  # of being generated/reused by the chart. Set this on fresh namespace installs
+  # where those keys must match previously-encrypted data — a fresh install
+  # without this generates random keys that cannot decrypt existing agent env
+  # (caused the 2026-06-16 prod outage). Leave empty to use the chart-managed
+  # Secret (generate on first install, reuse on upgrade via lookup).
+  encryptionKeys:
+    existingSecret: ""
+    # -- Key in existingSecret that holds SHIPWRIGHT_ENCRYPTION_KEY.
+    encryptionKeyRef: SHIPWRIGHT_ENCRYPTION_KEY
+    # -- Key in existingSecret that holds SHIPWRIGHT_SESSION_SECRET.
+    sessionSecretRef: SHIPWRIGHT_SESSION_SECRET
+  # -- Public base URL for the admin service (sets SHIPWRIGHT_ADMIN_APP_BASE_URL),
+  # used for OAuth redirect URIs so they use the public host instead of
+  # localhost:3001. An explicit value here always wins. When left empty AND
+  # networking.type is "ingress" or "gateway", the chart auto-derives it as
+  # "<scheme>://<public host>" from networking.ingress.host / .gateway.host
+  # (https when TLS is on) — no manual override needed for those paths.
+  # ClusterIP/NodePort/LoadBalancer installs have no chart-known public host,
+  # so the env var stays omitted unless set explicitly here.
+  appBaseUrl: ""
+  # -- Extra environment variables injected into the admin container.
+  # List of Kubernetes envVar objects (name/value or name/valueFrom). Use for
+  # env vars not otherwise covered by chart values. Example (commented out —
+  # the sweeper's own default of 60000ms applies when unset; see
+  # docs/configuration.md for the session-alert sweeper):
+  #   extraEnv:
+  #     - name: SHIPWRIGHT_ADMIN_SESSION_ALERT_INTERVAL_MS
+  #       value: "60000"
+  extraEnv: []
+  # -- Optional Sentry error reporting for the admin service. Leave
+  # dsn.existingSecret empty to disable (no Sentry init, no middleware mounted).
+  sentry:
+    dsn:
+      existingSecret: ""
+      key: SENTRY_DSN
+    environment: ""
+  # -- Agent ask feature configuration.
+  ask:
+    # -- Enable the ask feature (sets SHIPWRIGHT_AGENT_ASK_ENABLED).
+    enabled: false
+    # -- Allowlist of `fromAgentId>toAgentId` pairs permitted to ask (comma-joined in env). Empty means no agent may ask any agent.
+    allowlist: []
+  # -- Chat credential mint configuration.
+  chatCredentialMint:
+    # -- Enable chat credential minting (sets SHIPWRIGHT_CHAT_TOKEN_MINT_ENABLED).
+    enabled: false
+  # -- Admin documentation feature configuration.
+  doc:
+    # -- Enable the doc feature (sets SHIPWRIGHT_ADMIN_DOC_ENABLED).
+    enabled: false
+  # -- Pod ServiceAccount configuration.
+  podServiceAccount:
+    # -- Enable the pod ServiceAccount flag (sets SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED).
+    enabled: false
+  # -- Cron run-now configuration.
+  cronRunNow:
+    # -- Enable the cron run-now route (sets SHIPWRIGHT_CRON_RUN_NOW_ENABLED).
+    enabled: false
+  # -- Cron-run transcript API configuration.
+  transcriptApi:
+    # -- Enable the transcript API routes (sets SHIPWRIGHT_TRANSCRIPT_API_ENABLED).
+    enabled: false
+  # -- Agent repo-access check configuration.
+  repoAccessCheck:
+    # -- Enable the agent repo-access check (sets SHIPWRIGHT_AGENT_REPO_ACCESS_CHECK_ENABLED).
+    enabled: false
+  # -- Extra annotations for the admin pod template (spec.template.metadata.
+  # annotations) — NOT the ServiceAccount (see serviceAccount.annotations
+  # above). Empty by default. On GKE Autopilot, set
+  # `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` here to stop the
+  # cluster autoscaler from voluntarily evicting this pod when a transient NAP
+  # node scales down — admin is single-replica by default and re-scheduling
+  # briefly breaks its DB connection (cluster-autoscaler node churn). Example:
+  #   podAnnotations:
+  #     cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+  podAnnotations: {}
+  # -- Extra labels for the admin pod template (spec.template.metadata.labels).
+  # Empty by default and purely additive — the chart's own
+  # `app.kubernetes.io/*` selector labels always win, so a colliding key here
+  # is dropped rather than breaking the Deployment's immutable selector.
+  # Use this to opt a single workload into a cluster policy that selects pods
+  # by label — a network policy, a scheduling or admission webhook, or a CNI
+  # feature such as an AWS `SecurityGroupPolicy` (see awsSecurityGroupPolicy
+  # below) — without widening it to every pod in the release. Values are
+  # rendered as strings, so `"true"` and `true` both produce a valid label.
+  # Example:
+  #   podLabels:
+  #     example.com/peer-datastore: "true"
+  podLabels: {}
+  # -- Optional PodDisruptionBudget for the admin workload. Off by default —
+  # purely additive. Pairs with podAnnotations above to protect a
+  # single-replica admin pod from voluntary disruption (cluster-autoscaler
+  # node drains, etc.) that otherwise causes a burst of DB-unreachable errors
+  # while the pod reschedules. Recommended for prod single-replica installs:
+  #   podDisruptionBudget:
+  #     enabled: true
+  #     minAvailable: 1
+  podDisruptionBudget:
+    # -- Whether to render a PodDisruptionBudget for the admin workload.
+    enabled: false
+    # -- Minimum number of admin pods that must remain available during a
+    # voluntary disruption. Only used when enabled=true.
+    minAvailable: 1
+
+# -- Metrics dashboard (@shipwright/metrics) — event-store-backed service. Port 3460.
+# In postgres mode it reads/writes an `events` table in the bundled PostgreSQL and
+# serves the dashboard at /dashboard; the DB-independent /health drives readiness.
+metrics:
+  enabled: true
+  image:
+    repository: ghcr.io/app-vitals/shipwright-metrics
+    tag: metrics-v1.165.0
+    pullPolicy: ""    # defaults to top-level imagePullPolicy when empty
+  service:
+    # -- Service type for the metrics service. ClusterIP is Minikube-friendly.
+    type: ClusterIP
+    port: 3460
+  replicas: 1
+  # -- Compute resources for the metrics container. Minikube-friendly defaults.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  # -- ServiceAccount for the metrics workload.
+  serviceAccount:
+    # -- Whether a ServiceAccount is created for the metrics workload.
+    create: true
+    # -- Annotations to add to the metrics ServiceAccount.
+    annotations: {}
+    # -- Name of the metrics ServiceAccount. Generated if empty and create=true.
+    name: ""
+  # -- PostgreSQL event-store database for the metrics service (postgres mode).
+  database:
+    # -- Database name for the metrics event store. Defaults to a SEPARATE
+    # database ("shipwright_metrics") from the admin service. This isolation is
+    # REQUIRED: the metrics provider creates its own `events` table on boot, and
+    # sharing the admin database would make the admin schema non-empty and break
+    # the admin service's `prisma migrate deploy` baseline (Prisma error P3005).
+    # When the bundled PostgreSQL subchart is enabled, this database is created
+    # automatically by a parent-chart init ConfigMap wired via
+    # postgresql.primary.initdb.scriptsConfigMap (see below); the created name
+    # tracks this value, so an override here stays in sync everywhere. If you
+    # bring your own Postgres (postgresql.enabled=false), pre-create this database
+    # or point METRICS_DATABASE_URL at it yourself.
+    name: shipwright_metrics
+  # -- Stable session secret via an existing Secret. When existingSecret is
+  # non-empty, SHIPWRIGHT_SESSION_SECRET (signs/validates the dashboard session
+  # JWT) is sourced from that pre-existing Secret instead of the chart-generated
+  # random. Point this at the SAME Secret the admin uses (admin.encryptionKeys.
+  # existingSecret) so admin-minted sessions validate at the metrics service when
+  # both sit behind a shared Gateway — a mismatch 401s the dashboard's metrics
+  # view. Leave empty to use the chart-managed Secret (generate on first install,
+  # reuse on upgrade via lookup).
+  sessionSecret:
+    existingSecret: ""
+    # -- Key in existingSecret that holds SHIPWRIGHT_SESSION_SECRET.
+    sessionSecretRef: SHIPWRIGHT_SESSION_SECRET
+  # -- Provider and environment surface for the metrics dashboard.
+  # All fields are optional and additive — defaults preserve the existing
+  # SQLite / bundled-PostgreSQL fallback behavior unchanged.
+  provider:
+    # -- URL of the admin service as seen by the metrics dashboard.
+    # Required when not using the bundled admin service (e.g., external admin).
+    # Leave empty to omit the METRICS_ADMIN_URL env var.
+    adminUrl: ""
+    # -- URL of the Shipwright task-store service as seen by the metrics dashboard.
+    # When set ALONGSIDE adminUrl, the metrics service runs in TASKSTORE mode
+    # (TaskStoreProvider over the task-store + admin APIs). Leave empty and the
+    # provider selector falls through to the bundled SQLite store — which has no
+    # writable path in the published image and crashes on boot (SQLITE_CANTOPEN),
+    # so set this whenever the service should read live task/PR data.
+    taskStoreUrl: ""
+    # -- Bearer token for the task-store service (METRICS_TASK_STORE_TOKEN).
+    # Set existingSecret to inject it via secretKeyRef.
+    taskStoreToken:
+      # -- Name of an existing Secret holding the task-store bearer token.
+      # Leave empty to omit the METRICS_TASK_STORE_TOKEN env var.
+      existingSecret: ""
+      # -- Key in the secret for METRICS_TASK_STORE_TOKEN.
+      key: METRICS_TASK_STORE_TOKEN
+    # -- Base path for the metrics dashboard (e.g., /dashboard). Leave empty
+    # to omit the METRICS_BASE_PATH env var (defaults to root inside the app).
+    basePath: ""
+    # -- When true, require OWNER role for dashboard access.
+    # Injects METRICS_REQUIRE_OWNER_ROLE=true when enabled.
+    requireOwnerRole: false
+    # -- When true, run the metrics service in OFFLINE mode (METRICS_OFFLINE=true).
+    # Injects fixture data instead of connecting to the task-store + admin APIs.
+    # Use in CI or local development when no live services are available.
+    offline: false
+    # -- Internal API key shared between metrics and admin services.
+    # Set existingSecret to inject METRICS_INTERNAL_API_KEY via secretKeyRef.
+    internalKey:
+      # -- Name of an existing Secret holding the internal API key.
+      # Leave empty to omit the METRICS_INTERNAL_API_KEY env var.
+      existingSecret: ""
+      # -- Key in the secret for METRICS_INTERNAL_API_KEY.
+      key: METRICS_INTERNAL_API_KEY
+  # -- Bearer API key registry for the authenticated /metrics/* routes
+  # (METRICS_API_KEYS). Format: comma-separated `name:token:scope` tuples, scope
+  # `*` = admin (full access), any other scope is rejected with 403 on metrics
+  # routes. Same format as the admin's SHIPWRIGHT_ADMIN_API_KEYS, so to accept the
+  # admin bearer point existingSecret at the Secret the admin reads that registry
+  # from (admin.extraEnv). Leave empty to omit the env var (session-cookie access
+  # only).
+  apiKeys:
+    # -- Name of an existing Secret holding the key registry.
+    existingSecret: ""
+    # -- Key in the secret for METRICS_API_KEYS.
+    existingSecretKey: METRICS_API_KEYS
+  # -- Public read-only proof surface. When enabled, the metrics service mounts an
+  # unauthenticated, repo-scoped /public/* surface (read-only dashboard + JSON)
+  # ALONGSIDE the authenticated routes — it does not relax auth on existing routes.
+  # Used for the public dogfooding page (e.g. proof.shipwrightharness.com). Token/
+  # cost endpoints are always excluded from the public surface.
+  public:
+    # -- Enable public mode (injects SHIPWRIGHT_METRICS_PUBLIC_MODE=true). When
+    # true, `repo` is REQUIRED — the template fails fast at render time (and the
+    # service fails fast on boot) if it is empty.
+    enabled: false
+    # -- Repo slug the public surface is hard-scoped to, never user-selectable
+    # (injects SHIPWRIGHT_METRICS_PUBLIC_REPO). e.g. "app-vitals/shipwright".
+    repo: ""
+  # -- Optional Sentry error reporting for the metrics service. Leave
+  # dsn.existingSecret empty to disable (no Sentry init, no middleware mounted).
+  sentry:
+    dsn:
+      existingSecret: ""
+      key: SENTRY_DSN
+    environment: ""
+
+# -- Agent service (@shipwright/agent) — autonomous runner + admin CRUD. Port 3000.
+agent:
+  enabled: true
+  image:
+    repository: ghcr.io/app-vitals/shipwright-agent
+    tag: agent-v1.439.0
+    pullPolicy: ""
+  service:
+    port: 3000
+  replicas: 1
+  # -- Provisioning controls for the agent's persistent home / workspace.
+  provisioning:
+    # -- Whether the admin service provisions agent workloads at runtime. OFF by
+    # default: the chart renders NO provisioning RBAC/ServiceAccount and injects
+    # NO provisioning env, so admin stays in Noop mode (no cluster access). Set
+    # true to render the Role/ClusterRole + RoleBinding/ClusterRoleBinding + agent SA
+    # and inject the provisioner env contract (matching admin/src/main.ts buildProvisioner)
+    # into the admin Deployment. RBAC scope depends on provisioning.namespace: empty =
+    # namespace-scoped Role; non-empty = cluster-scoped ClusterRole.
+    enabled: false
+    # -- Override namespace for provisioned agent resources. Empty (default) uses
+    # the pod's own release namespace (injected via the downward API). Set to
+    # provision agents into a different namespace — uses ClusterRole RBAC when set,
+    # Role when empty.
+    namespace: ""
+    # -- Image the admin provisioner stamps onto agent Deployments.
+    image:
+      repository: ghcr.io/app-vitals/shipwright-agent
+      tag: agent-v1.439.0
+    # -- Replica count for provisioned agent Deployments.
+    replicas: 1
+    # -- ServiceAccount provisioned agent pods run as (SEPARATE from the admin SA).
+    # Created in the agent namespace (agent.provisioning.namespace, else the release namespace).
+    serviceAccount:
+      # -- Whether to create the agent ServiceAccount (only when provisioning.enabled).
+      create: true
+      # -- Annotations to add to the agent ServiceAccount.
+      annotations: {}
+      # -- Name of the agent ServiceAccount. Generated if empty and create=true.
+      name: ""
+    # -- In-cluster admin/gateway URL handed to provisioned agents. Empty → built
+    # from the admin Service DNS name + port. Set to point agents at an external
+    # gateway.
+    apiUrl: ""
+    # -- PVC name template for provisioned agents. When non-empty, the provisioner
+    # substitutes `{name}` with the agent's human-readable name (slug) to derive the
+    # PVC name. Use this when migrating from static agents whose PVCs were created
+    # with a specific naming convention (e.g. "my-org-agent-{name}-home").
+    # When empty (the default), PVCs are named `{sanitizedAgentId}-home`.
+    pvcNameTemplate: ""
+    # -- Per-field overrides for the provisioned agent container's resource
+    # requests/limits. Each sub-field defaults to empty (no override) — when
+    # empty, the provisioner keeps its own built-in defaults (see
+    # admin/src/agent-manifest.ts, the source of truth for what those are).
+    # Set a field to have the provisioner inject the matching
+    # SHIPWRIGHT_K8S_AGENT_* env var into the admin Deployment.
+    resources:
+      requests:
+        # -- CPU request override for the provisioned agent container, e.g. "320m".
+        cpu: ""
+        # -- Memory request override for the provisioned agent container, e.g. "3Gi".
+        memory: ""
+      limits:
+        # -- CPU limit override for TENANT agent pods only (agents owned by an
+        # account), e.g. "2". Empty keeps the provisioner's own default (2).
+        # Platform agents never get a CPU limit.
+        cpu: ""
+        # -- Memory limit override for the provisioned agent container, e.g. "9Gi".
+        memory: ""
+      # -- ephemeral-storage override for the provisioned agent container,
+      # applied to both request and limit, e.g. "5Gi".
+      ephemeralStorage: ""
+    # -- Managed Claude Code policy for provisioned agent pods. OFF by default: no
+    # ConfigMap renders and no SHIPWRIGHT_K8S_AGENT_CLAUDE_POLICY_* env is injected.
+    # When enabled, the chart renders a ConfigMap whose single key
+    # managed-settings.json is `settings` as JSON; the admin provisioner mounts it
+    # read-only at /etc/claude-code (file: /etc/claude-code/managed-settings.json)
+    # in agent pods. Requires agent.provisioning.enabled=true and non-empty
+    # settings. Only provisioned agent pods consume it; admin, task-store, chat,
+    # metrics and mcp-server never mount it. The ConfigMap renders into
+    # agent.provisioning.namespace (else the release namespace), which must
+    # already exist. Remote managed settings (Claude admin console) take
+    # precedence over this file. See docs/deploy-kubernetes-provisioning.md.
+    claudePolicy:
+      # -- Render the policy ConfigMap and inject the admin env that mounts it.
+      enabled: false
+      # -- Claude Code managed settings (free-form object), e.g.
+      # {"permissions": {"deny": ["Bash(curl:*)"]}}. A change to any value changes
+      # the SHIPWRIGHT_K8S_AGENT_CLAUDE_POLICY_HASH env var, which restarts admin;
+      # on startup admin reconciles policy drift and rolls only affected agents.
+      settings: {}
+    # -- Anthropic Workload Identity Federation for provisioned agent pods. OFF
+    # by default: no SHIPWRIGHT_K8S_AGENT_ANTHROPIC_FEDERATION_* or
+    # SHIPWRIGHT_K8S_AGENT_SERVICE_ACCOUNT env is injected and agent pods are
+    # unchanged. When enabled, the admin provisioner runs agent pods as the agent
+    # ServiceAccount (agent.provisioning.serviceAccount) and mounts a projected
+    # service-account token read-only at /var/run/secrets/anthropic.com/token,
+    # plus the ANTHROPIC_* federation env, so the Anthropic client exchanges the
+    # token for short-lived access instead of using a long-lived key. Requires
+    # agent.provisioning.enabled=true, non-empty federationRuleId, organizationId
+    # and serviceAccountId, and an agent ServiceAccount (serviceAccount.create=true
+    # or a non-empty serviceAccount.name). See docs/deploy-kubernetes-provisioning.md.
+    #
+    # identityMode selects how agents authenticate. "shared" (default) is the
+    # behavior above: every agent pod shares one ServiceAccount and one Anthropic
+    # service account/rule. "perAgent" (opt-in) gives each agent its own identity;
+    # it requires organizationId, issuerId and adminFederation (the admin pod's own
+    # projected token + ANTHROPIC_* env, used to sign in to the Anthropic Admin API
+    # via an org:admin bootstrap rule) and does NOT use federationRuleId,
+    # serviceAccountId or the shared agent ServiceAccount.
+    anthropicFederation:
+      # -- Inject the federation env into the admin Deployment.
+      enabled: false
+      # -- Anthropic organization ID (ANTHROPIC_ORGANIZATION_ID in agent pods). Required when enabled.
+      organizationId: ""
+      # -- Optional Anthropic workspace ID (ANTHROPIC_WORKSPACE_ID). Empty → not set.
+      workspaceId: ""
+      # -- Anthropic service account ID (ANTHROPIC_SERVICE_ACCOUNT_ID). Required when enabled.
+      serviceAccountId: ""
+      # -- Anthropic federation rule ID (ANTHROPIC_FEDERATION_RULE_ID). Required when enabled.
+      federationRuleId: ""
+      # -- Audience of the projected service-account token.
+      audience: https://api.anthropic.com
+      # -- Lifetime of the projected token in seconds (the kubelet rotates it).
+      # Integer from 600 (the Kubernetes minimum) to 3600.
+      tokenExpirationSeconds: 600
+      # -- Identity mode: "shared" (one identity for all agents, default) or
+      # "perAgent" (each agent gets its own ServiceAccount and Anthropic identity).
+      identityMode: shared
+      # -- perAgent only: Anthropic issuer ID of this cluster's OIDC issuer (the
+      # issuer of the per-agent federation rules). Required in perAgent mode.
+      issuerId: ""
+      # -- perAgent only: suffix appended to per-agent resource names so clusters
+      # sharing one organization do not collide. Lowercase letters, digits and
+      # dashes. Empty → no suffix.
+      nameSuffix: ""
+      # -- perAgent only: the admin pod's own federation, used to sign in to the
+      # Anthropic Admin API. Both fields are required in perAgent mode.
+      adminFederation:
+        # -- org:admin bootstrap federation rule ID (ANTHROPIC_FEDERATION_RULE_ID in the admin pod).
+        ruleId: ""
+        # -- Anthropic service account ID the bootstrap rule is bound to (ANTHROPIC_SERVICE_ACCOUNT_ID in the admin pod).
+        serviceAccountId: ""
+    # -- Provisioned workspace PVCs: created per-agent when the provisioner spins
+    # up a new agent pod. These settings are surfaced for the agent manifest
+    # builder's future use. NOTE: buildProvisioner does not read these as env
+    # today, so they are NOT injected into the admin Deployment.
+    pvc:
+      size: 2Gi
+      # -- StorageClass for provisioned agent PVCs. Empty uses the cluster default.
+      storageClass: ""
+    # -- Agent container's own home directory PVC (AGENT_HOME): persists the
+    # agent's own data across pod restarts. This is NOT related to
+    # provisioned-agent workspaces — see pvc above for those.
+    persistence:
+      enabled: true
+      size: 2Gi
+      # -- StorageClass for the agent PVC. Empty uses the cluster default (or global.storageClass).
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+    # -- Mount path inside the agent container for persistent storage.
+    homePath: /data/agent-home
+  # -- Agent voice (speech-to-text / text-to-speech) — a DEPLOY-TIME option.
+  # OFF by default: no Whisper pod/Service, no voice Secret, and NO voice env is
+  # injected into the admin (so provisioned agent pods keep just the 3 base vars).
+  # When enabled, the admin's buildProvisioner (admin/src/main.ts) reads the voice
+  # env injected below and flows it into every provisioned agent pod:
+  #   - provider=whisper → WHISPER_SERVICE_URL (the in-cluster Whisper Service) +
+  #     ELEVENLABS_API_KEY (TTS); a Whisper Deployment+Service is rendered.
+  #   - provider=groq    → GROQ_API_KEY (STT) + ELEVENLABS_API_KEY (TTS); no pod.
   voice:
     # -- Master switch. Default false → nothing voice-related renders.
     enabled: false
@@ -71,22 +707,439 @@ agent:
 # -- Self-serve agent provisioning (SSP-1.3). OFF by default: with `enabled`
 # false the chart injects NO self-serve env and admin behavior is unchanged.
 selfServe:
-# Inputs for the imageRef / podLabels helpers.
-image:
-  repository: ghcr.io/app-vitals/shipwright-admin
-  tag: v1
-  digest: ""
-podLabelsSelector: |
-  app.kubernetes.io/name: shipwright
-  app.kubernetes.io/instance: shipwright
+  # -- Set true to inject SHIPWRIGHT_SELF_SERVE_ENABLED=enabled and the quota/contact env.
+  enabled: false
+  # -- Default per-account agent quota (integer >= 0).
+  defaultMaxAgents: 0
+  # -- Contact address shown when a user needs more quota.
+  contactEmail: dan@app-vitals.com
+  networkPolicy:
+    # -- Render a NetworkPolicy isolating tenant agent pods (label
+    # shipwright.dev/tenant=true) in the agent namespace: egress to DNS, the
+    # Shipwright services and the public internet only (RFC1918 + link-local
+    # blocked); ingress from the admin pods only. Only enforced if the cluster
+    # CNI supports NetworkPolicy. Enable before allowing any tenant agents.
+    enabled: false
+    # -- CIDRs of node-local / cluster DNS resolvers tenant pods may reach on
+    # port 53 (UDP and TCP), in addition to the kube-dns pods. Default is the
+    # GKE NodeLocal DNSCache address; set your cluster's resolver on other
+    # CNIs (find it with `cat /etc/resolv.conf` in any pod). Empty list
+    # renders no extra rule.
+    dnsCidrs:
+      - 169.254.20.10/32
 
-postgresql:
-  enabled: true
-  auth:
-    username: shipwright
-    password: ""
+# -- Authentication mode for the admin service.
+auth:
+  # -- Admin auth mode:
+  #    "open"   — dev auth, NO OAuth (ADMIN_DEV_AUTH=true). Working UI, but
+  #               INSECURE: anyone who can reach the service is authenticated.
+  #               Minikube/dev default. Do NOT expose publicly.
+  #    "google" — real Google OAuth (NODE_ENV=production). Requires
+  #               auth.google.{clientId,clientSecret,allowedEmails}.
+  #    "okta"   — Okta OIDC env wiring only (NODE_ENV=production). Requires
+  #               auth.okta.{issuer,clientId,clientSecret,allowedEmails}.
+  #               ⚠️ CHART-ONLY TODAY: the admin app (admin/src/) has no Okta
+  #               login handler yet, so this mode sets NODE_ENV=production
+  #               (blocking dev-auth) with no working login path. Do not use
+  #               in a real deployment until application-side Okta support
+  #               ships — use "google" or "open" (non-public) instead.
+  # One Helm deployment runs exactly one provider at a time — this stays a
+  # single-value enum rather than a list of enabled providers.
+  mode: open
+  # -- Google OAuth settings (used only when auth.mode=google).
+  google:
+    # -- Name of an existing Secret holding Google OAuth credentials and the
+    # allowed-emails list. When set, clientId/clientSecret/allowedEmails below
+    # are ignored and the Deployment sources those three vars via secretKeyRef
+    # from this Secret. Leave empty to use the inline values below.
     existingSecret: ""
+    # -- Key in existingSecret for GOOGLE_CLIENT_ID.
+    clientIdRef: GOOGLE_CLIENT_ID
+    # -- Key in existingSecret for GOOGLE_CLIENT_SECRET.
+    clientSecretRef: GOOGLE_CLIENT_SECRET
+    # -- Key in existingSecret for SHIPWRIGHT_ADMIN_ALLOWED_EMAILS.
+    allowedEmailsRef: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+    # -- Google OAuth client ID (used when existingSecret is empty).
+    clientId: ""
+    # -- Google OAuth client secret (kept in the chart-managed admin Secret).
+    clientSecret: ""
+    # -- Comma-separated allow-list of emails permitted to sign in.
+    allowedEmails: ""
+  # -- Okta OIDC settings (used only when auth.mode=okta). Mirrors auth.google
+  # exactly, plus an issuer (Okta's OIDC issuer URL is tenant-specific and has
+  # no well-known default the way Google's does).
+  # ⚠️ Chart-only today — see the auth.mode comment above.
+  okta:
+    # -- Name of an existing Secret holding Okta OIDC credentials and the
+    # allowed-emails list. When set, issuer/clientId/clientSecret/allowedEmails
+    # below are ignored and the Deployment sources those four vars via
+    # secretKeyRef from this Secret. Leave empty to use the inline values below.
+    existingSecret: ""
+    # -- Key in existingSecret for OKTA_ISSUER.
+    issuerRef: OKTA_ISSUER
+    # -- Key in existingSecret for OKTA_CLIENT_ID.
+    clientIdRef: OKTA_CLIENT_ID
+    # -- Key in existingSecret for OKTA_CLIENT_SECRET.
+    clientSecretRef: OKTA_CLIENT_SECRET
+    # -- Key in existingSecret for SHIPWRIGHT_ADMIN_ALLOWED_EMAILS.
+    allowedEmailsRef: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+    # -- Okta OIDC issuer URL, e.g. "https://dev-123456.okta.com" (used when
+    # existingSecret is empty).
+    issuer: ""
+    # -- Okta OIDC client ID (used when existingSecret is empty).
+    clientId: ""
+    # -- Okta OIDC client secret (kept in the chart-managed admin Secret).
+    clientSecret: ""
+    # -- Comma-separated allow-list of emails permitted to sign in.
+    allowedEmails: ""
 
+# -- Bitnami PostgreSQL subchart configuration.
+# Disable this (postgresql.enabled=false) to bring your own Postgres and point the
+# admin service at an external DATABASE_URL_SHIPWRIGHT_ADMIN.
+postgresql:
+  # -- Deploy the bundled PostgreSQL subchart.
+  enabled: true
+  # -- Image overrides. Pinned by digest (not tag): as of the Postgres 18 chart
+  # line, Bitnami no longer publishes a concrete version tag publicly — the
+  # `bitnami/postgresql` repo only carries the floating `latest` tag, and the
+  # `bitnamilegacy` mirror was frozen at Postgres 17.6.0 and never got a Postgres
+  # 18 build. Pinning `digest` (which overrides `tag` in the subchart's image
+  # helper) keeps the render deterministic despite `latest` being a moving
+  # target. See README "Bitnami registry risk" for the full explanation and how
+  # to re-pin when bumping further.
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    digest: sha256:b69d1fca390fb131639e86e820f248acfc5d911339dc884796f8009260c598d7
+  auth:
+    # -- Default database name created on first boot.
+    database: shipwright_admin
+    # -- Default application username.
+    username: shipwright
+    # -- Database password. Left EMPTY on purpose: with no password and no
+    # existingSecret, the Bitnami postgresql subchart auto-generates a random
+    # password on install. Set it explicitly here, or (preferred for production)
+    # point auth.existingSecret at a pre-created Secret. CAVEAT: a Bitnami-generated
+    # password is NOT stable across `helm upgrade` — it regenerates unless you use
+    # auth.existingSecret. Never ship a known hard-coded default in this chart.
+    password: ""
+    # -- Source credentials from an existing Secret instead of the values above.
+    existingSecret: ""
+  # -- Minikube-friendly primary defaults: modest resources, small/toggleable storage.
+  primary:
+    persistence:
+      # -- Toggle persistence off for ephemeral Minikube runs, or size it small.
+      enabled: true
+      size: 1Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    # -- First-boot init scripts (Bitnami subchart). The SEPARATE metrics database
+    # (default "shipwright_metrics") is created by a parent-chart ConfigMap
+    # (templates/postgres-initdb-configmap.yaml), referenced here via
+    # scriptsConfigMap below and mounted at /docker-entrypoint-initdb.d. Keeping
+    # the metrics event store in its own database (never the admin database) is
+    # REQUIRED — sharing it would leave the admin schema non-empty and break
+    # admin's `prisma migrate deploy` baseline (Prisma P3005).
+    #
+    # OVERRIDE-SAFE: the ConfigMap renders the created database name from the
+    # shipwright.metrics.databaseName helper — the SAME helper that assembles
+    # METRICS_DATABASE_URL in the metrics Secret — so overriding metrics.database.name
+    # automatically updates BOTH the created database and the URL the metrics service
+    # connects to. No manual edit needed here.
+    initdb:
+      # The Bitnami subchart tpl-renders scriptsConfigMap, so this resolves to
+      # "<release>-metrics-initdb" — the name the parent-chart ConfigMap renders
+      # (templates/postgres-initdb-configmap.yaml). That ConfigMap is gated
+      # on postgresql.enabled, matching this reference: whenever the bundled
+      # Postgres renders, the ConfigMap it mounts renders too (no dangling mount).
+      scriptsConfigMap: '{{ printf "%s-metrics-initdb" .Release.Name }}'
+
+# -- Optional bundled ingress-nginx subchart (CNH-6.1). Off by default — bring
+# your own ingress controller (e.g. the Minikube NGINX addon, or a
+# cluster-managed one) unless you opt in here. Only one bundled ingress
+# controller subchart (ingress-nginx OR traefik) should be enabled at a time;
+# enabling both fails the render (templates/_validation.tpl).
+ingress-nginx:
+  # -- Deploy the bundled ingress-nginx subchart.
+  enabled: false
+  controller:
+    admissionWebhooks:
+      # -- The admission webhook path installs a Job that must reach a
+      # running Kubernetes API server at install time; disabled by default so
+      # a fresh install never depends on that timing.
+      enabled: false
+
+# -- Optional bundled Traefik subchart (CNH-6.1). Off by default — bring your
+# own Traefik (or another ingress controller) unless you opt in here. This is
+# independent of networking.ingress.controller=traefik (which only selects
+# the Traefik-flavored annotations in templates/ingress.yaml); set BOTH to
+# actually bundle and use Traefik end-to-end. Only one bundled ingress
+# controller subchart (ingress-nginx OR traefik) should be enabled at a time;
+# enabling both fails the render (templates/_validation.tpl).
+traefik:
+  # -- Deploy the bundled Traefik subchart.
+  enabled: false
+  ingressClass:
+    # -- Name of the IngressClass the bundled Traefik subchart registers. The
+    # subchart's own default is the release fullname ("<release>-traefik"),
+    # which would NOT match this chart's Ingress (networking.ingress.className,
+    # "traefik" for the Traefik profile). Traefik's ingress provider only
+    # routes an Ingress whose explicit ingressClassName matches an existing
+    # IngressClass by exact name — a mismatch is silently skipped and every
+    # request through the controller 404s. Pin it to "traefik" so the bundled
+    # profile works out of the box; keep it equal to
+    # networking.ingress.className if you change either.
+    name: traefik
+
+# -- Optional bundled cert-manager subchart (CNH-6.1). Off by default — bring
+# your own cert-manager (see tls.certManager.* for the chart's own
+# Issuer/annotation wiring) unless you opt in here.
+cert-manager:
+  # -- Deploy the bundled cert-manager subchart.
+  enabled: false
+  crds:
+    # -- Install cert-manager's CRDs as part of this chart (v1.15+ jetstack
+    # convention — no separate CRD chart needed).
+    enabled: true
+    # -- Keep the CRDs on `helm uninstall` (avoids deleting Certificates/
+    # Issuers/etc. cluster-wide when this release is removed).
+    keep: true
+  startupapicheck:
+    # -- Run cert-manager's post-install webhook readiness check job.
+    enabled: true
+
+# -- Bring-your-own (external) PostgreSQL for the admin service. Used ONLY when
+# postgresql.enabled=false. Point existingSecret at a pre-created Secret holding a
+# ready-to-use DATABASE_URL_SHIPWRIGHT_ADMIN connection string; the admin
+# Deployment injects it via secretKeyRef. The Secret is NOT chart-managed (you
+# create and rotate it), and the chart-managed admin Secret assembles NO DB URL on
+# this path, so there is no duplicate/conflicting env. When postgresql.enabled=true
+# this block is ignored — the bundled subchart path wins and is unchanged.
+# -- Post-install/post-upgrade hook Job that ensures the per-service databases
+# (metrics, task-store, chat) exist on the bundled PostgreSQL.
+#
+# The initdb ConfigMap only runs on the FIRST boot of an empty data volume, so on
+# any already-initialized release — every upgrade, and any install where you turn
+# on task-store or chat later — it is a no-op. This Job runs the same guarded SQL
+# against a live database, which is what actually makes those services deployable
+# on an existing release. It is a no-op once the databases exist.
+#
+# Only rendered when postgresql.enabled=true. Disable it if you provision the
+# databases yourself and want no hook Job in the release.
+dbBootstrap:
+  # -- Whether to render the database bootstrap hook Job.
+  enabled: true
+  # -- Job backoffLimit. The container polls with pg_isready before connecting,
+  # so retries here only cover a PostgreSQL that is slow to become healthy.
+  backoffLimit: 6
+  # -- Compute resources for the bootstrap Job pod.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+externalDatabase:
+  # -- Name of a pre-existing Secret holding the admin DB connection string. Empty
+  # (default) → no external DB wiring. Set this together with postgresql.enabled=false
+  # to enable the external-DB path.
+  existingSecret: ""
+  # -- Key within existingSecret whose value is the full
+  # DATABASE_URL_SHIPWRIGHT_ADMIN connection string. Empty (default) → the template
+  # falls back to the key name "DATABASE_URL_SHIPWRIGHT_ADMIN".
+  adminUrlKey: ""
+
+# -- Task-store service (@shipwright/task-store) — GitHub Issues-backed task queue. Port 3000.
+# Disabled by default — purely additive, safe to deploy without this.
+taskStore:
+  # -- Whether to render the task-store Deployment and Service.
+  enabled: false
+  image:
+    repository: ghcr.io/app-vitals/shipwright-task-store
+    tag: task-store-v1.213.2
+    pullPolicy: ""    # defaults to top-level imagePullPolicy when empty
+  service:
+    # -- Service type for the task-store service. ClusterIP is Minikube-friendly.
+    type: ClusterIP
+    port: 3000
+  # -- Opt-in external route for the task-store API. Default OFF — the task-store
+  # is ClusterIP-only unless this is enabled. When enabled, the configured
+  # networking path (ingress or gateway HTTPRoute) exposes the task-store under
+  # `pathPrefix`; the prefix is STRIPPED to "/" before traffic reaches the Service
+  # (the app serves /tasks, /tokens, /prs, /health at root). No-op unless
+  # taskStore.enabled=true (the route is only rendered alongside the workload).
+  expose:
+    # -- Whether to render an external route to the task-store Service.
+    enabled: false
+    # -- External path prefix the task-store answers on. Stripped to "/" before
+    # reaching the Service. More specific than the admin "/" route, so it is not
+    # shadowed.
+    pathPrefix: /task-store
+  replicas: 1
+  # -- Compute resources for the task-store container. Minikube-friendly defaults.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  # -- Database wiring for the task-store service. Two mutually exclusive paths,
+  # selected by whether existingSecret is set:
+  #
+  #   existingSecret non-empty (THE DEFAULT) — bring-your-own Secret. The chart
+  #     neither creates nor owns it; create it before deploying. Unchanged
+  #     behaviour for every install that predates the bundled-database path.
+  #
+  #   existingSecret: "" + postgresql.enabled — chart-managed. The bundled
+  #     PostgreSQL gets a separate `name` database (created by the initdb
+  #     ConfigMap on a fresh volume, or by the post-install/upgrade bootstrap Job
+  #     otherwise) and the chart assembles DATABASE_URL_SHIPWRIGHT_TASK_STORE into
+  #     its own Secret. This is what examples/values-minikube.yaml opts into.
+  #
+  #   existingSecret: "" + postgresql.enabled=false — rejected at render time.
+  database:
+    # -- Name of a pre-existing Secret holding DATABASE_URL_SHIPWRIGHT_TASK_STORE.
+    # Set to "" to use the chart-managed bundled-PostgreSQL database instead.
+    existingSecret: "shipwright-secrets"
+    # -- Database name on the bundled PostgreSQL (chart-managed path only).
+    # MUST be its own database — sharing one with admin/metrics/chat breaks
+    # `prisma migrate deploy` with Prisma P3005. Empty → "shipwright_task_store".
+    name: ""
+  # -- Extra env vars to inject into the task-store container. Use for service
+  # wiring (e.g. SHIPWRIGHT_TASK_STORE_AGENTS_URL + AGENTS_API_KEY for the
+  # scope resolver) without baking those into the chart template.
+  # SHIPWRIGHT_CLAUDE_TIMEOUT_MS is set to the 1hr default by default (matching
+  # the agent's default ceiling from CSU-1.2). In a multi-agent fleet where agents
+  # are provisioned with different timeouts, raise this to the MAX SHIPWRIGHT_CLAUDE_TIMEOUT_MS
+  # across all provisioned agents (see docs/deploy-kubernetes.md for the claim TTL buffer check).
+  # CAVEAT: Helm replaces arrays wholesale, it does not merge them. If your
+  # deployment already overrides taskStore.extraEnv (e.g. for the
+  # SHIPWRIGHT_TASK_STORE_AGENTS_URL / AGENTS_API_KEY scope-resolver wiring
+  # named above), upgrading to this default will silently drop this
+  # SHIPWRIGHT_CLAUDE_TIMEOUT_MS entry — re-add it to your own override list.
+  # Another example (commented out — code-level default is 30 days; see
+  # docs/configuration.md for the session-retention reaper):
+  #   - name: SHIPWRIGHT_TASK_STORE_SESSION_ARCHIVE_AFTER_DAYS
+  #     value: "30"
+  extraEnv:
+    - name: SHIPWRIGHT_CLAUDE_TIMEOUT_MS
+      value: "3600000"
+  # -- Optional Sentry error reporting for the task-store service. Leave
+  # dsn.existingSecret empty to disable (no Sentry init, no middleware mounted).
+  sentry:
+    dsn:
+      existingSecret: ""
+      key: SENTRY_DSN
+    environment: ""
+  # -- ServiceAccount for the task-store pod. Set create: false and name: <sa>
+  # to reuse an existing SA (e.g. the umbrella chart'''s Workload Identity SA).
+  serviceAccount:
+    # -- Whether a ServiceAccount is created for the task-store workload.
+    create: true
+    # -- Annotations for the task-store ServiceAccount. Generated if empty and create=true.
+    annotations: {}
+    # -- Name of the task-store ServiceAccount. Generated if empty and create=true.
+    name: ""
+  # -- Extra annotations for the task-store pod template (spec.template.
+  # metadata.annotations) — NOT the ServiceAccount (see serviceAccount.
+  # annotations above). Empty by default. On GKE Autopilot, set
+  # `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` here to stop the
+  # cluster autoscaler from voluntarily evicting this pod when a transient NAP
+  # node scales down. See admin.podAnnotations for the full example.
+  podAnnotations: {}
+  # -- Extra labels for the task-store pod template (spec.template.metadata.
+  # labels). Empty by default and purely additive; the chart's own
+  # `app.kubernetes.io/*` selector labels always win. See admin.podLabels for
+  # the full rationale and example.
+  podLabels: {}
+  # -- Optional PodDisruptionBudget for the task-store workload. Off by
+  # default — purely additive. See admin.podDisruptionBudget for the full
+  # rationale (cluster-autoscaler node churn). Recommended for prod single-replica
+  # installs:
+  #   podDisruptionBudget:
+  #     enabled: true
+  #     minAvailable: 1
+  podDisruptionBudget:
+    # -- Whether to render a PodDisruptionBudget for the task-store workload.
+    enabled: false
+    # -- Minimum number of task-store pods that must remain available during
+    # a voluntary disruption. Only used when enabled=true.
+    minAvailable: 1
+
+# -- MCP server (@shipwright/mcp-server) — Model Context Protocol HTTP service that
+# proxies the task-store to remote MCP clients (e.g. Claude Desktop custom
+# connectors). Port 3010. Disabled by default — purely additive, safe to deploy
+# without this. mcp-server has no database of its own; it always proxies an
+# EXISTING task-store (in-cluster or external), so — unlike taskStore/chat —
+# there is no bundled-PostgreSQL path here.
+#
+# SAFETY: mcp-server proxies a privileged SHIPWRIGHT_TASK_STORE_TOKEN. Enabling
+# this component only renders a ClusterIP Service — it does NOT expose anything
+# externally. Deliberately exposing it (e.g. via networking.type=ingress/gateway)
+# is a separate, human decision outside this chart.
+mcpServer:
+  # -- Whether to render the mcp-server Deployment and Service.
+  enabled: false
+  image:
+    repository: ghcr.io/app-vitals/shipwright-mcp-server
+    tag: mcp-server-v0.35.0
+    pullPolicy: ""    # defaults to top-level imagePullPolicy when empty
+  service:
+    # -- Service type for the mcp-server service. ClusterIP is Minikube-friendly.
+    type: ClusterIP
+    port: 3010
+  replicas: 1
+  # -- Compute resources for the mcp-server container. Minikube-friendly defaults.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  # -- Externally-reachable task-store base URL mcp-server proxies to (sets
+  # SHIPWRIGHT_TASK_STORE_URL). Required — main.ts has no fallback. Can point at
+  # this chart's own task-store component (e.g.
+  # http://<release>-task-store:3000) or at a task-store outside this chart;
+  # the chart does not auto-derive it from taskStore.* so either is supported.
+  taskStoreUrl: ""
+  # -- Auth wiring: both the inbound bearer token mcp-server itself requires
+  # (SHIPWRIGHT_MCP_SERVER_TOKEN — main.ts refuses to start without it) and the
+  # outbound task-store bearer token (SHIPWRIGHT_TASK_STORE_TOKEN) are ALWAYS
+  # bring-your-own-Secret; the chart never generates or stores these tokens
+  # itself. Both are sourced via secretKeyRef, never plaintext env.
+  auth:
+    # -- Name of a pre-existing Secret holding SHIPWRIGHT_MCP_SERVER_TOKEN and
+    # SHIPWRIGHT_TASK_STORE_TOKEN. Defaults to the same "shipwright-secrets"
+    # bring-your-own Secret used by the other components.
+    existingSecret: "shipwright-secrets"
+    # -- Key in existingSecret that holds SHIPWRIGHT_MCP_SERVER_TOKEN.
+    mcpServerTokenKey: SHIPWRIGHT_MCP_SERVER_TOKEN
+    # -- Key in existingSecret that holds SHIPWRIGHT_TASK_STORE_TOKEN.
+    taskStoreTokenKey: SHIPWRIGHT_TASK_STORE_TOKEN
+  # -- Extra env vars to inject into the mcp-server container. Appended LAST so
+  # caller overrides win.
+  extraEnv: []
+  # -- ServiceAccount for the mcp-server pod. Set create: false and name: <sa>
+  # to reuse an existing SA (e.g. the umbrella chart's Workload Identity SA).
+  serviceAccount:
+    # -- Whether a ServiceAccount is created for the mcp-server workload.
+    create: true
+    # -- Annotations for the mcp-server ServiceAccount. Generated if empty and create=true.
+    annotations: {}
+    # -- Name of the mcp-server ServiceAccount. Generated if empty and create=true.
+    name: ""
+
+# -- Chat service (ghcr.io/app-vitals/agent-chat, published by app-vitals/agent) — Thread/Message store + scoped tokens. Port 3000.
+# Disabled by default — purely additive, safe to deploy without this.
 chat:
   # -- Whether to render the chat Deployment and Service.
   enabled: false
@@ -170,7 +1223,11 @@ chat:
     # voluntary disruption. Only used when enabled=true.
     minAvailable: 1
 
-
+# -- Cloud SQL Auth Proxy sidecar for the admin pod (GCP Cloud SQL).
+# When enabled, a cloud-sql-proxy sidecar is added to the admin Deployment so
+# a GCP Cloud SQL instance is reachable at 127.0.0.1:5432 from the admin pod.
+# This lets a Cloud SQL DSN (e.g. postgresql://user:pass@127.0.0.1:5432/db) be
+# used directly in externalDatabase.existingSecret.
 cloudSqlProxy:
   # -- When true, add the cloud-sql-proxy sidecar to the admin Deployment.
   # Default false — purely additive, safe to deploy without this.
@@ -196,3 +1253,64 @@ cloudSqlProxy:
   # than 1.29; opt in once running on 1.29+.
   nativeSidecar: false
 
+# -- Optional AWS VPC CNI `SecurityGroupPolicy` (EKS only). Default OFF — with
+# `enabled: false` this chart renders nothing at all for this feature, so an
+# existing install is byte-identical before and after this block was added.
+#
+# WHAT IT DOES: on EKS with "security groups for pods" enabled, the VPC CNI
+# gives every pod matching `podSelector.matchLabels` a branch ENI carrying the
+# listed security groups, instead of only the node's. This is how a pod reaches
+# a resource whose own security group admits a specific *client* security group
+# rather than a CIDR — the common case being a managed database (or a database
+# proxy) in a peered VPC. Without it the pod's traffic leaves on the node SG,
+# the target rejects it on source-SG mismatch, and the connection hangs until
+# the client times out.
+#
+# REQUIREMENTS: the `vpcresources.k8s.aws/v1beta1` CRD must be installed —
+# it ships with the AWS VPC CNI on EKS. On any other Kubernetes distribution
+# leave this disabled; the resource would be rejected as an unknown kind.
+#
+# ATTACH THE NODE SG TOO: a branch ENI carries *only* the groups listed here,
+# so list the cluster's node security group alongside the group that opens the
+# path you want. Omitting it strips the pod of cluster-internal networking and
+# DNS.
+awsSecurityGroupPolicy:
+  # -- Whether to render the SecurityGroupPolicy. Opt-in; default false.
+  enabled: false
+  # -- Name for the rendered SecurityGroupPolicy. Empty → the chart fullname.
+  nameOverride: ""
+  # -- Extra labels merged into the resource's metadata, on top of the chart's
+  # common labels. Empty → common labels only.
+  extraLabels: {}
+  podSelector:
+    # -- Labels a pod must carry to receive these security groups. Empty
+    # (default) → the chart's own selector labels
+    # (`app.kubernetes.io/name` + `app.kubernetes.io/instance`), which match
+    # every pod this chart renders but NOT bundled subchart pods such as the
+    # bundled PostgreSQL — those carry the release's `instance` label under
+    # their own `name`. To cover subchart pods as well, select on the instance
+    # label alone, e.g.
+    #   matchLabels:
+    #     app.kubernetes.io/instance: my-release
+    # To scope the policy to a single service, add its component label, e.g.
+    #   matchLabels:
+    #     app.kubernetes.io/name: shipwright
+    #     app.kubernetes.io/instance: my-release
+    #     app.kubernetes.io/component: admin
+    matchLabels: {}
+  # -- Security group IDs to attach to matching pods. Required when enabled —
+  # the chart ships no defaults, because a security group ID is specific to one
+  # VPC in one account. Supply your own, e.g.
+  #   groupIds:
+  #     - sg-xxxxxxxxxxxxxxxxx   # cluster node security group
+  #     - sg-yyyyyyyyyyyyyyyyy   # client SG the database's SG admits
+  groupIds: []
+
+# ---- Inputs for the imageRef / podLabels helper tests (not part of the shipwright values) ----
+image:
+  repository: ghcr.io/app-vitals/shipwright-admin
+  tag: v1
+  digest: ""
+podLabelsSelector: |
+  app.kubernetes.io/name: shipwright
+  app.kubernetes.io/instance: shipwright
