@@ -3562,6 +3562,20 @@ describe("renderChatMessageBubble — voice reply play control (COS-63.1)", () =
     expect(html).toMatch(/\.chat-voice-play\s*\{[^}]*width:56px/);
     expect(html).toContain("chat-voice-play");
   });
+
+  test("chat stylesheet has no orphaned comment text before .chat-voice", () => {
+    const html = renderChatThreadPage(
+      "agent-1",
+      { id: "thread-63", title: "t" } as never,
+      [MSG],
+      "alice",
+    );
+    // A stray comment tail would swallow the next rule's selector.
+    expect(html).not.toContain("will speak on their own");
+    expect(html).toMatch(
+      /\}\s*\/\*[^*]*\*\/\s*\.chat-voice\s*\{[^}]*display:flex/,
+    );
+  });
 });
 
 describe("renderChatThreadPage — CFB-3.2 mobile drawer", () => {

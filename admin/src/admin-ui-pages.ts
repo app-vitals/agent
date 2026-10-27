@@ -2561,8 +2561,6 @@ const chatThreadStyles = `
     .chat-composer-btn--attach { padding:0 16px }
     .chat-composer-btn--mic { padding:0 16px }
     .chat-composer-btn--mic.chat-mic-recording { background:#fee2e2;color:#b91c1c;border-color:#b91c1c }
-       the on-state reads green so the phone shows at a glance that replies
-       will speak on their own. */
     /* Voice reply control (COS-63.1): 56px round tap target + progress. */
     .chat-voice { display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap }
     .chat-voice-play { width:56px;height:56px;min-width:56px;border-radius:50%;border:0;background:#2563eb;color:#fff;font-size:22px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0 }
