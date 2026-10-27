@@ -14,7 +14,9 @@ dependencies:
 
 `version` in `Chart.yaml` is tied to the platform release. Bump it to the
 release's `X.Y.Z` when a release changes the shared templates; merging the bump
-to `main` publishes it via `.github/workflows/chart-release.yml`.
+to `main` publishes it via `.github/workflows/chart-release.yml`, which then sends a
+`chart-release` dispatch (carrying the chart version) to `app-vitals/shipwright`
+so it can bump its library dependency.
 
 ## Helpers
 
