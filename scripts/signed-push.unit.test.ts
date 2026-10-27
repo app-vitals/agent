@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  buildCommitInput,
+  ApiError,
   classifyDiff,
+  createApiClient,
   DEFAULT_MAX_BYTES,
   parseArgs,
   parseRepoSlug,
@@ -9,7 +10,6 @@ import {
   readMaxBytes,
   refusalMessage,
   resolveBranch,
-  splitMessage,
 } from "./signed-push.ts";
 
 const SHA_A = "a".repeat(40);
@@ -35,8 +35,8 @@ describe("classifyDiff", () => {
     );
     expect(out.problems).toEqual([]);
     expect(out.additions).toEqual([
-      { path: "new.txt", sha: SHA_B },
-      { path: "dir/mod.txt", sha: SHA_B },
+      { path: "new.txt", sha: SHA_B, mode: "100644" },
+      { path: "dir/mod.txt", sha: SHA_B, mode: "100644" },
     ]);
     expect(out.deletions).toEqual([]);
   });
@@ -56,7 +56,9 @@ describe("classifyDiff", () => {
       ),
     );
     expect(out.deletions).toEqual(["old.txt"]);
-    expect(out.additions).toEqual([{ path: "new.txt", sha: SHA_B }]);
+    expect(out.additions).toEqual([
+      { path: "new.txt", sha: SHA_B, mode: "100644" },
+    ]);
   });
 
   test("new executable files are a problem", () => {
@@ -75,7 +77,9 @@ describe("classifyDiff", () => {
   test("modifying an already-executable file is fine", () => {
     const out = classifyDiff(raw(["100755", "100755", "M", "x.sh", SHA_B]));
     expect(out.problems).toEqual([]);
-    expect(out.additions).toHaveLength(1);
+    expect(out.additions).toEqual([
+      { path: "x.sh", sha: SHA_B, mode: "100755" },
+    ]);
   });
 
   test("symlinks and submodules are problems", () => {
@@ -182,53 +186,39 @@ describe("refusalMessage", () => {
   });
 });
 
-describe("splitMessage", () => {
-  test("headline and body keep trailers", () => {
+describe("createApiClient", () => {
+  test("sends bearer auth and JSON, parses the response", async () => {
+    let seen: { url: string; init: RequestInit } | undefined;
+    const call = createApiClient({
+      token: "tok",
+      fetch: (async (url: string, init: RequestInit) => {
+        seen = { url, init };
+        return new Response(JSON.stringify({ ok: 1 }));
+      }) as unknown as typeof fetch,
+    });
     expect(
-      splitMessage("feat: x\n\nbody line\n\nCo-Authored-By: A <a@b.c>\n"),
+      await call<unknown>("POST", "/repos/a/b/git/trees", { x: 1 }),
     ).toEqual({
-      headline: "feat: x",
-      body: "body line\n\nCo-Authored-By: A <a@b.c>",
+      ok: 1,
     });
+    expect(seen?.url).toBe("https://api.github.com/repos/a/b/git/trees");
+    expect(new Headers(seen?.init.headers).get("authorization")).toBe(
+      "Bearer tok",
+    );
+    expect(seen?.init.body).toBe('{"x":1}');
   });
-  test("headline only", () => {
-    expect(splitMessage("fix: y\n")).toEqual({ headline: "fix: y", body: "" });
-  });
-});
-
-describe("buildCommitInput", () => {
-  test("base64 additions, deletions, message and expectedHeadOid", () => {
-    const input = buildCommitInput({
-      repo: "acme/widgets",
-      branch: "feat/x",
-      expectedHeadOid: SHA_A,
-      message: "feat: x\n\nCo-Authored-By: A <a@b.c>\n",
-      additions: [{ path: "a.txt", contents: Buffer.from("hi\n") }],
-      deletions: ["b.txt"],
+  test("non-2xx throws ApiError carrying the status and message", async () => {
+    const call = createApiClient({
+      token: "t",
+      fetch: (async () =>
+        new Response(JSON.stringify({ message: "nope" }), {
+          status: 422,
+        })) as unknown as typeof fetch,
     });
-    expect(input).toEqual({
-      branch: { repositoryNameWithOwner: "acme/widgets", branchName: "feat/x" },
-      message: {
-        headline: "feat: x",
-        body: "Co-Authored-By: A <a@b.c>",
-      },
-      fileChanges: {
-        additions: [{ path: "a.txt", contents: "aGkK" }],
-        deletions: [{ path: "b.txt" }],
-      },
-      expectedHeadOid: SHA_A,
-    });
-  });
-  test("omits an empty body", () => {
-    const input = buildCommitInput({
-      repo: "a/b",
-      branch: "x",
-      expectedHeadOid: SHA_A,
-      message: "fix: y\n",
-      additions: [],
-      deletions: [],
-    });
-    expect(input.message).toEqual({ headline: "fix: y" });
+    const err = (await call("PATCH", "/x").catch((e) => e)) as ApiError;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(422);
+    expect(err.message).toContain("nope");
   });
 });
 

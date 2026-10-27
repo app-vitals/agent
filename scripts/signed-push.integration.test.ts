@@ -8,14 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Refusal, signedPush } from "./signed-push.ts";
-
-const FIXTURE_ERROR = JSON.parse(
-  readFileSync(
-    join(import.meta.dir, "fixtures", "signed-push-graphql-error.json"),
-    "utf8",
-  ),
-);
+import { PushRejected, Refusal, signedPush } from "./signed-push.ts";
 
 function git(cwd: string, args: string[], env: Record<string, string> = {}) {
   const p = Bun.spawnSync(["git", ...args], {
@@ -38,121 +31,152 @@ function git(cwd: string, args: string[], env: Record<string, string> = {}) {
 }
 
 interface FakeOptions {
-  failCommitNumber?: number;
+  /** Commits come back with verification.verified = false. */
+  unsigned?: boolean;
+  /** Leave this path out of every created tree. */
   dropFileFromTree?: string;
+  /** Runs right before the ref is moved (simulates a concurrent push). */
+  beforeRefMove?: () => void;
+}
+
+interface Recorded {
+  method: string;
+  path: string;
+  // biome-ignore lint/suspicious/noExplicitAny: loosely typed JSON request body
+  body: Record<string, any>;
+  auth: string | null;
 }
 
 /**
- * Stands in for api.github.com/graphql: answers the helper's four operations
- * by applying them to a bare repo, and records every request.
+ * Stands in for the REST Git Data API on api.github.com: applies blob, tree,
+ * commit and ref requests to a bare repo and records every request.
  */
 function fakeGitHub(bare: string, opts: FakeOptions = {}) {
-  const requests: {
-    query: string;
-    variables: { input: { name: string; oid: string } };
-    auth: string | null;
-  }[] = [];
-  let commits = 0;
-  const fetchFn = (async (_url: string, init: RequestInit) => {
-    const body = JSON.parse(String(init.body));
-    const headers = new Headers(init.headers);
+  const requests: Recorded[] = [];
+  const respond = (status: number, data: unknown) =>
+    new Response(JSON.stringify(data), { status });
+  const hash = (data: Buffer) =>
+    Bun.spawnSync(["git", "hash-object", "-w", "--stdin"], {
+      cwd: bare,
+      stdin: data,
+    })
+      .stdout.toString()
+      .trim();
+  let n = 0;
+
+  const fetchFn = (async (url: string, init: RequestInit) => {
+    const method = init.method ?? "GET";
+    const path = new URL(url).pathname;
+    // biome-ignore lint/suspicious/noExplicitAny: loosely typed JSON request body
+    const body: Record<string, any> = init.body
+      ? JSON.parse(String(init.body))
+      : {};
     requests.push({
-      query: body.query,
-      variables: body.variables,
-      auth: headers.get("authorization"),
+      method,
+      path,
+      body,
+      auth: new Headers(init.headers).get("authorization"),
     });
-    const json = (data: unknown) => new Response(JSON.stringify(data));
-    const q: string = body.query;
-    if (q.includes("RepoState")) {
-      const branch = String(body.variables.ref).replace("refs/heads/", "");
-      let ref: string | null = null;
+    const p = path.replace("/repos/acme/widgets", "");
+
+    if (method === "GET" && p === "") {
+      return respond(200, { default_branch: "main" });
+    }
+    if (method === "GET" && p.startsWith("/git/ref/heads/")) {
       try {
-        ref = git(bare, ["rev-parse", "--verify", `refs/heads/${branch}`]);
-      } catch {}
-      const def = git(bare, ["rev-parse", "refs/heads/main"]);
-      return json({
-        data: {
-          repository: {
-            id: "R_1",
-            defaultBranchRef: { name: "main", target: { oid: def } },
-            ref: ref ? { target: { oid: ref } } : null,
-          },
-        },
+        const sha = git(bare, [
+          "rev-parse",
+          "--verify",
+          `refs/heads/${p.slice("/git/ref/heads/".length)}`,
+        ]);
+        return respond(200, { object: { sha } });
+      } catch {
+        return respond(404, { message: "Not Found" });
+      }
+    }
+    if (method === "POST" && p === "/git/blobs") {
+      return respond(201, {
+        sha: hash(Buffer.from(body.content, body.encoding)),
       });
     }
-    if (q.includes("CreateRef")) {
-      const { name, oid } = body.variables.input;
-      git(bare, ["update-ref", name, oid]);
-      return json({ data: { createRef: { ref: { name } } } });
-    }
-    if (q.includes("CreateCommit")) {
-      commits++;
-      if (opts.failCommitNumber === commits) return json(FIXTURE_ERROR);
-      const input = body.variables.input;
-      const ref = `refs/heads/${input.branch.branchName}`;
-      const head = git(bare, ["rev-parse", ref]);
-      if (head !== input.expectedHeadOid) return json(FIXTURE_ERROR);
-      const idx = join(bare, `fake-index-${commits}`);
+    if (method === "POST" && p === "/git/trees") {
+      const idx = join(bare, `fake-index-${++n}`);
       const env = { GIT_INDEX_FILE: idx };
-      git(bare, ["read-tree", head], env);
-      for (const d of input.fileChanges.deletions ?? []) {
-        Bun.spawnSync(["git", "update-index", "--index-info"], {
-          cwd: bare,
-          env: { ...process.env, ...env },
-          stdin: Buffer.from(`0 ${"0".repeat(40)}\t${d.path}\n`),
-        });
-      }
-      for (const a of input.fileChanges.additions ?? []) {
-        if (a.path === opts.dropFileFromTree) continue;
-        const blob = Bun.spawnSync(["git", "hash-object", "-w", "--stdin"], {
-          cwd: bare,
-          stdin: Buffer.from(a.contents, "base64"),
-        })
-          .stdout.toString()
-          .trim();
+      git(bare, ["read-tree", body.base_tree], env);
+      for (const e of body.tree) {
+        if (e.path === opts.dropFileFromTree) continue;
+        if (e.sha === null) {
+          Bun.spawnSync(["git", "update-index", "--index-info"], {
+            cwd: bare,
+            env: { ...process.env, ...env },
+            stdin: Buffer.from(`0 ${"0".repeat(40)}\t${e.path}\n`),
+          });
+          continue;
+        }
+        const sha = e.sha ?? hash(Buffer.from(e.content));
         git(
           bare,
-          ["update-index", "--add", "--cacheinfo", `100644,${blob},${a.path}`],
+          [
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            `${e.mode},${sha},${e.path}`,
+          ],
           env,
         );
       }
-      const tree = git(bare, ["write-tree"], env);
+      const sha = git(bare, ["write-tree"], env);
       rmSync(idx);
-      const msg = input.message.body
-        ? `${input.message.headline}\n\n${input.message.body}\n`
-        : `${input.message.headline}\n`;
-      const c = Bun.spawnSync(
-        ["git", "commit-tree", tree, "-p", head, "-F", "-"],
-        {
-          cwd: bare,
-          stdin: Buffer.from(msg),
-          env: {
-            ...process.env,
-            GIT_AUTHOR_NAME: "app[bot]",
-            GIT_AUTHOR_EMAIL: "app@users.noreply.github.com",
-            GIT_COMMITTER_NAME: "GitHub",
-            GIT_COMMITTER_EMAIL: "noreply@github.com",
-          },
+      return respond(201, { sha });
+    }
+    if (method === "POST" && p === "/git/commits") {
+      const args = ["commit-tree", body.tree];
+      for (const parent of body.parents) args.push("-p", parent);
+      const c = Bun.spawnSync(["git", ...args, "-F", "-"], {
+        cwd: bare,
+        stdin: Buffer.from(body.message),
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "app[bot]",
+          GIT_AUTHOR_EMAIL: "app@users.noreply.github.com",
+          GIT_COMMITTER_NAME: "GitHub",
+          GIT_COMMITTER_EMAIL: "noreply@github.com",
         },
-      )
+      })
         .stdout.toString()
         .trim();
-      git(bare, ["update-ref", ref, c]);
-      return json({ data: { createCommitOnBranch: { commit: { oid: c } } } });
-    }
-    if (q.includes("CommitTree")) {
-      const oid = body.variables.oid;
-      return json({
-        data: {
-          repository: {
-            object: {
-              tree: { oid: git(bare, ["rev-parse", `${oid}^{tree}`]) },
-            },
-          },
-        },
+      return respond(201, {
+        sha: c,
+        tree: { sha: body.tree },
+        verification: opts.unsigned
+          ? { verified: false, reason: "unsigned" }
+          : { verified: true, reason: "valid" },
       });
     }
-    return new Response("unexpected query", { status: 500 });
+    if (method === "POST" && p === "/git/refs") {
+      opts.beforeRefMove?.();
+      try {
+        git(bare, ["rev-parse", "--verify", body.ref]);
+        return respond(422, { message: "Reference already exists" });
+      } catch {}
+      git(bare, ["update-ref", body.ref, body.sha]);
+      return respond(201, { ref: body.ref });
+    }
+    if (method === "PATCH" && p.startsWith("/git/refs/heads/")) {
+      opts.beforeRefMove?.();
+      const ref = `refs/heads/${p.slice("/git/refs/heads/".length)}`;
+      const cur = git(bare, ["rev-parse", ref]);
+      const ff = Bun.spawnSync(
+        ["git", "merge-base", "--is-ancestor", cur, body.sha],
+        { cwd: bare },
+      ).exitCode;
+      if (body.force !== true && ff !== 0) {
+        return respond(422, { message: "Update is not a fast forward" });
+      }
+      git(bare, ["update-ref", ref, body.sha]);
+      return respond(200, { ref });
+    }
+    return respond(500, { message: `unexpected ${method} ${path}` });
   }) as unknown as typeof fetch;
   return { fetch: fetchFn, requests };
 }
@@ -238,15 +262,28 @@ describe("signedPush", () => {
     expect(result.message).toContain("SHAs");
     // per-owner token, lowercased owner, trailing newline trimmed
     expect(gh.requests.every((r) => r.auth === "Bearer acme-token")).toBe(true);
-    // new branch -> ref created at the merge-base
-    const createRef = gh.requests.find((r) => r.query.includes("CreateRef"));
-    expect(createRef?.variables.input.name).toBe("refs/heads/feat/x");
-    expect(createRef?.variables.input.oid).toBe(
-      git(work, ["rev-parse", "origin/main"]),
-    );
+    // REST only, ref created once, after every commit, at the final signed commit
+    expect(
+      gh.requests.every((r) => r.path.startsWith("/repos/acme/widgets")),
+    ).toBe(true);
+    const refCalls = gh.requests.filter((r) => r.path.includes("/git/refs"));
+    expect(refCalls).toHaveLength(1);
+    expect(gh.requests.at(-1)).toBe(refCalls[0]);
+    expect(refCalls[0]?.method).toBe("POST");
+    expect(refCalls[0]?.body).toEqual({
+      ref: "refs/heads/feat/x",
+      sha: remoteHead,
+    });
+    // no author/committer so GitHub signs
+    for (const c of gh.requests.filter((r) =>
+      r.path.endsWith("/git/commits"),
+    )) {
+      expect(c.body).not.toHaveProperty("author");
+      expect(c.body).not.toHaveProperty("committer");
+    }
   });
 
-  test("pushing to an existing branch does not create a ref", async () => {
+  test("pushing to an existing branch PATCHes the ref without force", async () => {
     git(bare, ["update-ref", "refs/heads/feat/x", "refs/heads/main"]);
     git(work, ["fetch", "origin"]);
     git(work, ["reset", "--hard", "origin/feat/x"]);
@@ -261,14 +298,22 @@ describe("signedPush", () => {
       fetch: gh.fetch,
       repo: "acme/widgets",
     });
-    expect(gh.requests.some((r) => r.query.includes("CreateRef"))).toBe(false);
+    expect(
+      gh.requests.some(
+        (r) => r.method === "POST" && r.path.endsWith("/git/refs"),
+      ),
+    ).toBe(false);
+    const patch = gh.requests.filter((r) => r.method === "PATCH");
+    expect(patch).toHaveLength(1);
+    expect(patch[0]?.path).toBe("/repos/acme/widgets/git/refs/heads/feat/x");
+    expect(patch[0]?.body.force).toBe(false);
     expect(git(bare, ["rev-list", "--count", "main..feat/x"])).toBe("1");
   });
 
-  test("mid-replay failure reports landed commits and leaves the worktree", async () => {
+  test("an unverified commit aborts before the ref moves, with hint and bypass", async () => {
     commitTwo();
     const oldHead = git(work, ["rev-parse", "HEAD"]);
-    const gh = fakeGitHub(bare, { failCommitNumber: 2 });
+    const gh = fakeGitHub(bare, { unsigned: true });
     let err: unknown;
     try {
       await signedPush({
@@ -281,16 +326,18 @@ describe("signedPush", () => {
     } catch (e) {
       err = e;
     }
-    expect(err).toBeInstanceOf(Error);
     const msg = (err as Error).message;
-    expect(msg).toContain("1 of 2 commits");
-    expect(msg).toContain("git fetch");
-    expect(msg).toContain("rebase");
+    expect(msg).toContain("did not sign");
+    expect(msg).toContain("unsigned");
+    expect(msg.trimEnd()).toEndWith(
+      "SHIPWRIGHT_SIGNED_COMMITS=off git push origin feat/x",
+    );
+    expect(gh.requests.some((r) => r.path.includes("/git/refs"))).toBe(false);
+    expect(git(bare, ["branch", "--list", "feat/x"])).toBe("");
     expect(git(work, ["rev-parse", "HEAD"])).toBe(oldHead);
-    expect(git(bare, ["rev-list", "--count", "main..feat/x"])).toBe("1");
   });
 
-  test("tree mismatch aborts before touching the worktree", async () => {
+  test("tree mismatch aborts before the ref moves or the worktree changes", async () => {
     commitTwo();
     const oldHead = git(work, ["rev-parse", "HEAD"]);
     const gh = fakeGitHub(bare, { dropFileFromTree: "a.txt" });
@@ -303,6 +350,52 @@ describe("signedPush", () => {
         repo: "acme/widgets",
       }),
     ).rejects.toThrow(/tree/i);
+    expect(gh.requests.some((r) => r.path.includes("/git/refs"))).toBe(false);
+    expect(git(bare, ["branch", "--list", "feat/x"])).toBe("");
+    expect(git(work, ["rev-parse", "HEAD"])).toBe(oldHead);
+  });
+
+  test("a non-ff race on the ref update prints git-style rejection", async () => {
+    git(bare, ["update-ref", "refs/heads/feat/x", "refs/heads/main"]);
+    git(work, ["fetch", "origin"]);
+    git(work, ["reset", "--hard", "origin/feat/x"]);
+    writeFileSync(join(work, "n.txt"), "n\n");
+    git(work, ["add", "."]);
+    git(work, ["commit", "-m", "feat: n"]);
+    const oldHead = git(work, ["rev-parse", "HEAD"]);
+    const gh = fakeGitHub(bare, {
+      beforeRefMove: () => {
+        const tree = git(bare, ["rev-parse", "main^{tree}"]);
+        const other = git(
+          bare,
+          ["commit-tree", tree, "-p", "main", "-m", "raced"],
+          {
+            GIT_AUTHOR_NAME: "o",
+            GIT_AUTHOR_EMAIL: "o@example.com",
+            GIT_COMMITTER_NAME: "o",
+            GIT_COMMITTER_EMAIL: "o@example.com",
+          },
+        );
+        git(bare, ["update-ref", "refs/heads/feat/x", other]);
+      },
+    });
+    let err: unknown;
+    try {
+      await signedPush({
+        argv: ["origin", "feat/x"],
+        env: env(),
+        cwd: work,
+        fetch: gh.fetch,
+        repo: "acme/widgets",
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(PushRejected);
+    const lines = (err as Error).message.split("\n");
+    expect(lines[0]).toContain("! [rejected]");
+    expect(lines[0]).toContain("feat/x -> feat/x (fetch first)");
+    expect(lines[1]).toBe(`error: failed to push some refs to '${bare}'`);
     expect(git(work, ["rev-parse", "HEAD"])).toBe(oldHead);
   });
 
@@ -382,7 +475,30 @@ describe("signedPush", () => {
         fetch: gh.fetch,
         repo: "acme/widgets",
       }),
-    ).rejects.toThrow(/non-fast-forward/);
+    ).rejects.toThrow(/\(fetch first\)/);
+  });
+
+  test("a non-race 422 on the ref update is rethrown, not reported as fetch first", async () => {
+    commitTwo();
+    const gh = fakeGitHub(bare);
+    const wrapped = (async (url: string, init?: RequestInit) => {
+      if (init?.method !== "GET" && /\/git\/refs(\/|$)/.test(String(url))) {
+        return new Response(
+          JSON.stringify({ message: "Protected branch update failed" }),
+          { status: 422 },
+        );
+      }
+      return gh.fetch(url, init);
+    }) as unknown as typeof fetch;
+    const err = await signedPush({
+      argv: ["origin", "feat/x"],
+      env: env(),
+      cwd: work,
+      fetch: wrapped,
+      repo: "acme/widgets",
+    }).catch((e) => e as Error);
+    expect(err.message).toContain("Protected branch update failed");
+    expect(err.message).not.toContain("fetch first");
   });
 
   test("missing owner token gives a clear error", async () => {

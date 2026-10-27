@@ -3,29 +3,39 @@
  * scripts/signed-push.ts
  *
  * `git push` replacement for GitHub App agents. Commits pushed with plain git
- * are unsigned; commits created through the GraphQL `createCommitOnBranch`
- * mutation are signed by GitHub. This helper replays the local commits in
- * `<remoteHead>..HEAD` through that mutation using the per-owner installation
- * token, then verifies the remote tree equals the local `HEAD^{tree}` and only
- * then syncs the worktree (`git fetch` + `git reset --mixed <newhead>`, never
- * `--hard`: the trees are identical so uncommitted work survives).
+ * are unsigned; commits created through the REST Git Data API with no
+ * author/committer are signed by GitHub. This helper replays the local commits
+ * in `<remoteHead>..HEAD` (topological order) through that API using the
+ * per-owner installation token: per commit `POST /git/trees` (base tree = the
+ * first parent's tree, entries from `git diff-tree`) then `POST /git/commits`
+ * with the mapped parents and the original message, checking
+ * `verification.verified` on every response. Nothing is visible on the remote
+ * until the branch ref moves, so a failure mid-replay leaves only unreferenced
+ * objects. The ref moves once, at the end, and only after the final commit's
+ * tree equals the local `HEAD^{tree}`: `POST /git/refs` for a new branch,
+ * `PATCH /git/refs/heads/<branch>` with `force: false` for an existing one.
+ * Then the worktree is synced (`git fetch` + `git reset --mixed <newhead>`,
+ * never `--hard`: the trees are identical so uncommitted work survives).
+ *
+ * Reads (default branch, remote head) use REST too, so there is one client.
  *
  * Token: `SHIPWRIGHT_GH_OWNER` selects `gh-token.d/<owner>`, a directory next
  * to the file at `$GH_TOKEN_FILE` (same convention as
  * scripts/bin/git-credential-shipwright.sh; owner validation shared with
  * runtime/gh-token-files.ts).
  *
- * The API cannot express some things, and a push the helper cannot reproduce
- * exactly must not silently differ, so it refuses (exit 1, message ending in
- * the `SHIPWRIGHT_SIGNED_COMMITS=off git push ...` bypass): new executable
- * files, mode changes, symlinks, submodules, force/tag/delete pushes,
- * non-fast-forward pushes, merge commits and oversized commits.
+ * A push the helper cannot reproduce exactly must not silently differ, so it
+ * refuses (exit 1, message ending in the `SHIPWRIGHT_SIGNED_COMMITS=off git
+ * push ...` bypass): new executable files, mode changes, symlinks, submodules,
+ * merge and root commits, force/tag/delete pushes and oversized commits.
+ * Other failures read like git's own: a non-fast-forward push prints
+ * `! [rejected] <branch> -> <branch> (fetch first)` and `error: failed to push
+ * some refs to <url>`. A short hint is added only where the cause is the agent
+ * environment (a commit GitHub did not sign, a missing owner or token).
  *
  * Size cap: default 10 MB of base64 payload per commit, override with
  * `SHIPWRIGHT_SIGNED_COMMITS_MAX_BYTES`. NOT VERIFIED: GitHub does not
- * document a limit for createCommitOnBranch; this was written without network
- * access. The cap is a conservative guard on the GraphQL request body (the
- * API has been reported to reject very large request bodies), not a known
+ * document a limit for this flow; the cap is a conservative guard, not a known
  * GitHub constant. Tune it if a real limit is observed.
  *
  * Usage: bun scripts/signed-push.ts [git push args...]
@@ -37,7 +47,7 @@ import { validateOwner } from "../runtime/gh-token-files.ts";
 
 export const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 
-const GRAPHQL_URL = "https://api.github.com/graphql";
+const API_URL = "https://api.github.com";
 
 /** A push the helper deliberately will not perform; message teaches the bypass. */
 export class Refusal extends Error {
@@ -157,6 +167,7 @@ export function resolveBranch(
 export interface Addition {
   path: string;
   sha: string;
+  mode: string;
 }
 export interface Classified {
   additions: Addition[];
@@ -195,49 +206,10 @@ export function classifyDiff(raw: string): Classified {
     } else if (oldMode !== "000000" && oldMode !== newMode) {
       out.problems.push(`mode change (${oldMode} -> ${newMode}) on ${path}`);
     } else {
-      out.additions.push({ path, sha: newSha });
+      out.additions.push({ path, sha: newSha, mode: newMode });
     }
   }
   return out;
-}
-
-export function splitMessage(message: string): {
-  headline: string;
-  body: string;
-} {
-  const trimmed = message.replace(/\s+$/, "");
-  const nl = trimmed.indexOf("\n");
-  if (nl === -1) return { headline: trimmed, body: "" };
-  return {
-    headline: trimmed.slice(0, nl),
-    body: trimmed.slice(nl + 1).replace(/^\s*\n/, ""),
-  };
-}
-
-export interface CommitInputParams {
-  repo: string;
-  branch: string;
-  expectedHeadOid: string;
-  message: string;
-  additions: { path: string; contents: Buffer }[];
-  deletions: string[];
-}
-
-/** Build the `CreateCommitOnBranchInput` object. */
-export function buildCommitInput(p: CommitInputParams) {
-  const { headline, body } = splitMessage(p.message);
-  return {
-    branch: { repositoryNameWithOwner: p.repo, branchName: p.branch },
-    message: body ? { headline, body } : { headline },
-    fileChanges: {
-      additions: p.additions.map((a) => ({
-        path: a.path,
-        contents: a.contents.toString("base64"),
-      })),
-      deletions: p.deletions.map((path) => ({ path })),
-    },
-    expectedHeadOid: p.expectedHeadOid,
-  };
 }
 
 export function readMaxBytes(env: Record<string, string | undefined>): number {
@@ -250,67 +222,88 @@ export function parseRepoSlug(url: string): string | undefined {
   const m = url.match(/github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/);
   return m?.[1];
 }
-
 // ---------------------------------------------------------------------------
-// GraphQL client
+// ---------------------------------------------------------------------------
+// REST client
 // ---------------------------------------------------------------------------
 
-export type GraphqlClient = <T>(
-  query: string,
-  variables: Record<string, unknown>,
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** git-style rejection; message is the exact text printed to stderr. */
+export class PushRejected extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PushRejected";
+  }
+}
+
+export type ApiClient = <T>(
+  method: string,
+  path: string,
+  body?: unknown,
 ) => Promise<T>;
 
-export function createGraphqlClient(opts: {
+export function createApiClient(opts: {
   fetch: typeof fetch;
   token: string;
   url?: string;
-}): GraphqlClient {
-  return async <T>(query: string, variables: Record<string, unknown>) => {
-    const res = await opts.fetch(opts.url ?? GRAPHQL_URL, {
-      method: "POST",
+}): ApiClient {
+  return async <T>(method: string, path: string, body?: unknown) => {
+    const res = await opts.fetch(`${opts.url ?? API_URL}${path}`, {
+      method,
       headers: {
         authorization: `Bearer ${opts.token}`,
+        accept: "application/vnd.github+json",
+        "x-github-api-version": "2022-11-28",
         "content-type": "application/json",
         "user-agent": "shipwright-signed-push",
       },
-      body: JSON.stringify({ query, variables }),
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await res.text();
-    let json: { data?: T; errors?: { message: string }[] };
+    let json: unknown;
     try {
-      json = JSON.parse(text);
+      json = text ? JSON.parse(text) : undefined;
     } catch {
-      throw new Error(
-        `GitHub GraphQL HTTP ${res.status}: ${text.slice(0, 200)}`,
+      json = undefined;
+    }
+    if (!res.ok) {
+      const detail =
+        (json as { message?: string } | undefined)?.message ??
+        text.slice(0, 200);
+      throw new ApiError(
+        res.status,
+        `GitHub API ${method} ${path} failed: HTTP ${res.status} ${detail}`,
       );
     }
-    if (!res.ok || json.errors?.length) {
-      const msg =
-        json.errors?.map((e) => e.message).join("; ") ?? `HTTP ${res.status}`;
-      throw new Error(`GitHub GraphQL error: ${msg}`);
-    }
-    return json.data as T;
+    return json as T;
   };
 }
 
-const REPO_STATE = `query RepoState($owner: String!, $name: String!, $ref: String!) {
-  repository(owner: $owner, name: $name) {
-    id
-    defaultBranchRef { name target { oid } }
-    ref(qualifiedName: $ref) { target { oid } }
-  }
-}`;
-const CREATE_REF = `mutation CreateRef($input: CreateRefInput!) {
-  createRef(input: $input) { ref { name } }
-}`;
-const CREATE_COMMIT = `mutation CreateCommit($input: CreateCommitOnBranchInput!) {
-  createCommitOnBranch(input: $input) { commit { oid } }
-}`;
-const COMMIT_TREE = `query CommitTree($owner: String!, $name: String!, $oid: GitObjectID!) {
-  repository(owner: $owner, name: $name) {
-    object(oid: $oid) { ... on Commit { tree { oid } } }
-  }
-}`;
+/** Encode a branch name for a URL path, keeping `/` separators. */
+const refPath = (branch: string) =>
+  branch.split("/").map(encodeURIComponent).join("/");
+
+/** UTF-8 text that survives a string round trip can go inline as tree content. */
+function asInlineText(buf: Buffer): string | undefined {
+  if (buf.length === 0 || buf.includes(0)) return undefined;
+  const s = buf.toString("utf8");
+  return Buffer.from(s, "utf8").equals(buf) ? s : undefined;
+}
+
+interface CreatedCommit {
+  sha: string;
+  tree: { sha: string };
+  verification?: { verified: boolean; reason?: string };
+}
 
 // ---------------------------------------------------------------------------
 // Orchestration
@@ -361,12 +354,12 @@ export interface SignedPushOptions {
   repo?: string;
 }
 
-interface RepoState {
-  repository: {
-    id: string;
-    defaultBranchRef: { name: string; target: { oid: string } } | null;
-    ref: { target: { oid: string } } | null;
-  };
+interface Plan {
+  sha: string;
+  parents: string[];
+  message: string;
+  additions: { path: string; mode: string; contents: Buffer }[];
+  deletions: string[];
 }
 
 export async function signedPush(
@@ -385,19 +378,34 @@ export async function signedPush(
   const token = readOwnerToken(env);
   const maxBytes = readMaxBytes(env);
 
-  const repo =
-    opts.repo ?? parseRepoSlug(gitOk(cwd, ["remote", "get-url", remote]));
+  const remoteUrl = gitOk(cwd, ["remote", "get-url", remote]);
+  const repo = opts.repo ?? parseRepoSlug(remoteUrl);
   if (!repo) {
     throw new Error(`signed-push: remote '${remote}' is not a github.com URL`);
   }
-  const [owner, name] = repo.split("/") as [string, string];
-  const gql = createGraphqlClient({ fetch: opts.fetch, token });
+  const api = createApiClient({ fetch: opts.fetch, token });
+  const repoPath = `/repos/${repo}`;
+  const rejected = (): never => {
+    throw new PushRejected(
+      [
+        ` ! [rejected]        ${branch} -> ${branch} (fetch first)`,
+        `error: failed to push some refs to '${remoteUrl}'`,
+      ].join("\n"),
+    );
+  };
 
-  const { repository } = await gql<RepoState>(REPO_STATE, {
-    owner,
-    name,
-    ref: `refs/heads/${branch}`,
-  });
+  const readRef = async (b: string) => {
+    try {
+      const r = await api<{ object: { sha: string } }>(
+        "GET",
+        `${repoPath}/git/ref/heads/${refPath(b)}`,
+      );
+      return r.object.sha;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return undefined;
+      throw err;
+    }
+  };
 
   const hasObject = (oid: string) =>
     runGit(cwd, ["cat-file", "-e", `${oid}^{commit}`]).code === 0;
@@ -406,23 +414,20 @@ export async function signedPush(
     return hasObject(oid);
   };
 
-  const remoteHead = repository.ref?.target.oid;
+  const remoteHead = await readRef(branch);
   const isNew = remoteHead === undefined;
   let base: string;
   if (remoteHead) {
-    const nonFf = () =>
-      refuse(
-        `non-fast-forward: ${remote}/${branch} has commits your branch lacks (fetch and rebase first)`,
-      );
-    if (!ensureObject(remoteHead)) nonFf();
+    if (!ensureObject(remoteHead)) rejected();
     if (
       runGit(cwd, ["merge-base", "--is-ancestor", remoteHead, "HEAD"]).code !==
       0
     )
-      nonFf();
+      rejected();
     base = remoteHead;
   } else {
-    const def = repository.defaultBranchRef?.target.oid;
+    const repoInfo = await api<{ default_branch: string }>("GET", repoPath);
+    const def = await readRef(repoInfo.default_branch);
     if (!def || !ensureObject(def)) {
       return refuse(
         "cannot find the default branch to create the new branch from",
@@ -435,22 +440,26 @@ export async function signedPush(
     base = mb.text;
   }
 
-  const commits = gitOk(cwd, ["rev-list", "--reverse", `${base}..HEAD`])
+  const lines = gitOk(cwd, [
+    "rev-list",
+    "--reverse",
+    "--topo-order",
+    "--parents",
+    `${base}..HEAD`,
+  ])
     .split("\n")
     .filter(Boolean);
-  if (commits.length === 0 && !isNew) {
+  if (lines.length === 0 && !isNew) {
     return { message: "Everything up-to-date" };
   }
 
   // Validate every commit before any API call so a refusal changes nothing.
-  const plans = commits.map((sha) => {
-    const parents = gitOk(cwd, ["rev-list", "--parents", "-n", "1", sha]).split(
-      " ",
-    );
-    if (parents.length > 2) {
+  const plans: Plan[] = lines.map((line) => {
+    const [sha, ...parents] = line.split(" ") as [string, ...string[]];
+    if (parents.length > 1) {
       refuse(`merge commit ${sha.slice(0, 7)} would be flattened`);
     }
-    if (parents.length < 2) refuse(`root commit ${sha.slice(0, 7)}`);
+    if (parents.length < 1) refuse(`root commit ${sha.slice(0, 7)}`);
     const diff = runGit(cwd, [
       "diff-tree",
       "-r",
@@ -473,60 +482,108 @@ export async function signedPush(
           `commit ${sha.slice(0, 7)} exceeds the ${maxBytes} byte payload cap (SHIPWRIGHT_SIGNED_COMMITS_MAX_BYTES)`,
         );
       }
-      return { path: a.path, contents };
+      return { path: a.path, mode: a.mode, contents };
     });
     const message = gitOk(cwd, ["log", "-1", "--format=%B", sha]);
-    return { sha, message, additions, deletions: c.deletions };
+    return { sha, parents, message, additions, deletions: c.deletions };
   });
 
-  if (isNew) {
-    await gql(CREATE_REF, {
-      input: {
-        repositoryId: repository.id,
-        name: `refs/heads/${branch}`,
-        oid: base,
-      },
-    });
-  }
-
+  const bypass = `SHIPWRIGHT_SIGNED_COMMITS=off ${["git", "push", ...args.raw].join(" ")}`;
+  const newSha = new Map<string, string>();
+  const newTree = new Map<string, string>();
   let head = base;
-  let landed = 0;
-  for (const plan of plans) {
-    try {
-      const res = await gql<{
-        createCommitOnBranch: { commit: { oid: string } };
-      }>(CREATE_COMMIT, {
-        input: buildCommitInput({
-          repo,
-          branch,
-          expectedHeadOid: head,
-          message: plan.message,
-          additions: plan.additions,
-          deletions: plan.deletions,
-        }),
-      });
-      head = res.createCommitOnBranch.commit.oid;
-      landed++;
-    } catch (err) {
+  let headTree = gitOk(cwd, ["rev-parse", `${base}^{tree}`]);
+  for (const [i, plan] of plans.entries()) {
+    const parent = plan.parents[0] as string;
+    const baseTree =
+      newTree.get(parent) ?? gitOk(cwd, ["rev-parse", `${parent}^{tree}`]);
+    const entries: Record<string, unknown>[] = [];
+    for (const a of plan.additions) {
+      const text = asInlineText(a.contents);
+      if (text !== undefined) {
+        entries.push({
+          path: a.path,
+          mode: a.mode,
+          type: "blob",
+          content: text,
+        });
+      } else {
+        const blob = await api<{ sha: string }>(
+          "POST",
+          `${repoPath}/git/blobs`,
+          {
+            content: a.contents.toString("base64"),
+            encoding: "base64",
+          },
+        );
+        entries.push({
+          path: a.path,
+          mode: a.mode,
+          type: "blob",
+          sha: blob.sha,
+        });
+      }
+    }
+    for (const path of plan.deletions) {
+      entries.push({ path, mode: "100644", type: "blob", sha: null });
+    }
+    const tree = await api<{ sha: string }>("POST", `${repoPath}/git/trees`, {
+      base_tree: baseTree,
+      tree: entries,
+    });
+    // No author/committer: GitHub signs commits it attributes itself.
+    const commit = await api<CreatedCommit>("POST", `${repoPath}/git/commits`, {
+      message: plan.message,
+      tree: tree.sha,
+      parents: plan.parents.map((p) => newSha.get(p) ?? p),
+    });
+    if (!commit.verification?.verified) {
       throw new Error(
-        `signed-push: failed on commit ${landed + 1} of ${plans.length} (${plan.sha.slice(0, 7)}): ${(err as Error).message}\n` +
-          `${landed} of ${plans.length} commits landed on ${remote}/${branch} (head ${head}). ` +
-          "Your worktree was not changed. Run `git fetch` and rebase your remaining local commits onto the remote branch, then push again.",
+        [
+          `error: GitHub did not sign commit ${i + 1} of ${plans.length} (${plan.sha.slice(0, 7)}, verification: ${commit.verification?.reason ?? "missing"}).`,
+          `hint: signing needs a GitHub App installation token for '${repo}'. The branch was not changed.`,
+          "To push unsigned instead, bypass the helper with:",
+          bypass,
+        ].join("\n"),
       );
     }
+    newSha.set(plan.sha, commit.sha);
+    newTree.set(plan.sha, commit.tree.sha);
+    head = commit.sha;
+    headTree = commit.tree.sha;
   }
 
-  const tree = await gql<{
-    repository: { object: { tree: { oid: string } } | null };
-  }>(COMMIT_TREE, { owner, name, oid: head });
-  const remoteTree = tree.repository.object?.tree.oid;
   const localTree = gitOk(cwd, ["rev-parse", "HEAD^{tree}"]);
-  if (remoteTree !== localTree) {
+  if (headTree !== localTree) {
     throw new Error(
-      `signed-push: tree mismatch after replay: remote ${head} has tree ${remoteTree}, local HEAD has ${localTree}. ` +
-        `${landed} of ${plans.length} commits landed on ${remote}/${branch}. Your worktree was not changed; ` +
-        "inspect the remote branch, then `git fetch` and rebase.",
+      `error: tree mismatch after replay: ${head} has tree ${headTree}, local HEAD has ${localTree}. ` +
+        `${remote}/${branch} was not changed; your worktree was not changed.`,
     );
+  }
+
+  try {
+    if (isNew) {
+      await api("POST", `${repoPath}/git/refs`, {
+        ref: `refs/heads/${branch}`,
+        sha: head,
+      });
+    } else {
+      await api("PATCH", `${repoPath}/git/refs/heads/${refPath(branch)}`, {
+        sha: head,
+        force: false,
+      });
+    }
+  } catch (err) {
+    // Only these two messages are the race; other 422s (protected branch,
+    // bad ref name, unreachable sha) cannot be fixed by fetching and retrying.
+    if (
+      err instanceof ApiError &&
+      err.status === 422 &&
+      /Update is not a fast forward|Reference already exists/i.test(err.message)
+    ) {
+      rejected();
+    }
+    throw err;
   }
 
   gitOk(cwd, ["fetch", remote]);
@@ -540,7 +597,7 @@ export async function signedPush(
   }
   return {
     message:
-      `Pushed ${landed} signed commit(s) to ${remote}/${branch}. ` +
+      `Pushed ${plans.length} signed commit(s) to ${remote}/${branch}. ` +
       `Note: commit SHAs changed (the API re-created them); your local branch now points at ${head}.`,
   };
 }
