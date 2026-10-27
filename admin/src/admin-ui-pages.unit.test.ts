@@ -3115,6 +3115,42 @@ describe("renderChatThreadPage", () => {
       expect(html).toContain("clearDraft()");
     });
   });
+
+  describe("held voice notes (ASX-1.3)", () => {
+    const page = () =>
+      renderChatThreadPage("agent-xyz", THREAD, [USER_MSG], "alice");
+
+    test("includes the IndexedDB held-upload store keyed by agent+thread", () => {
+      const html = page();
+      expect(html).toContain("indexedDB.open(HELD_DB");
+      expect(html).toContain("var heldKey = agentId + ':' + threadId");
+      expect(html).toContain("function holdUpload(");
+      expect(html).toContain("function loadHeld(");
+      expect(html).toContain("function deleteHeld(");
+    });
+
+    test("holds the file on a 401 before showing the signed-out banner", () => {
+      const html = page();
+      expect(html).toContain("if (file) holdUpload(file, showSignedOut);");
+    });
+
+    test("renders a hidden Resend/Discard prompt that never auto-sends", () => {
+      const html = page();
+      expect(html).toContain('id="held-upload-prompt"');
+      expect(html).toContain("You have an unsent voice note.");
+      expect(html).toContain('id="held-upload-resend"');
+      expect(html).toContain('id="held-upload-discard"');
+      expect(html).toContain("sendText('', rec.file)");
+      // Only the resend click handler sends a held file.
+      expect(html.match(/sendText\('', rec\.file\)/g)?.length).toBe(1);
+    });
+
+    test("every IndexedDB access is guarded so failures are silent", () => {
+      const html = page();
+      expect(html).toContain("if (!window.indexedDB)");
+      expect(html).toContain("req.onerror = function() { cb(null); }");
+    });
+  });
 });
 
 // ─── renderChatThreadPage — inline styles moved to classes (CFB-1.3) ────────
