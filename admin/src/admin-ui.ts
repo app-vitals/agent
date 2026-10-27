@@ -466,7 +466,11 @@ export interface AdminUIDeps {
 const SESSION_COOKIE = "admin_session";
 const OAUTH_STATE_COOKIE = "oauth_state";
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const SESSION_TTL_SECONDS = 8 * 60 * 60; // 8 hours
+// Sliding idle timeout: every session (Google, Okta, dev-login) lives 7 days
+// and is re-issued by the auth middleware once its token is older than
+// SESSION_RENEW_AFTER_SECONDS, so an active user never gets signed out.
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+const SESSION_RENEW_AFTER_SECONDS = 60 * 60; // 1 hour (renewal throttle)
 const OAUTH_STATE_TTL_SECONDS = 600; // 10 min
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
@@ -476,8 +480,9 @@ async function createSessionToken(
   userId: string,
   email: string,
   isAdmin: boolean,
+  nowSeconds?: number,
 ): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSeconds ?? Math.floor(Date.now() / 1000);
   return sign(
     {
       userId,
@@ -494,7 +499,12 @@ async function createSessionToken(
 async function getSessionUser(
   token: string,
   secret: string,
-): Promise<{ email: string; isAdmin: boolean } | null> {
+): Promise<{
+  userId: string;
+  email: string;
+  isAdmin: boolean;
+  iat: number | undefined;
+} | null> {
   try {
     const payload = (await verify(token, secret, "HS256")) as Record<
       string,
@@ -506,7 +516,12 @@ async function getSessionUser(
       typeof payload.email === "string" &&
       payload.email.length > 0
     ) {
-      return { email: payload.email, isAdmin: payload.isAdmin === true };
+      return {
+        userId: payload.userId,
+        email: payload.email,
+        isAdmin: payload.isAdmin === true,
+        iat: typeof payload.iat === "number" ? payload.iat : undefined,
+      };
     }
     return null;
   } catch {
@@ -538,9 +553,27 @@ function isNavigationRequest(c: Context): boolean {
   );
 }
 
+export interface UIAuthMiddlewareOptions {
+  /** Current admin allowlist; isAdmin is re-derived from it on renewal. */
+  adminAllowedEmails?: string[];
+  /** Set the Secure flag on the renewed cookie (appBaseUrl is https). */
+  secureCookie?: boolean;
+  /** Keep the dev-login session (userId "dev") admin on renewal. */
+  devAuthEnabled?: boolean;
+  /** Injectable clock (epoch ms) for tests. */
+  now?: () => number;
+}
+
 export function createUIAuthMiddleware(
   sessionSecret: string,
+  options: UIAuthMiddlewareOptions = {},
 ): MiddlewareHandler<AdminUIEnv> {
+  const {
+    adminAllowedEmails,
+    secureCookie = false,
+    devAuthEnabled = false,
+    now = Date.now,
+  } = options;
   return async (c, next) => {
     const sessionToken = getCookie(c, SESSION_COOKIE);
     const user = sessionToken
@@ -562,8 +595,37 @@ export function createUIAuthMiddleware(
         302,
       );
     }
+    let isAdmin = user.isAdmin;
+    const nowSec = Math.floor(now() / 1000);
+    // Sliding renewal: only when the caller supplied the allowlist (so the
+    // admin claim can be re-derived rather than copied from the old token).
+    if (
+      adminAllowedEmails &&
+      user.iat !== undefined &&
+      nowSec - user.iat > SESSION_RENEW_AFTER_SECONDS
+    ) {
+      isAdmin =
+        (devAuthEnabled && user.userId === "dev" && user.isAdmin) ||
+        adminAllowedEmails
+          .map((e) => e.toLowerCase())
+          .includes(user.email.toLowerCase());
+      const renewed = await createSessionToken(
+        sessionSecret,
+        user.userId,
+        user.email,
+        isAdmin,
+        nowSec,
+      );
+      setCookie(c, SESSION_COOKIE, renewed, {
+        httpOnly: true,
+        secure: secureCookie,
+        sameSite: "Lax",
+        maxAge: SESSION_TTL_SECONDS,
+        path: "/",
+      });
+    }
     c.set("userEmail", user.email);
-    c.set("isAdmin", user.isAdmin);
+    c.set("isAdmin", isAdmin);
     return next();
   };
 }
@@ -754,7 +816,11 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
 
   const app = new Hono<AdminUIEnv>();
 
-  const requireAuth = createUIAuthMiddleware(sessionSecret);
+  const requireAuth = createUIAuthMiddleware(sessionSecret, {
+    adminAllowedEmails,
+    secureCookie: appBaseUrl.startsWith("https://"),
+    devAuthEnabled,
+  });
 
   // SSP-3.2: show the toolbar's "Account" entry only for signed-in users who
   // belong to an account, and only while self-serve is on. The flag is carried

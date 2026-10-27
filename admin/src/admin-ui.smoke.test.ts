@@ -118,6 +118,199 @@ describe("admin UI — GET /admin/session.json", () => {
   });
 });
 
+// ─── Sliding session renewal (ASX-2.1) ────────────────────────────────────────
+
+describe("admin UI — sliding 7-day session renewal (ASX-2.1)", () => {
+  const SEVEN_DAYS = 7 * 24 * 60 * 60;
+  const nowSec = () => Math.floor(Date.now() / 1000);
+
+  async function tokenWith(opts: {
+    ageSeconds: number;
+    expiresInSeconds?: number;
+    email?: string;
+    userId?: string;
+    isAdmin?: boolean;
+  }): Promise<string> {
+    const iat = nowSec() - opts.ageSeconds;
+    return sign(
+      {
+        userId: opts.userId ?? "google-sub-123",
+        email: opts.email ?? "admin@example.com",
+        isAdmin: opts.isAdmin ?? true,
+        iat,
+        exp: nowSec() + (opts.expiresInSeconds ?? 3600),
+      },
+      SESSION_SECRET,
+      "HS256",
+    );
+  }
+
+  function sessionCookieFrom(res: Response): string | null {
+    const raw = res.headers.get("Set-Cookie") ?? "";
+    const m = raw.match(/admin_session=([^;]+)/);
+    return m ? (m[1] as string) : null;
+  }
+
+  async function payloadOf(token: string): Promise<Record<string, unknown>> {
+    const { verify } = await import("hono/jwt");
+    return (await verify(token, SESSION_SECRET, "HS256")) as Record<
+      string,
+      unknown
+    >;
+  }
+
+  it("new Google login session has a 7-day exp and cookie Max-Age", async () => {
+    const nonce = "n1";
+    const app = createAdminUIApp(makeMockDeps());
+    const oauthState = encodeURIComponent(JSON.stringify({ nonce }));
+    const res = await app.request(
+      `https://example.com/admin/auth/callback?state=${nonce}&code=c`,
+      { headers: { Cookie: `oauth_state=${oauthState}` } },
+    );
+    expect(res.headers.get("Set-Cookie")).toContain(`Max-Age=${SEVEN_DAYS}`);
+    const token = sessionCookieFrom(res);
+    expect(token).not.toBeNull();
+    const p = await payloadOf(token as string);
+    expect((p.exp as number) - (p.iat as number)).toBe(SEVEN_DAYS);
+  });
+
+  it("renews a valid token older than 1h with a fresh 7-day token and cookie", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const old = await tokenWith({ ageSeconds: 2 * 3600 });
+    const res = await app.request("/admin/session.json", {
+      headers: { Cookie: `admin_session=${old}` },
+    });
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get("Set-Cookie") ?? "";
+    expect(setCookie).toContain(`Max-Age=${SEVEN_DAYS}`);
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("Secure");
+    expect(setCookie).toContain("SameSite=Lax");
+    expect(setCookie).toContain("Path=/");
+    const fresh = sessionCookieFrom(res) as string;
+    const p = await payloadOf(fresh);
+    expect(p.email).toBe("admin@example.com");
+    expect(p.userId).toBe("google-sub-123");
+    expect((p.exp as number) - (p.iat as number)).toBe(SEVEN_DAYS);
+    expect(Math.abs((p.iat as number) - nowSec())).toBeLessThan(5);
+  });
+
+  it("does not renew a token younger than 1h", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const young = await tokenWith({ ageSeconds: 600 });
+    const res = await app.request("/admin/session.json", {
+      headers: { Cookie: `admin_session=${young}` },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  it("never renews an expired token (401 for XHR, 302 for navigation)", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const expired = await tokenWith({
+      ageSeconds: 3 * 3600,
+      expiresInSeconds: -10,
+    });
+    const xhr = await app.request("/admin/session.json", {
+      headers: { Cookie: `admin_session=${expired}` },
+    });
+    expect(xhr.status).toBe(401);
+    expect(xhr.headers.get("Set-Cookie")).toBeNull();
+    const nav = await app.request("/admin/agents", {
+      headers: {
+        Cookie: `admin_session=${expired}`,
+        "Sec-Fetch-Mode": "navigate",
+      },
+    });
+    expect(nav.status).toBe(302);
+    expect(nav.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  it("never renews a token with a bad signature", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const bad = await sign(
+      {
+        userId: "x",
+        email: "admin@example.com",
+        isAdmin: true,
+        iat: nowSec() - 7200,
+        exp: nowSec() + 3600,
+      },
+      "some-other-secret",
+      "HS256",
+    );
+    const res = await app.request("/admin/session.json", {
+      headers: { Cookie: `admin_session=${bad}` },
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  it("re-derives isAdmin from the current allowlist: removed email loses admin on renewal", async () => {
+    const app = createAdminUIApp(
+      makeMockDeps({ adminAllowedEmails: ["someone-else@example.com"] }),
+    );
+    const old = await tokenWith({ ageSeconds: 2 * 3600, isAdmin: true });
+    const res = await app.request("/admin/session.json", {
+      headers: { Cookie: `admin_session=${old}` },
+    });
+    expect(res.status).toBe(200);
+    const p = await payloadOf(sessionCookieFrom(res) as string);
+    expect(p.isAdmin).toBe(false);
+  });
+
+  it("re-derives isAdmin case-insensitively and can promote a newly allowlisted email", async () => {
+    const app = createAdminUIApp(
+      makeMockDeps({ adminAllowedEmails: ["Member@Example.com"] }),
+    );
+    const old = await tokenWith({
+      ageSeconds: 2 * 3600,
+      email: "member@example.com",
+      isAdmin: false,
+    });
+    const res = await app.request("/admin/session.json", {
+      headers: { Cookie: `admin_session=${old}` },
+    });
+    const p = await payloadOf(sessionCookieFrom(res) as string);
+    expect(p.isAdmin).toBe(true);
+  });
+
+  it("applies the renewed isAdmin to the current request (admin-only page denied after demotion)", async () => {
+    const app = createAdminUIApp(
+      makeMockDeps({ adminAllowedEmails: ["someone-else@example.com"] }),
+    );
+    const old = await tokenWith({ ageSeconds: 2 * 3600, isAdmin: true });
+    const res = await app.request("/admin/accounts", {
+      headers: { Cookie: `admin_session=${old}` },
+    });
+    expect([401, 403, 404]).toContain(res.status);
+  });
+
+  it("keeps the dev session admin on renewal when devAuthEnabled", async () => {
+    const app = createAdminUIApp(makeMockDeps({ devAuthEnabled: true }));
+    const old = await tokenWith({
+      ageSeconds: 2 * 3600,
+      userId: "dev",
+      email: "dev@localhost",
+      isAdmin: true,
+    });
+    const res = await app.request("/admin/session.json", {
+      headers: { Cookie: `admin_session=${old}` },
+    });
+    const p = await payloadOf(sessionCookieFrom(res) as string);
+    expect(p.isAdmin).toBe(true);
+    expect(p.userId).toBe("dev");
+  });
+
+  it("dev-login session also has a 7-day exp", async () => {
+    const app = createAdminUIApp(makeMockDeps({ devAuthEnabled: true }));
+    const res = await app.request("/admin/dev-login");
+    expect(res.headers.get("Set-Cookie")).toContain(`Max-Age=${SEVEN_DAYS}`);
+    const p = await payloadOf(sessionCookieFrom(res) as string);
+    expect((p.exp as number) - (p.iat as number)).toBe(SEVEN_DAYS);
+  });
+});
+
 // ─── Login page ───────────────────────────────────────────────────────────────
 
 describe("admin UI — login page", () => {
