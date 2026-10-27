@@ -88,6 +88,31 @@ jobs:
       - name: Test
         run: bun test
 
+  admin-e2e:
+    name: admin e2e
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.3"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright chromium-headless-shell
+        run: bunx playwright install --with-deps chromium-headless-shell
+
+      # Boots admin/e2e/test-server.ts (in-memory deps, no database) per spec
+      # file and drives it with headless Chromium. `bun test` does not pick
+      # these up (*.e2e.ts), so this job is their only CI runner.
+      - name: Admin Playwright e2e
+        run: cd admin && bunx playwright test --reporter=list
+
   workflow-lint:
     name: workflow lint (actionlint / zizmor)
     timeout-minutes: 10

@@ -17,6 +17,7 @@
  *   GET /admin/agents/:id     → agent detail (requires admin_session cookie)
  */
 
+import { resolve } from "node:path";
 import { Hono } from "hono";
 import { createAdminUIApp } from "../src/admin-ui.ts";
 import type { AdminUIDeps } from "../src/admin-ui.ts";
@@ -27,6 +28,15 @@ import type {
 } from "../src/http-chat-client.ts";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
+
+// The suite runs without a product specialty: point the specialty lookup at the
+// minimal "coding" fixture next to this file (values already set win).
+process.env.SHIPWRIGHT_SPECIALTIES_DIR ||= resolve(
+  import.meta.dir,
+  "fixtures",
+  "specialties",
+);
+process.env.SHIPWRIGHT_DEFAULT_AGENT_TYPE ||= "coding";
 
 const ADMIN_E2E_PORT = 3490;
 const ADMIN_E2E_SESSION_SECRET =

@@ -1,0 +1,33 @@
+# Minimal "coding" specialty for the admin Playwright e2e suite. test-server.ts
+# points SHIPWRIGHT_SPECIALTIES_DIR at the parent of this directory so the
+# new-agent type picker has a "coding" option without a product specialty.
+apiVersion: shipwright.dev/v1alpha1
+kind: Specialty
+metadata:
+  name: coding
+  displayName: Coding Agent
+  description: Minimal coding specialty used by the admin e2e suite.
+  version: 1.0.0
+  skills: []
+identity:
+  # Resolved against the repo root first, then against this manifest's own directory.
+  templatesDir: templates/
+crons: []
+plugins:
+  - fixture-plugin
+tools:
+  - Bash
+  - WebSearch
+env:
+  required:
+    - key: CLAUDE_CODE_OAUTH_TOKEN
+      description: Claude Code OAuth token used to authenticate the agent's Claude sessions.
+      secret: true
+  optional:
+    - key: GH_TOKEN
+      description: GitHub Personal Access Token.
+      secret: true
+members: []
+repos: []
+chat: true
+voice: true
