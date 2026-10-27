@@ -4,4 +4,4 @@ description: Shared Helm templates for the agent platform (library chart, no ins
 type: library
 # Chart version tracks the platform release: bump it to the platform's X.Y.Z when
 # a release changes the shared templates. The publish workflow keys off this value.
-version: 0.2.0
+version: 0.3.0

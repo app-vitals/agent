@@ -1,0 +1,745 @@
+suite: admin Deployment / Service / ServiceAccount workloads
+# HD-3.1 adds the admin workload templates. These assert the structural facts:
+# image (pinned to the GHCR default), container port 3001, liveness (/health)
+# + readiness (/health/ready) probes, ServiceAccount wiring, Service shape, and
+# the DATABASE_URL wiring to the bundled PostgreSQL subchart (assembled in the
+# admin Secret).
+tests:
+  - it: renders the admin Deployment with the GHCR-pinned image and port 3001
+    template: templates/admin-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^ghcr\\.io/app-vitals/shipwright-admin:admin-v\\d+\\.\\d+\\.\\d+$"
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 3001
+
+  # LCT-3.1: readinessProbe is DB-aware (/health/ready) while livenessProbe
+  # stays DB-independent (/health) — a transient DB blip must never trigger a
+  # liveness-driven restart.
+  - it: sets a DB-independent liveness probe against /health and a DB-aware readiness probe against /health/ready, both on port 3001
+    template: templates/admin-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: 3001
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health/ready
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 3001
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.successThreshold
+          value: 2
+
+  - it: wires the ServiceAccount and standard selector labels onto the Deployment
+    template: templates/admin-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: r-shipwright-admin
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: admin
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: shipwright
+    release:
+      name: r
+
+  # ── admin.podAnnotations (DBE-1.1) ────────────────────────────────────────
+
+  - it: renders no pod-template annotations by default
+    template: templates/admin-deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: renders admin.podAnnotations onto the pod template metadata
+    template: templates/admin-deployment.yaml
+    set:
+      admin.podAnnotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"]
+          value: "false"
+
+  # ── admin.podLabels ───────────────────────────────────────────────────────
+  # An opt-in hook for attaching a workload to a label-selecting cluster
+  # policy. The default must add nothing, so the rendered chart is unchanged
+  # for every install that does not set it.
+
+  - it: renders only the chart's own selector labels on the pod template by default
+    template: templates/admin-deployment.yaml
+    release:
+      name: r
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: shipwright
+            app.kubernetes.io/instance: r
+            app.kubernetes.io/component: admin
+
+  - it: merges admin.podLabels onto the pod template labels without disturbing the selector labels
+    template: templates/admin-deployment.yaml
+    release:
+      name: r
+    set:
+      admin.podLabels:
+        example.com/peer-datastore: "true"
+        example.com/tier: data
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: shipwright
+            app.kubernetes.io/instance: r
+            app.kubernetes.io/component: admin
+            example.com/peer-datastore: "true"
+            example.com/tier: data
+      # The selector is immutable on a live Deployment — it must keep matching
+      # the pod template it was created with.
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: shipwright
+            app.kubernetes.io/instance: r
+            app.kubernetes.io/component: admin
+
+  - it: drops podLabels keys that would clobber an app.kubernetes.io selector label
+    template: templates/admin-deployment.yaml
+    release:
+      name: r
+    set:
+      admin.podLabels:
+        app.kubernetes.io/name: hijacked
+        app.kubernetes.io/instance: hijacked
+        app.kubernetes.io/component: hijacked
+        example.com/kept: "yes"
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: shipwright
+            app.kubernetes.io/instance: r
+            app.kubernetes.io/component: admin
+            example.com/kept: "yes"
+
+  # Kubernetes label values are strings; an unquoted `true` in values.yaml
+  # arrives as a bool and would render a manifest the API server rejects.
+  - it: renders a non-string podLabels value as a string
+    template: templates/admin-deployment.yaml
+    set:
+      admin.podLabels:
+        example.com/peer-datastore: true
+        example.com/ordinal: 3
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["example.com/peer-datastore"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.labels["example.com/ordinal"]
+          value: "3"
+
+  - it: still renders podAnnotations alongside podLabels
+    template: templates/admin-deployment.yaml
+    set:
+      admin.podLabels:
+        example.com/peer-datastore: "true"
+      admin.podAnnotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["example.com/peer-datastore"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"]
+          value: "false"
+
+  - it: applies the configured admin resources
+    template: templates/admin-deployment.yaml
+    set:
+      admin.resources:
+        requests:
+          cpu: 111m
+          memory: 222Mi
+        limits:
+          cpu: 333m
+          memory: 444Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 111m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 444Mi
+
+  - it: wires DATABASE_URL_SHIPWRIGHT_ADMIN from the admin Secret when postgresql is enabled
+    template: templates/admin-deployment.yaml
+    set:
+      postgresql.enabled: true
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_URL_SHIPWRIGHT_ADMIN
+            valueFrom:
+              secretKeyRef:
+                name: r-shipwright-admin
+                key: DATABASE_URL_SHIPWRIGHT_ADMIN
+
+  - it: fails with a clear error when postgresql is disabled and no external secret is set
+    template: templates/admin-deployment.yaml
+    set:
+      postgresql.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "externalDatabase.existingSecret is required when postgresql.enabled=false"
+    release:
+      name: r
+
+  # ── admin.encryptionKeys.existingSecret ──────────────────────────────────
+
+  - it: sources SHIPWRIGHT_SESSION_SECRET and SHIPWRIGHT_ENCRYPTION_KEY from existingSecret when set
+    template: templates/admin-deployment.yaml
+    set:
+      admin.encryptionKeys.existingSecret: my-keys-secret
+      admin.encryptionKeys.encryptionKeyRef: SHIPWRIGHT_ENCRYPTION_KEY
+      admin.encryptionKeys.sessionSecretRef: SHIPWRIGHT_SESSION_SECRET
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_SESSION_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: my-keys-secret
+                key: SHIPWRIGHT_SESSION_SECRET
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ENCRYPTION_KEY
+            valueFrom:
+              secretKeyRef:
+                name: my-keys-secret
+                key: SHIPWRIGHT_ENCRYPTION_KEY
+
+  - it: sources session+encryption keys from the chart-managed Secret by default (no existingSecret)
+    template: templates/admin-deployment.yaml
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_SESSION_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: r-shipwright-admin
+                key: SHIPWRIGHT_SESSION_SECRET
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ENCRYPTION_KEY
+            valueFrom:
+              secretKeyRef:
+                name: r-shipwright-admin
+                key: SHIPWRIGHT_ENCRYPTION_KEY
+
+  # ── auth.google.existingSecret ───────────────────────────────────────────
+
+  - it: sources GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and SHIPWRIGHT_ADMIN_ALLOWED_EMAILS from existingSecret when set
+    template: templates/admin-deployment.yaml
+    set:
+      auth.mode: google
+      auth.google.existingSecret: my-google-secret
+      auth.google.clientIdRef: GOOGLE_CLIENT_ID
+      auth.google.clientSecretRef: GOOGLE_CLIENT_SECRET
+      auth.google.allowedEmailsRef: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: my-google-secret
+                key: GOOGLE_CLIENT_ID
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: my-google-secret
+                key: GOOGLE_CLIENT_SECRET
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+            valueFrom:
+              secretKeyRef:
+                name: my-google-secret
+                key: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+
+  - it: sources Google OAuth from the chart-managed Secret by default (no existingSecret)
+    template: templates/admin-deployment.yaml
+    set:
+      auth.mode: google
+      auth.google.clientId: cid
+      auth.google.clientSecret: csec
+      auth.google.allowedEmails: dev@example.com
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: r-shipwright-admin
+                key: GOOGLE_CLIENT_ID
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GOOGLE_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: r-shipwright-admin
+                key: GOOGLE_CLIENT_SECRET
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+            value: "dev@example.com"
+
+  # ── auth.okta.existingSecret ─────────────────────────────────────────────
+
+  - it: sources OKTA_ISSUER, OKTA_CLIENT_ID, OKTA_CLIENT_SECRET, and SHIPWRIGHT_ADMIN_ALLOWED_EMAILS from existingSecret when set
+    template: templates/admin-deployment.yaml
+    set:
+      auth.mode: okta
+      auth.okta.existingSecret: my-okta-secret
+      auth.okta.issuerRef: OKTA_ISSUER
+      auth.okta.clientIdRef: OKTA_CLIENT_ID
+      auth.okta.clientSecretRef: OKTA_CLIENT_SECRET
+      auth.okta.allowedEmailsRef: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OKTA_ISSUER
+            valueFrom:
+              secretKeyRef:
+                name: my-okta-secret
+                key: OKTA_ISSUER
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OKTA_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: my-okta-secret
+                key: OKTA_CLIENT_ID
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OKTA_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: my-okta-secret
+                key: OKTA_CLIENT_SECRET
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+            valueFrom:
+              secretKeyRef:
+                name: my-okta-secret
+                key: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+
+  - it: sources Okta OIDC from the chart-managed Secret by default (no existingSecret)
+    template: templates/admin-deployment.yaml
+    set:
+      auth.mode: okta
+      auth.okta.issuer: https://dev-123.okta.com
+      auth.okta.clientId: cid
+      auth.okta.clientSecret: csec
+      auth.okta.allowedEmails: dev@example.com
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OKTA_ISSUER
+            valueFrom:
+              secretKeyRef:
+                name: r-shipwright-admin
+                key: OKTA_ISSUER
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OKTA_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: r-shipwright-admin
+                key: OKTA_CLIENT_ID
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OKTA_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: r-shipwright-admin
+                key: OKTA_CLIENT_SECRET
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_ALLOWED_EMAILS
+            value: "dev@example.com"
+
+  # ── admin.appBaseUrl ──────────────────────────────────────────────────────
+
+  - it: injects SHIPWRIGHT_ADMIN_APP_BASE_URL when admin.appBaseUrl is set
+    template: templates/admin-deployment.yaml
+    set:
+      admin.appBaseUrl: "https://shipwright.example.com"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_APP_BASE_URL
+            value: "https://shipwright.example.com"
+
+  - it: omits SHIPWRIGHT_ADMIN_APP_BASE_URL when admin.appBaseUrl is empty (default)
+    template: templates/admin-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_APP_BASE_URL
+
+  # ── CNH-9.1: admin.appBaseUrl auto-derivation from the public host ────────
+  # explicit admin.appBaseUrl always wins; when empty and networking.type is
+  # ingress/gateway, SHIPWRIGHT_ADMIN_APP_BASE_URL is derived as
+  # <scheme>://<public host> via shipwright.publicHost/shipwright.publicScheme
+  # (CNH-2.1); for any other networking.type the env var stays omitted.
+
+  - it: derives SHIPWRIGHT_ADMIN_APP_BASE_URL as http://<ingress host> when networking.type=ingress and TLS is off
+    template: templates/admin-deployment.yaml
+    set:
+      networking.type: ingress
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_APP_BASE_URL
+            value: "http://shipwright.local"
+
+  - it: derives SHIPWRIGHT_ADMIN_APP_BASE_URL as https://<ingress host> when networking.type=ingress and TLS is enabled
+    template: templates/admin-deployment.yaml
+    set:
+      networking.type: ingress
+      networking.ingress.host: shipwright.example.com
+      networking.ingress.tls.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_APP_BASE_URL
+            value: "https://shipwright.example.com"
+
+  - it: derives SHIPWRIGHT_ADMIN_APP_BASE_URL as https://<gateway host> when networking.type=gateway and cert-manager TLS is enabled
+    template: templates/admin-deployment.yaml
+    set:
+      networking.type: gateway
+      networking.gateway.host: shipwright.example.org
+      tls.certManager.enabled: true
+      tls.certManager.issuerRef.name: letsencrypt-prod
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_APP_BASE_URL
+            value: "https://shipwright.example.org"
+
+  - it: omits SHIPWRIGHT_ADMIN_APP_BASE_URL when networking.type=ClusterIP (no public host to derive from) and admin.appBaseUrl is unset
+    template: templates/admin-deployment.yaml
+    set:
+      networking.type: ClusterIP
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_APP_BASE_URL
+
+  - it: renders the explicit admin.appBaseUrl verbatim, ignoring any derivation, even under networking.type=ingress with TLS enabled
+    template: templates/admin-deployment.yaml
+    set:
+      networking.type: ingress
+      networking.ingress.host: shipwright.example.com
+      networking.ingress.tls.enabled: true
+      admin.appBaseUrl: "https://override.example.net"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_ADMIN_APP_BASE_URL
+            value: "https://override.example.net"
+
+  # ── admin.extraEnv ────────────────────────────────────────────────────────
+
+  - it: appends admin.extraEnv entries to the container env
+    template: templates/admin-deployment.yaml
+    set:
+      admin.extraEnv:
+        - name: MY_CUSTOM_VAR
+          value: "hello"
+        - name: FROM_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: my-secret
+              key: MY_KEY
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MY_CUSTOM_VAR
+            value: "hello"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: FROM_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: my-secret
+                key: MY_KEY
+
+  - it: renders no extra env vars when admin.extraEnv is empty (default)
+    template: templates/admin-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MY_CUSTOM_VAR
+
+  # ── service / serviceaccount ──────────────────────────────────────────────
+
+  - it: renders the admin Service (ClusterIP) mapping the service port to targetPort 3001
+    template: templates/admin-service.yaml
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports[0].port
+          value: 3001
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 3001
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: admin
+
+  - it: honors a custom admin.service.type and port
+    template: templates/admin-service.yaml
+    set:
+      admin.service.type: NodePort
+      admin.service.port: 30080
+    asserts:
+      - equal:
+          path: spec.type
+          value: NodePort
+      - equal:
+          path: spec.ports[0].port
+          value: 30080
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 3001
+
+  - it: creates the admin ServiceAccount by default
+    template: templates/admin-serviceaccount.yaml
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: r-shipwright-admin
+    release:
+      name: r
+
+  - it: skips the admin ServiceAccount when create=false
+    template: templates/admin-serviceaccount.yaml
+    set:
+      admin.serviceAccount.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no admin workloads when admin.enabled=false
+    set:
+      admin.enabled: false
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: admin
+      skipEmptyTemplates: true
+    templates:
+      - templates/admin-deployment.yaml
+      - templates/admin-service.yaml
+      - templates/admin-serviceaccount.yaml
+      - templates/admin-secret.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Chat-service wiring (chat.enabled + chat.adminToken) ─────────────────
+
+  - it: does not inject chat-service env by default
+    template: templates/admin-deployment.yaml
+    release:
+      name: r
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_CHAT_SERVICE_URL
+            value: http://r-shipwright-chat:3000
+
+  - it: injects chat-service env from the chart-managed Secret when chat.enabled and adminToken unset
+    # No caller Secret required: the chart generates the token into its own chat
+    # Secret and both Deployments read it, so /admin/chat works out of the box.
+    # The chat side of the same pair is asserted in chat_workload_test.yaml.
+    template: templates/admin-deployment.yaml
+    set:
+      chat.enabled: true
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_CHAT_SERVICE_URL
+            value: http://r-shipwright-chat:3000
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: r-shipwright-chat
+                key: SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN
+
+  - it: does not inject chat-service env when chat is disabled, even with adminToken set
+    # chat.enabled gates the wiring: without a chat Service to talk to, pointing
+    # admin at one would be wiring to nothing.
+    template: templates/admin-deployment.yaml
+    set:
+      chat.enabled: false
+      chat.adminToken.existingSecret: shipwright-secrets
+    release:
+      name: r
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_CHAT_SERVICE_URL
+            value: http://r-shipwright-chat:3000
+
+  - it: injects the in-cluster chat URL + admin token when chat.enabled and adminToken set
+    template: templates/admin-deployment.yaml
+    set:
+      chat.enabled: true
+      chat.adminToken.existingSecret: shipwright-secrets
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_CHAT_SERVICE_URL
+            value: http://r-shipwright-chat:3000
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: shipwright-secrets
+                key: SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN
+
+  - it: chat admin token honors a custom secret name and key
+    template: templates/admin-deployment.yaml
+    set:
+      chat.enabled: true
+      chat.adminToken.existingSecret: my-chat-tokens
+      chat.adminToken.key: CHAT_ADMIN_RAW
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: my-chat-tokens
+                key: CHAT_ADMIN_RAW
+
+  # ── admin.sentry ──────────────────────────────────────────────────────────
+
+  - it: does not wire SENTRY_DSN or SENTRY_ENVIRONMENT by default
+    template: templates/admin-deployment.yaml
+    release:
+      name: r
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SENTRY_DSN
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SENTRY_ENVIRONMENT
+
+  - it: wires SENTRY_DSN from an existingSecret and SENTRY_ENVIRONMENT when configured
+    template: templates/admin-deployment.yaml
+    set:
+      admin.sentry.dsn.existingSecret: my-sentry-secret
+      admin.sentry.environment: production
+    release:
+      name: r
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SENTRY_DSN
+            valueFrom:
+              secretKeyRef:
+                name: my-sentry-secret
+                key: SENTRY_DSN
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SENTRY_ENVIRONMENT
+            value: production

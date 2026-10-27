@@ -6,7 +6,7 @@ It renders nothing on its own; consumers add it as a dependency:
 ```yaml
 dependencies:
   - name: agent-platform
-    version: 0.2.0
+    version: 0.3.0
     repository: https://app-vitals.github.io/agent
 ```
 
@@ -32,11 +32,33 @@ release-derived names are whatever the consumer defines.
 - Whisper: `whisper.fullname`, `whisper.selectorLabels`, `whisper.labels`,
   `whisper.serviceUrl`
 - Voice: `voice.secretName`
+- Support: `publicHost`, `publicScheme`, `admin.appBaseUrl`, `postgresql.fullname`,
+  `postgresql.password`, `postgresql.dsn`, `cloudSqlProxy.container`,
+  `chat.fullname`, `chat.secretName`, `chat.adminTokenSecretName`,
+  `chat.adminTokenSecretKey`, `agent.claudePolicy.configMapName`,
+  `agent.claudePolicy.json`, `validate.claudePolicy`, `validate.anthropicFederation`
+
+## Manifests
+
+Whole-object templates the consumer includes from a one-line stub file
+(e.g. `templates/admin-deployment.yaml` containing
+`{{ include "agent-platform.admin.deployment" . }}`), so every rendered name,
+label and annotation is unchanged:
+
+- Admin: `admin.deployment`, `admin.service`, `admin.secret`,
+  `admin.serviceaccount`, `admin.pdb`
+- Agent provisioning: `agent.serviceaccount`, `agent.provisioningRbac`,
+  `agent.claudePolicyConfigMap`
+
+They read the consumer's `.Values` (`admin`, `auth`, `agent`, `postgresql`,
+`externalDatabase`, `cloudSqlProxy`, `chat`, `networking`, `selfServe`, ...), so
+the consumer's values file must define those keys.
 
 ## Tests
 
 A library chart cannot render itself, so the helpers are tested through a
-minimal consumer chart in `tests/fixtures/consumer`, using the
+minimal consumer chart in `tests/fixtures/consumer` (a stub per manifest plus a
+shipwright-shaped `values.yaml`; the `admin_*` / `agent_*` suites run against it), using the
 [helm-unittest](https://github.com/helm-unittest/helm-unittest) plugin:
 
 ```bash
