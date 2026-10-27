@@ -2,6 +2,8 @@ nameOverride: ""
 fullnameOverride: ""
 global:
   imageRegistry: ""
+  imagePullSecrets: []
+imagePullPolicy: IfNotPresent
 serviceAccount:
   create: true
   name: ""
@@ -16,9 +18,59 @@ agent:
       create: true
       name: ""
   voice:
+    # -- Master switch. Default false → nothing voice-related renders.
+    enabled: false
+    # -- STT provider: "whisper" (self-hosted pod) or "groq" (Groq cloud STT).
+    # TTS defaults to the self-hosted in-agent Piper binary; setting
+    # elevenlabs.apiKey below switches TTS to ElevenLabs for both providers.
+    provider: whisper
+    # -- Self-hosted Whisper ASR pod (used ONLY when provider=whisper). Renders a
+    # Deployment + Service running onerahmet/openai-whisper-asr-webservice, whose
+    # POST /asr endpoint the agent's whisper-svc client targets.
     whisper:
+      # -- Whisper ASR image. The onerahmet image exposes POST /asr (multipart
+      # `audio_file`, query task=transcribe&output=txt). Pinned to v1.10.0 — do
+      # not float to :latest; the plain-text /asr contract is tightly coupled to
+      # this tag and a silent image update on helm upgrade can break it.
+      image: onerahmet/openai-whisper-asr-webservice:v1.10.0
+      # -- Service exposing the Whisper pod in-cluster. The container listens on
+      # 9000 (the image default); the Service port becomes WHISPER_SERVICE_URL.
       service:
         port: 9000
+      # -- ASR model name passed to the onerahmet image as ASR_MODEL (e.g. "tiny",
+      # "base", "small", "medium", "large-v3", or a language-suffixed variant like
+      # "tiny.en"). Empty → no ASR_MODEL env var is set and the image falls back to
+      # its own built-in default model.
+      model: ""
+      # -- Compute resources for the Whisper container. Empty → no limits set.
+      # ASR is CPU/memory heavy; size this for your model on a real deployment.
+      # Example sizing for a small model:
+      #   resources:
+      #     requests:
+      #       cpu: "1"
+      #       memory: 2Gi
+      #     limits:
+      #       cpu: "2"
+      #       memory: 4Gi
+      resources: {}
+    # -- ElevenLabs TTS (text-to-speech). Used for BOTH providers.
+    elevenlabs:
+      # -- ElevenLabs API key. Stored in the chart-managed voice Secret and
+      # injected as ELEVENLABS_API_KEY. Empty → no key (agent falls back to
+      # Piper TTS inside the pod).
+      apiKey: ""
+      # -- Optional ElevenLabs voice id (ELEVENLABS_VOICE_ID). Empty → the agent's
+      # built-in default voice.
+      voiceId: ""
+    # -- Groq cloud STT (used ONLY when provider=groq). Stored in the voice Secret
+    # and injected as GROQ_API_KEY.
+    groq:
+      # -- Groq API key. Empty with provider=groq means STT is unconfigured.
+      apiKey: ""
+
+# -- Self-serve agent provisioning (SSP-1.3). OFF by default: with `enabled`
+# false the chart injects NO self-serve env and admin behavior is unchanged.
+selfServe:
 # Inputs for the imageRef / podLabels helpers.
 image:
   repository: ghcr.io/app-vitals/shipwright-admin
@@ -27,3 +79,120 @@ image:
 podLabelsSelector: |
   app.kubernetes.io/name: shipwright
   app.kubernetes.io/instance: shipwright
+
+postgresql:
+  enabled: true
+  auth:
+    username: shipwright
+    password: ""
+    existingSecret: ""
+
+chat:
+  # -- Whether to render the chat Deployment and Service.
+  enabled: false
+  image:
+    repository: ghcr.io/app-vitals/agent-chat
+    tag: 0.9.0
+    pullPolicy: ""    # defaults to top-level imagePullPolicy when empty
+  service:
+    # -- Service type for the chat service. ClusterIP is Minikube-friendly.
+    type: ClusterIP
+    port: 3000
+  replicas: 1
+  # -- Compute resources for the chat container. Minikube-friendly defaults.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  # -- Database wiring for the chat service. Same two paths as
+  # taskStore.database — see there for the full explanation.
+  database:
+    # -- Name of a pre-existing Secret holding DATABASE_URL_SHIPWRIGHT_CHAT.
+    # Set to "" to use the chart-managed bundled-PostgreSQL database instead.
+    existingSecret: "shipwright-secrets"
+    # -- Database name on the bundled PostgreSQL (chart-managed path only).
+    # Empty → "shipwright_chat".
+    name: ""
+  # -- Admin-token wiring for the admin console's Chat tab (/admin/chat).
+  # When existingSecret is set (and chat.enabled), the chart injects the SAME
+  # raw token into both sides so the pair works out of the box:
+  #   - chat container: CHAT_SEED_ADMIN_TOKEN — the service upserts the hashed
+  #     token into its DB at every boot (idempotent)
+  #   - admin container: SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN, plus
+  #     SHIPWRIGHT_CHAT_SERVICE_URL pointing at the in-cluster chat Service —
+  #     enables the Chat tab and per-agent chat-token minting on provision
+  # Empty (default) leaves both sides unwired; the Chat tab renders its
+  # "not configured" notice. The chart does NOT manage this Secret — add the
+  # key before deploying.
+  adminToken:
+    # -- Name of a pre-existing Secret holding the raw chat admin token.
+    existingSecret: ""
+    # -- Key within that Secret holding the raw token value.
+    key: "SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN"
+  # -- Extra env vars to inject into the chat container. Use for optional service
+  # wiring (e.g. SHIPWRIGHT_CHAT_AGENTS_URL, SHIPWRIGHT_CHAT_AGENTS_API_KEY)
+  # without baking those into the chart template.
+  extraEnv: []
+  # -- ServiceAccount for the chat pod. Set create: false and name: <sa>
+  # to reuse an existing SA (e.g. the umbrella chart's Workload Identity SA).
+  serviceAccount:
+    # -- Whether a ServiceAccount is created for the chat workload.
+    create: true
+    # -- Annotations for the chat ServiceAccount.
+    annotations: {}
+    # -- Name of the chat ServiceAccount. Generated if empty and create=true.
+    name: ""
+  # -- Extra annotations for the chat pod template (spec.template.metadata.
+  # annotations) — NOT the ServiceAccount (see serviceAccount.annotations
+  # above). Empty by default. On GKE Autopilot, set
+  # `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` here to stop the
+  # cluster autoscaler from voluntarily evicting this pod when a transient NAP
+  # node scales down. See admin.podAnnotations for the full example.
+  podAnnotations: {}
+  # -- Extra labels for the chat pod template (spec.template.metadata.labels).
+  # Empty by default and purely additive; the chart's own
+  # `app.kubernetes.io/*` selector labels always win. See admin.podLabels for
+  # the full rationale and example.
+  podLabels: {}
+  # -- Optional PodDisruptionBudget for the chat workload. Off by default —
+  # purely additive. See admin.podDisruptionBudget for the full rationale
+  # (cluster-autoscaler node churn). Recommended for prod single-replica installs:
+  #   podDisruptionBudget:
+  #     enabled: true
+  #     minAvailable: 1
+  podDisruptionBudget:
+    # -- Whether to render a PodDisruptionBudget for the chat workload.
+    enabled: false
+    # -- Minimum number of chat pods that must remain available during a
+    # voluntary disruption. Only used when enabled=true.
+    minAvailable: 1
+
+
+cloudSqlProxy:
+  # -- When true, add the cloud-sql-proxy sidecar to the admin Deployment.
+  # Default false — purely additive, safe to deploy without this.
+  enabled: false
+  # -- Proxy container image. Pin to a concrete digest for production.
+  image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2
+  # -- Cloud SQL instance connection name (project:region:instance). Required when enabled.
+  connectionName: ""
+  # -- Extra arguments appended after --private-ip and the connection name.
+  # Example: ["--max-sigterm-delay=10s", "--structured-logs"]
+  args: []
+  # -- Compute resources for the proxy sidecar. Empty → no resource limits set.
+  resources: {}
+  # -- Render the proxy as a Kubernetes native sidecar (an initContainer with
+  # restartPolicy: Always) instead of a regular container. Requires
+  # Kubernetes >= 1.29 (native sidecar containers went GA in 1.29). This
+  # matters because native sidecars start BEFORE and terminate AFTER the
+  # main app container(s) in the pod, whereas a regular sidecar container is
+  # torn down at the same time as the app on SIGTERM (e.g. pod eviction) —
+  # with no ordering guarantee, the proxy can exit first and leave the app
+  # serving requests with no DB path for the remainder of its grace period.
+  # Default false — keeps the public chart compatible with clusters older
+  # than 1.29; opt in once running on 1.29+.
+  nativeSidecar: false
+

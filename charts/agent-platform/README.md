@@ -6,7 +6,7 @@ It renders nothing on its own; consumers add it as a dependency:
 ```yaml
 dependencies:
   - name: agent-platform
-    version: 0.2.0
+    version: 0.3.0
     repository: https://app-vitals.github.io/agent
 ```
 
@@ -32,6 +32,27 @@ release-derived names are whatever the consumer defines.
 - Whisper: `whisper.fullname`, `whisper.selectorLabels`, `whisper.labels`,
   `whisper.serviceUrl`
 - Voice: `voice.secretName`
+- Chat: `chat.fullname`, `chat.selectorLabels`, `chat.labels`,
+  `chat.serviceAccountName`, `chat.secretName`, `chat.adminTokenSecretName`,
+  `chat.adminTokenSecretKey`, `chat.databaseName`, `chat.useBundledDatabase`
+- Database: `postgresql.fullname`, `postgresql.password`, `postgresql.dsn`,
+  `cloudSqlProxy.container`
+
+## Workload templates
+
+Each of these renders one complete manifest (or nothing when its own guard is
+off). A consumer calls it from a one-line file under its own `templates/`, e.g.
+`{{ include "agent-platform.chat.deployment" . }}` in `chat-deployment.yaml`:
+
+- Chat (`chat.enabled`): `chat.deployment`, `chat.service`, `chat.secret`,
+  `chat.serviceaccount`, `chat.pdb`
+- Whisper (`agent.voice.enabled`, provider `whisper`): `whisper.deployment`,
+  `whisper.service`
+- Voice (`agent.voice.enabled`): `voice.secret`
+
+They read the consumer's `chat.*`, `agent.voice.*`, `cloudSqlProxy.*`,
+`postgresql.*`, `global.*` and `imagePullPolicy` values, and render the same
+names as the shipwright chart they were ported from.
 
 ## Tests
 
