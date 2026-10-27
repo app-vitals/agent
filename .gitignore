@@ -8,3 +8,4 @@ admin/prisma/client
 chat/prisma/client
 *.db
 *.db-journal
+.DS_Store
