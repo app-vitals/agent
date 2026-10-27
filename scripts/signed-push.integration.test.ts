@@ -473,6 +473,76 @@ describe("signedPush", () => {
     expect(git(bare, ["show", `${tip}:README.md`])).toBe("resolved");
   });
 
+  test("a merge from main uploads no blobs main already has, and binary uses the blob API", async () => {
+    writeFileSync(join(work, "mine.txt"), "mine\n");
+    writeFileSync(join(work, "mine.bin"), Buffer.from([0, 1, 2, 3]));
+    git(work, ["add", "."]);
+    git(work, ["commit", "-m", "feat: mine"]);
+    const other = join(root, "other");
+    git(root, ["clone", bare, other]);
+    for (let i = 0; i < 5; i++) {
+      writeFileSync(join(other, `main-${i}.txt`), `main ${i}\n`);
+      writeFileSync(join(other, `main-${i}.bin`), Buffer.from([0, i, 9]));
+    }
+    git(other, ["add", "."]);
+    git(other, ["commit", "-m", "main: files"]);
+    git(other, ["push", "origin", "main"]);
+    git(work, ["fetch", "origin"]);
+    git(work, ["merge", "origin/main", "-m", "merge main"]);
+    const localTree = git(work, ["rev-parse", "HEAD^{tree}"]);
+    const gh = fakeGitHub(bare);
+    await signedPush({
+      argv: ["origin", "feat/x"],
+      env: env(),
+      cwd: work,
+      fetch: gh.fetch,
+      repo: "acme/widgets",
+    });
+    expect(git(bare, ["rev-parse", "feat/x^{tree}"])).toBe(localTree);
+    const posts = (suffix: string) =>
+      gh.requests.filter((r) => r.method === "POST" && r.path.endsWith(suffix));
+    // Only the feature commit's binary file is uploaded as a blob.
+    expect(posts("/git/blobs")).toHaveLength(1);
+    const trees = posts("/git/trees");
+    expect(trees).toHaveLength(2);
+    const mergeTree = trees[1]?.body.tree as Record<string, unknown>[];
+    expect(mergeTree).toHaveLength(10);
+    for (const e of mergeTree) {
+      expect(e.sha).toBeString();
+      expect(e.content).toBeUndefined();
+    }
+    // 3 reads (branch ref, repo, default branch ref) + 1 blob + 2 trees +
+    // 2 commits + 1 ref create.
+    expect(gh.requests).toHaveLength(9);
+    // Text in the feature commit went inline in its tree request.
+    const first = trees[0]?.body.tree as Record<string, unknown>[];
+    expect(first.find((e) => e.path === "mine.txt")?.content).toBe("mine\n");
+  });
+
+  test("a persistent rate limit fails with a git-style error naming the cause", async () => {
+    commitTwo();
+    const calls: string[] = [];
+    const limited = (async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      return new Response(JSON.stringify({ message: "secondary rate limit" }), {
+        status: 403,
+        headers: { "retry-after": "1" },
+      });
+    }) as unknown as typeof fetch;
+    const err = (await signedPush({
+      argv: ["origin", "feat/x"],
+      env: env(),
+      cwd: work,
+      fetch: limited,
+      repo: "acme/widgets",
+      client: { sleep: async () => {}, maxRetries: 2 },
+    }).catch((e) => e)) as Error;
+    expect(err).toBeInstanceOf(PushRejected);
+    expect(err.message).toMatch(/rate-limited/);
+    expect(err.message).toMatch(/failed to push some refs/);
+    expect(calls).toHaveLength(3);
+  });
+
   test("a root commit on unrelated history pushes with no parents", async () => {
     git(work, ["checkout", "--orphan", "unrelated"]);
     git(work, ["rm", "-rf", "."]);
