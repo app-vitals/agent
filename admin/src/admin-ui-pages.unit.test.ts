@@ -3497,6 +3497,70 @@ describe("renderChatMessageBubble — audio attachment vs. filename badge (VM-3.
   });
 });
 
+describe("renderChatMessageBubble — voice reply play control (COS-63.1)", () => {
+  const MSG: ChatMessage = {
+    id: "msg-63",
+    threadId: "thread-63",
+    role: "assistant",
+    body: "hello there",
+    createdAt: "2024-01-01T00:00:00.000Z",
+    claimedBy: null,
+    repliedAt: null,
+    tokens: null,
+    costUsd: null,
+    errorKind: null,
+    attachmentFilename: "1700000000000-response.wav",
+    attachmentSize: 10,
+  };
+  const URL63 =
+    "/admin/chat/agent-1/threads/thread-63/messages/msg-63/attachment";
+
+  test("assistant audio renders a 56px labelled play button, time, progress and a hidden audio", () => {
+    const html = renderChatMessageBubble(MSG, null, "agent-1");
+    expect(html).toContain("chat-voice-play");
+    expect(html).toContain('aria-label="Play"');
+    expect(html).toContain("chat-voice-time");
+    expect(html).toContain("chat-voice-progress");
+    expect(html).toMatch(/<audio[^>]*hidden[^>]*>/);
+    expect(html).not.toMatch(/<audio[^>]*controls/);
+    expect(html).toContain(URL63);
+  });
+
+  test("assistant transcript body is still rendered above the control", () => {
+    const html = renderChatMessageBubble(MSG, null, "agent-1");
+    expect(html.indexOf("hello there")).toBeLessThan(
+      html.indexOf("chat-voice-play"),
+    );
+  });
+
+  test("includes an error fallback with a download link and message", () => {
+    const html = renderChatMessageBubble(MSG, null, "agent-1");
+    expect(html).toContain("Could not play this reply");
+    expect(html).toMatch(new RegExp(`<a[^>]*download[^>]*href="${URL63}"|<a[^>]*href="${URL63}"[^>]*download`));
+  });
+
+  test("user audio keeps native controls and no custom control", () => {
+    const html = renderChatMessageBubble(
+      { ...MSG, role: "user" },
+      null,
+      "agent-1",
+    );
+    expect(html).toMatch(/<audio[^>]*controls/);
+    expect(html).not.toContain("chat-voice-play");
+  });
+
+  test("thread page ships the 56px CSS and delegated click handler", () => {
+    const html = renderChatThreadPage(
+      "agent-1",
+      { id: "thread-63", title: "t" } as never,
+      [MSG],
+      "alice",
+    );
+    expect(html).toMatch(/\.chat-voice-play\s*\{[^}]*width:56px/);
+    expect(html).toContain("chat-voice-play");
+  });
+});
+
 describe("renderChatThreadPage — CFB-3.2 mobile drawer", () => {
   const THREAD: ChatThread = {
     id: "thread-abc",
