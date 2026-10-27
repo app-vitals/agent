@@ -1,7 +1,7 @@
 # agent-platform
 
 Library chart holding the Helm templates shared by agent platform deployments.
-It renders nothing on its own; consumers add it as a dependency:
+It renders nothing on its own; consumers add it as a dependency (see [docs/library-chart.md](../../docs/library-chart.md) for the consumer contract):
 
 ```yaml
 dependencies:

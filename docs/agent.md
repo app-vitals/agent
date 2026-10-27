@@ -147,6 +147,7 @@ Prisma mocking. Smoke tests drive the Hono apps through `app.request()`, except
 - [agent-ops.md](agent-ops.md): tool management and narrowing, default system crons, environment variables and baked marketplaces.
 - [agent-web-ui.md](agent-web-ui.md): the admin chat UI, PWA shell and other browser-facing surfaces.
 - [configuration-agent.md](configuration-agent.md): agent runtime environment variable reference.
+- [library-chart.md](library-chart.md): the `agent-platform` Helm library chart, its extension-list contract, versioning and stable names.
 - [observability.md](observability.md): optional Sentry reporting for the admin and runtime services.
 - [anthropic-usage-by-agent.md](anthropic-usage-by-agent.md): splitting Anthropic usage by per-agent service account.
 - `CLAUDE.md` section "Database env vars": the per-service `DATABASE_URL_*` convention.

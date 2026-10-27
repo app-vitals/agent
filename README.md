@@ -8,6 +8,7 @@ An open-source platform for running always-on AI agents: the agent runtime, the 
 | `admin/` | `@app-vitals/agent-admin` | CRUD API and UI for agents, env vars, cron jobs, tokens, tools and plugins (Hono + Prisma + Postgres) |
 | `lib/` | `@app-vitals/agent-lib` | Small modules shared by the runtime and the admin |
 | `agent-types/` | | Agent-type definitions and the JSON schema they validate against |
+| `charts/agent-platform/` | | Helm library chart with the templates shared by platform deployments; see [docs/library-chart.md](docs/library-chart.md) |
 
 All three packages ship TypeScript source and are MIT licensed.
 

@@ -27,6 +27,7 @@ const DOCS = [
   "configuration-agent.md",
   "observability.md",
   "chat-service.md",
+  "library-chart.md",
 ];
 
 /** Remove fenced code blocks so links inside examples are not checked. */
