@@ -85,6 +85,7 @@ import {
   audioContentTypeForFilename,
   validateAttachment,
 } from "./attachment-validation.ts";
+import { parseByteRange } from "./http-range.ts";
 import {
   type CallerScopeResolver,
   memberOnlyCallerScopeResolver,
@@ -3349,9 +3350,34 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         // .slice() normalizes to Uint8Array<ArrayBuffer> — Hono's Data type
         // requires that exact generic, not the wider Uint8Array<ArrayBufferLike>
         // that new Uint8Array(await res.arrayBuffer()) produces.
-        return c.body(attachment.bytes.slice(), 200, {
+        const total = attachment.bytes.byteLength;
+        const baseHeaders = {
           "Content-Type": contentType,
           "Content-Disposition": `inline; filename="${attachment.filename.replace(/"/g, "")}"`,
+          "Accept-Ranges": "bytes",
+        };
+        // iOS Safari only plays media from servers that honour byte ranges.
+        const range = parseByteRange(c.req.header("Range"), total);
+        if (range.kind === "unsatisfiable") {
+          return c.body(null, 416, {
+            ...baseHeaders,
+            "Content-Range": `bytes */${total}`,
+          });
+        }
+        if (range.kind === "range") {
+          return c.body(
+            attachment.bytes.slice(range.start, range.end + 1),
+            206,
+            {
+              ...baseHeaders,
+              "Content-Range": `bytes ${range.start}-${range.end}/${total}`,
+              "Content-Length": String(range.end - range.start + 1),
+            },
+          );
+        }
+        return c.body(attachment.bytes.slice(), 200, {
+          ...baseHeaders,
+          "Content-Length": String(total),
         });
       } catch {
         return c.json({ error: "failed to fetch attachment" }, 500);
