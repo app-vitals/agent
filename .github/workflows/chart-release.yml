@@ -41,6 +41,9 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write # push the .tgz + index.yaml to gh-pages
+    outputs:
+      published: ${{ steps.push.outputs.published }}
+      version: ${{ steps.chart-version.outputs.version }}
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,6 +98,7 @@ jobs:
           echo "version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push to gh-pages
+        id: push
         working-directory: gh-pages
         env:
           CHART_VERSION: ${{ steps.chart-version.outputs.version }}
@@ -103,10 +107,48 @@ jobs:
           git add -- '*.tgz' index.yaml
           if git diff --cached --quiet; then
             echo "No chart changes to publish (version ${CHART_VERSION} already on gh-pages)."
+            echo "published=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git commit -m "chart: publish agent-platform ${CHART_VERSION}"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+  # Tell Shipwright a new library chart version exists so it can bump its
+  # dependency. Same mechanism and DISPATCH_TOKEN as release.yml's
+  # notify-shipwright. No `!cancelled()`: a failed publish dispatches nothing,
+  # and an unchanged version (nothing pushed) is not a release. A failed
+  # dispatch fails this job and opens an issue.
+  notify-shipwright:
+    name: Notify Shipwright
+    needs: [publish]
+    if: ${{ needs.publish.result == 'success' && needs.publish.outputs.published == 'true' }}
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      VERSION: ${{ needs.publish.outputs.version }}
+    steps:
+      - name: Dispatch chart-release to app-vitals/shipwright
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+        run: |
+          gh api --method POST repos/app-vitals/shipwright/dispatches \
+            -f event_type=chart-release \
+            -f "client_payload[version]=$VERSION"
+
+      - name: Open an issue when the dispatch failed
+        if: ${{ failure() && steps.dispatch.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Shipwright dispatch failed for chart release $VERSION" \
+            --body "The \`chart-release\` repository_dispatch to app-vitals/shipwright failed for agent-platform chart version $VERSION, so Shipwright was not told to bump its library dependency. Check that the \`DISPATCH_TOKEN\` secret is valid, then re-run the failed job: $RUN_URL"
 
   dry-run:
     name: package + index (dry run)
