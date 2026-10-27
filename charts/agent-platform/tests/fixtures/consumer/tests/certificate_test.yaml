@@ -54,6 +54,24 @@ tests:
           path: spec.issuerRef.kind
           value: Issuer
 
+  - it: points issuerRef at the chart-managed Issuer when issuer.create=true and issuerRef.name is empty
+    template: templates/certificate.yaml
+    set:
+      networking.type: gateway
+      tls.certManager.enabled: true
+      tls.certManager.issuer.create: true
+      tls.certManager.issuer.type: selfsigned
+      networking.gateway.host: shipwright.example
+    release:
+      name: r
+    asserts:
+      - equal:
+          path: spec.issuerRef.name
+          value: r-shipwright-issuer
+      - equal:
+          path: spec.issuerRef.kind
+          value: Issuer
+
   - it: renders NO inline Certificate when the bundled cert-manager hook path is active (CNH-7.1 — it ships inside the bootstrap ConfigMap instead)
     # When cert-manager is bundled in the same release, its CRDs are templates in
     # this release and do not exist at first-install apply time, so a plain

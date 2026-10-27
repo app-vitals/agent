@@ -120,8 +120,8 @@ spec:
   dnsNames:
     - {{ .Values.networking.gateway.host | quote }}
   issuerRef:
-    name: {{ .Values.tls.certManager.issuerRef.name | quote }}
-    kind: {{ .Values.tls.certManager.issuerRef.kind }}
+    name: {{ include "agent-platform.certManager.issuerName" . | quote }}
+    kind: {{ include "agent-platform.certManager.issuerKind" . }}
     group: cert-manager.io
 {{- end }}
 
