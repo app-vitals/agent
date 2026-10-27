@@ -73,11 +73,11 @@ jobs:
 
       - name: Merge repo index
         # --merge fails if index.yaml doesn't exist yet (first publish on an
-        # empty gh-pages), so the flag is only passed when the file is present.
+        # empty gh-pages), so the args are only passed when the file is present.
         run: |
-          MERGE_FLAG=""
-          [ -f gh-pages/index.yaml ] && MERGE_FLAG="--merge gh-pages/index.yaml"
-          helm repo index gh-pages/ $MERGE_FLAG --url "$PAGES_URL"
+          MERGE_ARGS=()
+          [ -f gh-pages/index.yaml ] && MERGE_ARGS=(--merge gh-pages/index.yaml)
+          helm repo index gh-pages/ "${MERGE_ARGS[@]}" --url "$PAGES_URL"
 
       - name: Parse chart version
         id: chart-version
