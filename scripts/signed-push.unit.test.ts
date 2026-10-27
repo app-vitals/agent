@@ -4,6 +4,9 @@ import {
   classifyDiff,
   createApiClient,
   DEFAULT_MAX_BYTES,
+  deletionEntry,
+  entryType,
+  mapParents,
   parseArgs,
   parseRepoSlug,
   Refusal,
@@ -33,7 +36,6 @@ describe("classifyDiff", () => {
         ["100644", "100644", "M", "dir/mod.txt", SHA_B],
       ),
     );
-    expect(out.problems).toEqual([]);
     expect(out.additions).toEqual([
       { path: "new.txt", sha: SHA_B, mode: "100644" },
       { path: "dir/mod.txt", sha: SHA_B, mode: "100644" },
@@ -41,11 +43,18 @@ describe("classifyDiff", () => {
     expect(out.deletions).toEqual([]);
   });
 
-  test("deletions are listed by path", () => {
-    const out = classifyDiff(raw(["100644", "000000", "D", "gone.txt", ZERO]));
-    expect(out.deletions).toEqual(["gone.txt"]);
+  test("deletions keep their previous mode", () => {
+    const out = classifyDiff(
+      raw(
+        ["100644", "000000", "D", "gone.txt", ZERO],
+        ["160000", "000000", "D", "sub", ZERO],
+      ),
+    );
+    expect(out.deletions).toEqual([
+      { path: "gone.txt", mode: "100644" },
+      { path: "sub", mode: "160000" },
+    ]);
     expect(out.additions).toEqual([]);
-    expect(out.problems).toEqual([]);
   });
 
   test("a rename (as emitted with --no-renames) is delete plus add", () => {
@@ -55,54 +64,83 @@ describe("classifyDiff", () => {
         ["000000", "100644", "A", "new.txt", SHA_B],
       ),
     );
-    expect(out.deletions).toEqual(["old.txt"]);
+    expect(out.deletions).toEqual([{ path: "old.txt", mode: "100644" }]);
     expect(out.additions).toEqual([
       { path: "new.txt", sha: SHA_B, mode: "100644" },
     ]);
   });
 
-  test("new executable files are a problem", () => {
-    const out = classifyDiff(raw(["000000", "100755", "A", "run.sh", SHA_B]));
-    expect(out.problems.join()).toContain("executable");
-    expect(out.problems.join()).toContain("run.sh");
-  });
-
-  test("mode changes are a problem", () => {
-    const out = classifyDiff(raw(["100644", "100755", "M", "x.sh", SHA_B]));
-    expect(out.problems.join()).toContain("mode change");
-    const t = classifyDiff(raw(["100644", "120000", "T", "x", SHA_B]));
-    expect(t.problems.length).toBeGreaterThan(0);
-  });
-
-  test("modifying an already-executable file is fine", () => {
-    const out = classifyDiff(raw(["100755", "100755", "M", "x.sh", SHA_B]));
-    expect(out.problems).toEqual([]);
-    expect(out.additions).toEqual([
-      { path: "x.sh", sha: SHA_B, mode: "100755" },
+  test("new executables and mode changes keep the real mode", () => {
+    const out = classifyDiff(
+      raw(
+        ["000000", "100755", "A", "run.sh", SHA_B],
+        ["100644", "100755", "M", "x.sh", SHA_B],
+        ["100755", "100644", "M", "y.sh", SHA_B],
+      ),
+    );
+    expect(out.additions.map((a) => [a.path, a.mode])).toEqual([
+      ["run.sh", "100755"],
+      ["x.sh", "100755"],
+      ["y.sh", "100644"],
     ]);
   });
 
-  test("symlinks and submodules are problems", () => {
-    expect(
-      classifyDiff(
-        raw(["000000", "120000", "A", "link", SHA_B]),
-      ).problems.join(),
-    ).toContain("symlink");
-    expect(
-      classifyDiff(
-        raw(["000000", "160000", "A", "sub", SHA_B]),
-      ).problems.join(),
-    ).toContain("submodule");
+  test("symlinks, type changes and submodules keep their modes", () => {
+    const out = classifyDiff(
+      raw(
+        ["000000", "120000", "A", "link", SHA_B],
+        ["100644", "120000", "T", "was-file", SHA_B],
+        ["000000", "160000", "A", "sub", SHA_B],
+        ["160000", "160000", "M", "sub2", SHA_B],
+      ),
+    );
+    expect(out.additions.map((a) => [a.path, a.mode])).toEqual([
+      ["link", "120000"],
+      ["was-file", "120000"],
+      ["sub", "160000"],
+      ["sub2", "160000"],
+    ]);
   });
 
   test("handles empty diffs and paths with spaces", () => {
-    expect(classifyDiff("")).toEqual({
-      additions: [],
-      deletions: [],
-      problems: [],
-    });
+    expect(classifyDiff("")).toEqual({ additions: [], deletions: [] });
     const out = classifyDiff(raw(["000000", "100644", "A", "a b.txt", SHA_B]));
     expect(out.additions[0]?.path).toBe("a b.txt");
+  });
+});
+
+describe("tree entries", () => {
+  test("submodules are commit entries, everything else is a blob", () => {
+    expect(entryType("160000")).toBe("commit");
+    for (const m of ["100644", "100755", "120000"]) {
+      expect(entryType(m)).toBe("blob");
+    }
+  });
+
+  test("deletes are sha null with the old mode and type", () => {
+    expect(deletionEntry({ path: "a", mode: "100755" })).toEqual({
+      path: "a",
+      mode: "100755",
+      type: "blob",
+      sha: null,
+    });
+    expect(deletionEntry({ path: "sub", mode: "160000" })).toEqual({
+      path: "sub",
+      mode: "160000",
+      type: "commit",
+      sha: null,
+    });
+  });
+});
+
+describe("mapParents", () => {
+  test("replayed parents map to their new sha, others are kept as-is", () => {
+    const map = new Map([["c1", "n1"]]);
+    expect(mapParents(["c1", "onremote"], map)).toEqual(["n1", "onremote"]);
+  });
+
+  test("root commits have no parents", () => {
+    expect(mapParents([], new Map())).toEqual([]);
   });
 });
 

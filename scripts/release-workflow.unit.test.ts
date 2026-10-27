@@ -95,7 +95,8 @@ describe("release workflow", () => {
   });
 
   test("pack pins @app-vitals/* ranges to VERSION and asserts them before publish", () => {
-    const steps: { name?: string; run?: string }[] = wf.jobs["publish-npm"].steps;
+    const steps: { name?: string; run?: string }[] =
+      wf.jobs["publish-npm"].steps;
     const names = steps.map((s) => s.name);
     const pack = names.indexOf("Pack");
     const assertStep = names.indexOf("Assert packed dependency ranges");

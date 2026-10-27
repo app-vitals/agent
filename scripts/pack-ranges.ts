@@ -23,7 +23,9 @@ const DEP_FIELDS = [
   "optionalDependencies",
 ] as const;
 
-type Manifest = Partial<Record<(typeof DEP_FIELDS)[number], Record<string, string>>> &
+type Manifest = Partial<
+  Record<(typeof DEP_FIELDS)[number], Record<string, string>>
+> &
   Record<string, unknown>;
 
 const isInternal = (dep: string) => dep.startsWith("@app-vitals/");
@@ -91,7 +93,10 @@ function main(): void {
   if (command === "rewrite") {
     for (const dir of targets) {
       const path = join(dir, "package.json");
-      const next = rewriteRanges(JSON.parse(readFileSync(path, "utf8")), version);
+      const next = rewriteRanges(
+        JSON.parse(readFileSync(path, "utf8")),
+        version,
+      );
       writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
       console.log(`[pack-ranges] ${path}: @app-vitals/* ranges -> ${version}`);
     }
@@ -111,7 +116,10 @@ if (import.meta.main) {
   try {
     main();
   } catch (err) {
-    console.error("[pack-ranges] fatal:", err instanceof Error ? err.message : err);
+    console.error(
+      "[pack-ranges] fatal:",
+      err instanceof Error ? err.message : err,
+    );
     process.exit(1);
   }
 }

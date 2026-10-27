@@ -212,7 +212,10 @@ describe("parseArgs --no-admin-boot", () => {
 });
 
 describe("checkAgentLibCopies", () => {
-  const top = { path: "node_modules/@app-vitals/agent-lib/package.json", version: "0.1.2" };
+  const top = {
+    path: "node_modules/@app-vitals/agent-lib/package.json",
+    version: "0.1.2",
+  };
   const nested = {
     path: "node_modules/@app-vitals/agent-admin/node_modules/@app-vitals/agent-lib/package.json",
     version: "0.1.0",
@@ -304,7 +307,9 @@ describe("findEmptyWildcards", () => {
     const checkout = fixture(["src/a.ts"]);
     const installed = fixture(["src/a.ts"]);
     try {
-      expect(findEmptyWildcards(GENERATED, checkout, installed)).toHaveLength(1);
+      expect(findEmptyWildcards(GENERATED, checkout, installed)).toHaveLength(
+        1,
+      );
     } finally {
       rmSync(checkout, { recursive: true });
       rmSync(installed, { recursive: true });
@@ -341,7 +346,8 @@ describe("chat boot check", () => {
   });
 
   test("evaluateChatBoot passes only when migrated and /health says ok", () => {
-    const logs = "[chat] running prisma migrate deploy...\n[chat] migrations complete";
+    const logs =
+      "[chat] running prisma migrate deploy...\n[chat] migrations complete";
     expect(
       evaluateChatBoot({ logs, healthBody: '{"status":"ok","service":"chat"}' })
         .ok,
@@ -351,11 +357,21 @@ describe("chat boot check", () => {
   test("evaluateChatBoot fails on resolution errors, missing migrations, no health or a bad body", () => {
     const logs = "[chat] migrations complete";
     expect(
-      evaluateChatBoot({ logs: "error: Cannot find module 'x'", healthBody: "{}" }).ok,
+      evaluateChatBoot({
+        logs: "error: Cannot find module 'x'",
+        healthBody: "{}",
+      }).ok,
     ).toBe(false);
-    expect(evaluateChatBoot({ logs: "[chat] starting", healthBody: '{"status":"ok"}' }).ok).toBe(false);
+    expect(
+      evaluateChatBoot({
+        logs: "[chat] starting",
+        healthBody: '{"status":"ok"}',
+      }).ok,
+    ).toBe(false);
     expect(evaluateChatBoot({ logs, healthBody: null }).ok).toBe(false);
-    expect(evaluateChatBoot({ logs, healthBody: '{"status":"down"}' }).ok).toBe(false);
+    expect(evaluateChatBoot({ logs, healthBody: '{"status":"down"}' }).ok).toBe(
+      false,
+    );
     expect(evaluateChatBoot({ logs, healthBody: "not json" }).ok).toBe(false);
   });
 
@@ -363,7 +379,11 @@ describe("chat boot check", () => {
     const a = parseArgs(["--version", "1.2.3"], {});
     expect(a.chatImage).toBe("ghcr.io/app-vitals/agent-chat:1.2.3");
     expect(a.bootChat).toBe(true);
-    expect(parseArgs(["--version", "1.2.3", "--no-chat-boot"], {}).bootChat).toBe(false);
-    expect(parseArgs(["--version", "1.2.3", "--no-agent-boot"], {}).bootAgent).toBe(false);
+    expect(
+      parseArgs(["--version", "1.2.3", "--no-chat-boot"], {}).bootChat,
+    ).toBe(false);
+    expect(
+      parseArgs(["--version", "1.2.3", "--no-agent-boot"], {}).bootAgent,
+    ).toBe(false);
   });
 });

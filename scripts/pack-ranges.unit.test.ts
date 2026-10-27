@@ -11,7 +11,10 @@ const manifest = {
     "@app-vitals/agent-runtime": "0.1.0",
     zod: "^3.0.0",
   },
-  devDependencies: { "@app-vitals/agent-lib": "workspace:^", biome: "workspace:*" },
+  devDependencies: {
+    "@app-vitals/agent-lib": "workspace:^",
+    biome: "workspace:*",
+  },
 };
 
 describe("rewriteRanges", () => {
@@ -42,14 +45,18 @@ describe("findMismatchedRanges", () => {
   });
 
   test("passes a rewritten manifest and manifests without internal deps", () => {
-    expect(findMismatchedRanges(rewriteRanges(manifest, "0.1.2"), "0.1.2")).toEqual([]);
+    expect(
+      findMismatchedRanges(rewriteRanges(manifest, "0.1.2"), "0.1.2"),
+    ).toEqual([]);
     expect(findMismatchedRanges({ name: "x" }, "0.1.2")).toEqual([]);
   });
 });
 
 describe("parseCli", () => {
   test("parses command, version and targets", () => {
-    expect(parseCli(["assert", "--version", "1.2.3", "a.tgz", "b.tgz"])).toEqual({
+    expect(
+      parseCli(["assert", "--version", "1.2.3", "a.tgz", "b.tgz"]),
+    ).toEqual({
       command: "assert",
       version: "1.2.3",
       targets: ["a.tgz", "b.tgz"],
@@ -70,14 +77,25 @@ describe("assert command (negative check)", () => {
     Bun.spawnSync(["mkdir", pkgDir]);
     writeFileSync(
       join(pkgDir, "package.json"),
-      JSON.stringify({ name: "x", version: "0.1.2", dependencies: { "@app-vitals/agent-lib": range } }),
+      JSON.stringify({
+        name: "x",
+        version: "0.1.2",
+        dependencies: { "@app-vitals/agent-lib": range },
+      }),
     );
     const tgz = join(dir, "x.tgz");
     Bun.spawnSync(["tar", "-czf", tgz, "-C", dir, "package"]);
     return tgz;
   }
   const run = (tgz: string) =>
-    Bun.spawnSync(["bun", join(import.meta.dir, "pack-ranges.ts"), "assert", "--version", "0.1.2", tgz]);
+    Bun.spawnSync([
+      "bun",
+      join(import.meta.dir, "pack-ranges.ts"),
+      "assert",
+      "--version",
+      "0.1.2",
+      tgz,
+    ]);
 
   test("fails on a mismatched packed manifest", () => {
     expect(run(packWith("0.1.0")).exitCode).toBe(1);
