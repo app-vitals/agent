@@ -69,7 +69,7 @@ Commits pushed with plain git are unsigned. Under App auth an agent can instead 
 - **Refusals.** Some pushes cannot be reproduced exactly through the REST API, so the helper exits non-zero instead of silently differing: new executable files, mode changes, symlinks, submodules, merge and root commits, force/tag/delete pushes, and oversized commits (default 10 MB base64 per commit, override with `SHIPWRIGHT_SIGNED_COMMITS_MAX_BYTES`; GitHub documents no real limit, so tune it if one is observed). Non-fast-forward pushes are no longer refused; they behave like regular git push (print git's standard rejection message).
 - **Bypass.** Every refusal ends with the fix: prefix that one push with `SHIPWRIGHT_SIGNED_COMMITS=off`, e.g. `SHIPWRIGHT_SIGNED_COMMITS=off git push origin my-branch`. That push is unsigned.
 - **SHAs change.** The API re-creates each commit, so local SHAs differ after a push; the local branch is moved to the new head. Anything that recorded a pre-push SHA (notes, PR comments) is stale.
-- **Partial failure.** If a replay fails midway, the message says how many commits landed and leaves the worktree untouched. Run `git fetch`, rebase the remaining commits onto the remote branch, and push again.
+- **Partial failure.** The remote branch only moves once, after every commit is created and the tree check passes. A failure before that changes nothing on the remote or in the worktree, so fix the cause and re-run the push.
 
 ## Troubleshooting
 

@@ -478,6 +478,29 @@ describe("signedPush", () => {
     ).rejects.toThrow(/\(fetch first\)/);
   });
 
+  test("a non-race 422 on the ref update is rethrown, not reported as fetch first", async () => {
+    commitTwo();
+    const gh = fakeGitHub(bare);
+    const wrapped = (async (url: string, init?: RequestInit) => {
+      if (init?.method !== "GET" && /\/git\/refs(\/|$)/.test(String(url))) {
+        return new Response(
+          JSON.stringify({ message: "Protected branch update failed" }),
+          { status: 422 },
+        );
+      }
+      return gh.fetch(url, init);
+    }) as unknown as typeof fetch;
+    const err = await signedPush({
+      argv: ["origin", "feat/x"],
+      env: env(),
+      cwd: work,
+      fetch: wrapped,
+      repo: "acme/widgets",
+    }).catch((e) => e as Error);
+    expect(err.message).toContain("Protected branch update failed");
+    expect(err.message).not.toContain("fetch first");
+  });
+
   test("missing owner token gives a clear error", async () => {
     commitTwo();
     const gh = fakeGitHub(bare);

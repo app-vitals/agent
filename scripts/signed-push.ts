@@ -574,7 +574,15 @@ export async function signedPush(
       });
     }
   } catch (err) {
-    if (err instanceof ApiError && err.status === 422) rejected();
+    // Only these two messages are the race; other 422s (protected branch,
+    // bad ref name, unreachable sha) cannot be fixed by fetching and retrying.
+    if (
+      err instanceof ApiError &&
+      err.status === 422 &&
+      /Update is not a fast forward|Reference already exists/i.test(err.message)
+    ) {
+      rejected();
+    }
     throw err;
   }
 
