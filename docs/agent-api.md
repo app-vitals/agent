@@ -92,6 +92,8 @@ cookies reach `GET /agents` (filtered to their memberships) and
 `/agents/{id}/**` for agents they are members of; everything else is 403.
 Cookies do not set `scope`.
 
+Sessions are a 7-day idle timeout: the admin UI auth middleware re-issues the cookie (fresh 7-day `exp`) when the token is more than 1 hour old, re-deriving `isAdmin` from the current admin allowlist, so removing an email from the allowlist takes effect at the next renewal. Expired or invalid tokens are never renewed.
+
 
 ---
 
