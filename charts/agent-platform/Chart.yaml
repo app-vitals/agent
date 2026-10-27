@@ -1,0 +1,7 @@
+apiVersion: v2
+name: agent-platform
+description: Shared Helm templates for the agent platform (library chart, no installable resources)
+type: library
+# Chart version tracks the platform release: bump it to the platform's X.Y.Z when
+# a release changes the shared templates. The publish workflow keys off this value.
+version: 0.1.0

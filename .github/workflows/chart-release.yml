@@ -1,0 +1,138 @@
+name: Chart Release
+
+# Publishes the library chart at charts/agent-platform to a GitHub Pages Helm
+# repository (the `gh-pages` branch), consumable via `helm repo add`.
+#
+#   publish (push to main) — packages the chart, merges it into the existing
+#     gh-pages `index.yaml` (with the public Pages `--url`), and commits the
+#     `.tgz` and `index.yaml` to gh-pages. Keyed off Chart.yaml's `version`: an
+#     unchanged version repackages to no committable diff, so the effective
+#     trigger is a version bump landing on main.
+#
+#   dry-run (pull_request) — validates the chart lints and packages and that the
+#     index merges, without publishing anything.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/agent-platform/**"
+      - ".github/workflows/chart-release.yml"
+  pull_request:
+    paths:
+      - "charts/agent-platform/**"
+      - ".github/workflows/chart-release.yml"
+
+# Least privilege at the workflow level; the publish job widens to contents:write.
+permissions:
+  contents: read
+
+env:
+  PAGES_URL: https://app-vitals.github.io/agent
+
+jobs:
+  publish:
+    name: package + publish (gh-pages)
+    if: github.event_name == 'push'
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    # Serialized so concurrent `--merge` + push can't corrupt gh-pages index.yaml.
+    concurrency:
+      group: chart-release
+      cancel-in-progress: false
+    permissions:
+      contents: write # push the .tgz + index.yaml to gh-pages
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # persist-credentials left at its default (true) intentionally: the commit
+      # step below pushes from this checkout and relies on its persisted token.
+      - name: Checkout gh-pages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "$GITHUB_ACTOR"
+          git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - name: Lint chart
+        run: helm lint charts/agent-platform
+
+      - name: Package chart into gh-pages
+        run: helm package charts/agent-platform -d gh-pages/
+
+      - name: Merge repo index
+        # --merge fails if index.yaml doesn't exist yet (first publish on an
+        # empty gh-pages), so the flag is only passed when the file is present.
+        run: |
+          MERGE_FLAG=""
+          [ -f gh-pages/index.yaml ] && MERGE_FLAG="--merge gh-pages/index.yaml"
+          helm repo index gh-pages/ $MERGE_FLAG --url "$PAGES_URL"
+
+      - name: Parse chart version
+        id: chart-version
+        run: |
+          CHART_VERSION=$(grep '^version:' charts/agent-platform/Chart.yaml | sed 's/^version: //')
+          [ -z "$CHART_VERSION" ] && echo "Error: could not parse chart version from Chart.yaml" && exit 1
+          echo "version=${CHART_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push to gh-pages
+        working-directory: gh-pages
+        env:
+          CHART_VERSION: ${{ steps.chart-version.outputs.version }}
+        run: |
+          git add -- '*.tgz' index.yaml
+          if git diff --cached --quiet; then
+            echo "No chart changes to publish (version ${CHART_VERSION} already on gh-pages)."
+            exit 0
+          fi
+          git commit -m "chart: publish agent-platform ${CHART_VERSION}"
+          git push origin gh-pages
+
+  dry-run:
+    name: package + index (dry run)
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - name: Lint chart
+        run: helm lint charts/agent-platform
+
+      - name: Package chart (no publish)
+        run: helm package charts/agent-platform -d .cr-release-packages
+
+      - name: Generate repo index (no publish)
+        # Same --url as publish, so the dry run exercises the real index entries.
+        run: helm repo index .cr-release-packages --url "$PAGES_URL"
+
+      - name: Merge into live index (no publish)
+        # Proves the --merge path against the published index when it exists.
+        run: |
+          if curl -fsSL "$PAGES_URL/index.yaml" -o live-index.yaml; then
+            helm repo index .cr-release-packages --merge live-index.yaml --url "$PAGES_URL"
+          else
+            echo "No published index yet; merge path skipped."
+          fi
+
+      - name: Show packaged artifacts
+        run: ls -la .cr-release-packages && cat .cr-release-packages/index.yaml
