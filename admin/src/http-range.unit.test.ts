@@ -42,7 +42,9 @@ describe("parseByteRange", () => {
     });
   });
   test("start at or beyond size is unsatisfiable", () => {
-    expect(parseByteRange("bytes=100-", 100)).toEqual({ kind: "unsatisfiable" });
+    expect(parseByteRange("bytes=100-", 100)).toEqual({
+      kind: "unsatisfiable",
+    });
     expect(parseByteRange("bytes=500-600", 100)).toEqual({
       kind: "unsatisfiable",
     });

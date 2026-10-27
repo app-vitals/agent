@@ -3536,7 +3536,11 @@ describe("renderChatMessageBubble — voice reply play control (COS-63.1)", () =
   test("includes an error fallback with a download link and message", () => {
     const html = renderChatMessageBubble(MSG, null, "agent-1");
     expect(html).toContain("Could not play this reply");
-    expect(html).toMatch(new RegExp(`<a[^>]*download[^>]*href="${URL63}"|<a[^>]*href="${URL63}"[^>]*download`));
+    expect(html).toMatch(
+      new RegExp(
+        `<a[^>]*download[^>]*href="${URL63}"|<a[^>]*href="${URL63}"[^>]*download`,
+      ),
+    );
   });
 
   test("user audio keeps native controls and no custom control", () => {
@@ -4385,18 +4389,9 @@ describe("queue-activity links (AEP-3.6)", () => {
 
 describe("renderAgentDetailPage — signed commits toggle", () => {
   const render = (envVars: Record<string, string>) =>
-    renderAgentDetailPage(
-      AGENT,
-      envVars,
-      [],
-      [],
-      [],
-      [],
-      [],
-      USER_NAME,
-      true,
-      { timezone: "UTC" },
-    );
+    renderAgentDetailPage(AGENT, envVars, [], [], [], [], [], USER_NAME, true, {
+      timezone: "UTC",
+    });
 
   test("hidden when the agent has no GH_APP_ID", () => {
     expect(render({ SHIPWRIGHT_SIGNED_COMMITS: "1" })).not.toContain(
@@ -4503,9 +4498,7 @@ describe("renderChatThreadPage — auto-play voice replies toggle", () => {
       querySelector: (sel: string) =>
         sel === "audio" && opts.withAudio ? audioStub : null,
     };
-    const seeded = opts.seededInDom
-      ? [{ getAttribute: () => "msg-new" }]
-      : [];
+    const seeded = opts.seededInDom ? [{ getAttribute: () => "msg-new" }] : [];
     const container = {
       ...makeEl(),
       scrollTop: 0,
