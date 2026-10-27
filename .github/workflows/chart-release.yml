@@ -47,13 +47,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # persist-credentials left at its default (true) intentionally: the commit
-      # step below pushes from this checkout and relies on its persisted token.
       - name: Checkout gh-pages
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: gh-pages
           path: gh-pages
+          persist-credentials: false
 
       - name: Configure Git identity
         run: |
@@ -90,6 +89,7 @@ jobs:
         working-directory: gh-pages
         env:
           CHART_VERSION: ${{ steps.chart-version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git add -- '*.tgz' index.yaml
           if git diff --cached --quiet; then
@@ -97,7 +97,7 @@ jobs:
             exit 0
           fi
           git commit -m "chart: publish agent-platform ${CHART_VERSION}"
-          git push origin gh-pages
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages
 
   dry-run:
     name: package + index (dry run)
