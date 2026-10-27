@@ -2,7 +2,17 @@ apiVersion: v1
 entries:
   agent-platform:
   - apiVersion: v2
-    created: "2026-10-27T17:55:39.085438393Z"
+    created: "2026-10-27T18:04:34.803655825Z"
+    description: Shared Helm templates for the agent platform (library chart, no installable
+      resources)
+    digest: 3a919a38592d075d45a0217b3c5b38e6d0f338d65d1985d78cec95861923b60e
+    name: agent-platform
+    type: library
+    urls:
+    - https://app-vitals.github.io/agent/agent-platform-0.2.0.tgz
+    version: 0.2.0
+  - apiVersion: v2
+    created: "2026-10-27T18:04:34.803480314Z"
     description: Shared Helm templates for the agent platform (library chart, no installable
       resources)
     digest: a62da675cd96ada182749165d8c468abbce43c887dc88aa5b50374e0184e771b
@@ -11,4 +21,4 @@ entries:
     urls:
     - https://app-vitals.github.io/agent/agent-platform-0.1.0.tgz
     version: 0.1.0
-generated: "2026-10-27T17:55:39.085179039Z"
+generated: "2026-10-27T18:04:34.80323804Z"
