@@ -32,11 +32,14 @@ release-derived names are whatever the consumer defines.
 - Whisper: `whisper.fullname`, `whisper.selectorLabels`, `whisper.labels`,
   `whisper.serviceUrl`
 - Voice: `voice.secretName`
-- Support: `publicHost`, `publicScheme`, `admin.appBaseUrl`, `postgresql.fullname`,
-  `postgresql.password`, `postgresql.dsn`, `cloudSqlProxy.container`,
-  `chat.fullname`, `chat.secretName`, `chat.adminTokenSecretName`,
-  `chat.adminTokenSecretKey`, `agent.claudePolicy.configMapName`,
-  `agent.claudePolicy.json`, `validate.claudePolicy`, `validate.anthropicFederation`
+- Chat: `chat.fullname`, `chat.selectorLabels`, `chat.labels`,
+  `chat.serviceAccountName`, `chat.secretName`, `chat.adminTokenSecretName`,
+  `chat.adminTokenSecretKey`, `chat.databaseName`, `chat.useBundledDatabase`
+- Database: `postgresql.fullname`, `postgresql.password`, `postgresql.dsn`,
+  `cloudSqlProxy.container`
+- Support: `publicHost`, `publicScheme`, `admin.appBaseUrl`,
+  `agent.claudePolicy.configMapName`, `agent.claudePolicy.json`,
+  `validate.claudePolicy`, `validate.anthropicFederation`
 
 ## Manifests
 
@@ -54,11 +57,27 @@ They read the consumer's `.Values` (`admin`, `auth`, `agent`, `postgresql`,
 `externalDatabase`, `cloudSqlProxy`, `chat`, `networking`, `selfServe`, ...), so
 the consumer's values file must define those keys.
 
+## Workload templates
+
+Each of these renders one complete manifest (or nothing when its own guard is
+off). A consumer calls it from a one-line file under its own `templates/`, e.g.
+`{{ include "agent-platform.chat.deployment" . }}` in `chat-deployment.yaml`:
+
+- Chat (`chat.enabled`): `chat.deployment`, `chat.service`, `chat.secret`,
+  `chat.serviceaccount`, `chat.pdb`
+- Whisper (`agent.voice.enabled`, provider `whisper`): `whisper.deployment`,
+  `whisper.service`
+- Voice (`agent.voice.enabled`): `voice.secret`
+
+They read the consumer's `chat.*`, `agent.voice.*`, `cloudSqlProxy.*`,
+`postgresql.*`, `global.*` and `imagePullPolicy` values, and render the same
+names as the shipwright chart they were ported from.
+
 ## Tests
 
 A library chart cannot render itself, so the helpers are tested through a
 minimal consumer chart in `tests/fixtures/consumer` (a stub per manifest plus a
-shipwright-shaped `values.yaml`; the `admin_*` / `agent_*` suites run against it), using the
+shipwright-shaped `values.yaml`; the `admin_*`, `agent_*`, `chat_*`, `voice_*` and `names_*` suites run against it), using the
 [helm-unittest](https://github.com/helm-unittest/helm-unittest) plugin:
 
 ```bash

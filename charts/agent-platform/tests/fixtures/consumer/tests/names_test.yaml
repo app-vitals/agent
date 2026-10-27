@@ -1,0 +1,36 @@
+# Rendered names for a shipwright-shaped values file (release "shipwright"). The
+# shipwright-chat Service name is reached by vitals-os through an ExternalName
+# alias, so it and the secret/PDB/SA names must never drift.
+suite: chat and whisper rendered names (shipwright-shaped values)
+release:
+  name: shipwright
+  namespace: shipwright
+set:
+  chat.enabled: true
+  chat.podDisruptionBudget.enabled: true
+  chat.database.existingSecret: ""
+  agent.voice.enabled: true
+tests:
+  - it: names the chat Service shipwright-chat
+    template: templates/chat-service.yaml
+    asserts:
+      - equal: {path: metadata.name, value: shipwright-chat}
+      - equal: {path: spec.selector, value: {"app.kubernetes.io/name": shipwright, "app.kubernetes.io/instance": shipwright, "app.kubernetes.io/component": chat}}
+  - it: names the chat Deployment, ServiceAccount, PDB and Secret after the release
+    asserts:
+      - equal: {path: metadata.name, value: shipwright-chat}
+        template: templates/chat-deployment.yaml
+      - equal: {path: metadata.name, value: shipwright-chat}
+        template: templates/chat-serviceaccount.yaml
+      - equal: {path: metadata.name, value: shipwright-chat}
+        template: templates/chat-pdb.yaml
+      - equal: {path: metadata.name, value: shipwright-chat}
+        template: templates/chat-secret.yaml
+  - it: names the whisper pair and voice Secret after the release
+    asserts:
+      - equal: {path: metadata.name, value: shipwright-whisper}
+        template: templates/whisper-deployment.yaml
+      - equal: {path: metadata.name, value: shipwright-whisper}
+        template: templates/whisper-service.yaml
+      - equal: {path: metadata.name, value: shipwright-voice}
+        template: templates/voice-secret.yaml
