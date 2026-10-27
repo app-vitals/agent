@@ -1,0 +1,86 @@
+suite: chart metadata and NOTES rendering
+# Asserts the chart-level facts HD-2.1 established: NOTES.txt renders the chart
+# name/version, the configured service ports, and the networking/auth surface.
+# NOTES.txt is free text, so assertions use the *Raw matchers (no YAML path).
+templates:
+  - templates/NOTES.txt
+tests:
+  - it: renders the Shipwright Harness banner with chart + app version
+    asserts:
+      - matchRegexRaw:
+          pattern: Thank you for installing shipwright \(Shipwright Harness\)
+      - matchRegexRaw:
+          pattern: "chart version \\d+\\.\\d+\\.\\d+, app version \\d+\\.\\d+\\.\\d+"
+
+  - it: surfaces the enabled service ports in NOTES
+    # The agent port is deliberately absent: agents are not a Deployment in this
+    # chart, so advertising a port for them was misleading.
+    asserts:
+      - matchRegexRaw:
+          pattern: "admin:      3001"
+      - matchRegexRaw:
+          pattern: "metrics:    3460"
+
+  - it: omits task-store and chat ports when those services are disabled
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "task-store: 3000"
+      - notMatchRegexRaw:
+          pattern: "chat:       3000"
+
+  - it: surfaces task-store and chat ports once they are enabled
+    set:
+      taskStore.enabled: true
+      chat.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: "task-store: 3000"
+      - matchRegexRaw:
+          pattern: "chat:       3000"
+
+  - it: tells the operator no agent exists yet when provisioning is on
+    # The single most common "what now?" after a successful install.
+    set:
+      agent.provisioning.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: "/admin/agents/new"
+      - matchRegexRaw:
+          pattern: "Set its Claude"
+
+  - it: reports the default networking exposure and auth mode
+    asserts:
+      - matchRegexRaw:
+          pattern: "Networking exposure type: ClusterIP"
+      - matchRegexRaw:
+          pattern: "Auth mode:                open"
+
+  - it: surfaces the metrics dashboard access line by default (metrics enabled)
+    asserts:
+      - matchRegexRaw:
+          pattern: "open http://localhost:3460/dashboard"
+
+  - it: omits the metrics dashboard access line when metrics is disabled
+    set:
+      metrics.enabled: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "3460/dashboard"
+
+  - it: documents the PostgreSQL connection when the subchart is enabled
+    set:
+      postgresql.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: PostgreSQL \(Bitnami subchart\)
+      - matchRegexRaw:
+          pattern: database "shipwright_admin", user "shipwright"
+
+  - it: tells the operator to bring their own DB when PostgreSQL is disabled
+    set:
+      postgresql.enabled: false
+    asserts:
+      - matchRegexRaw:
+          pattern: PostgreSQL subchart is DISABLED
+      - matchRegexRaw:
+          pattern: external\s+DATABASE_URL_SHIPWRIGHT_ADMIN

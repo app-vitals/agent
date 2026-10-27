@@ -1314,3 +1314,13 @@ image:
 podLabelsSelector: |
   app.kubernetes.io/name: shipwright
   app.kubernetes.io/instance: shipwright
+
+# ---- Test-only switches for the extension-list suites (not part of the shipwright values) ----
+fixture:
+  # Stubs pass an empty extension set (platform-only render through the dict arg).
+  platformOnly: false
+  # When non-empty, passed to the stubs verbatim instead of Shipwright's lists.
+  extensions: {}
+  # Renders templates/platform-only.yaml: every extensible template called with
+  # the bare root context (no dict arg).
+  rootContext: false

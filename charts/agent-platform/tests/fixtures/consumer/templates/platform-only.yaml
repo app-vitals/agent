@@ -1,0 +1,8 @@
+{{- if .Values.fixture.rootContext }}
+{{- range $t := list "agent-platform.httproute" "agent-platform.healthcheckpolicy" "agent-platform.ingress" "agent-platform.ingressTraefikMiddleware" "agent-platform.tenantNetworkPolicy" "agent-platform.postgresql.initdbConfigMap" }}
+{{- with (include $t $ | trim) }}
+---
+{{ . }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,1 @@
+{{ include "agent-platform.postgresql.initdbConfigMap" (dict "context" . "extensions" (include "shipwright.platformExtensions" . | fromYaml)) }}
