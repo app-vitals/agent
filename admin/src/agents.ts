@@ -24,7 +24,6 @@ import {
   SpecialtyRegistry,
 } from "./specialty-manifest-loader.ts";
 import { ANTHROPIC_CREDENTIALS_BLOCKED_CODE } from "./anthropic-credential-guard.ts";
-import { resolveSpecialty, withResolvedSpecialty } from "./agent-specialty.ts";
 import type { PrismaTransactionClient } from "./prisma-tx.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -34,7 +33,7 @@ interface CreateAgentInput {
   slackId?: string | null;
   selfHosted?: boolean;
   /** Specialty name. Omitted means Prisma's column default ("coding") applies. */
-  typeName?: string;
+  specialty?: string;
   /** Initial repos[] — the manifest repos merged with any request-supplied repos. */
   repos?: string[];
   /** Initial reviewAuthorAllowlist[]. */
@@ -54,9 +53,7 @@ export interface AgentRecord {
   name: string;
   slackId: string | null;
   selfHosted: boolean;
-  typeName: string;
-  /** AGR-6.1: resolved specialty (specialty ?? typeName). */
-  specialty?: string;
+  specialty: string;
   createdAt: Date;
   updatedAt: Date;
   /** Owning account (SSP-5.2 admin Account column); null for legacy agents. */
@@ -84,9 +81,7 @@ export interface AgentSummary extends Partial<AgentAnthropicIdentity> {
   id: string;
   name: string;
   selfHosted: boolean;
-  typeName: string;
-  /** AGR-6.1: resolved specialty (specialty ?? typeName). */
-  specialty?: string;
+  specialty: string;
   /** Owning account; null/absent for platform agents. */
   accountId?: string | null;
 }
@@ -102,9 +97,7 @@ export interface AgentDetail extends Partial<AgentAnthropicIdentity> {
   reviewAuthorAllowlist: string[];
   patchAuthorAllowlist: string[];
   restrictSlackToMembers: boolean;
-  typeName: string;
-  /** AGR-6.1: resolved specialty (specialty ?? typeName). */
-  specialty?: string;
+  specialty: string;
   /**
    * Owning account, null for unassigned (platform) agents. Optional here so
    * existing test doubles constructing a narrower AgentDetail literal don't
@@ -209,11 +202,8 @@ interface AgentIdAndRepos {
   /**
    * ARD-6.1: the agent's Specialty name, surfaced on the runtime config
    * response so the agent process can pick its workspace template directory.
-   * Optional for the same fixture-compat reason as trialExpiresAt.
    */
-  typeName?: string;
-  /** AGR-6.1: resolved specialty (specialty ?? typeName). */
-  specialty?: string;
+  specialty: string;
   /**
    * APM-1.5: the 6 agent-policy fields, read by the runtime GET /:id/config
    * route for direct passthrough. Required (not optional) since the Prisma
@@ -263,7 +253,6 @@ const SUMMARY_SELECT = {
   id: true,
   name: true,
   selfHosted: true,
-  typeName: true,
   specialty: true,
   accountId: true,
   ownerEmail: true,
@@ -283,7 +272,6 @@ const DETAIL_SELECT = {
   reviewAuthorAllowlist: true,
   patchAuthorAllowlist: true,
   restrictSlackToMembers: true,
-  typeName: true,
   specialty: true,
   accountId: true,
   createdAt: true,
@@ -338,8 +326,8 @@ export class AgentService {
         name: input.name,
         slackId: input.slackId ?? null,
         selfHosted: input.selfHosted ?? false,
-        ...(input.typeName !== undefined
-          ? { typeName: input.typeName, specialty: input.typeName }
+        ...(input.specialty !== undefined
+          ? { specialty: input.specialty }
           : {}),
         ...(input.repos !== undefined ? { repos: input.repos } : {}),
         ...(input.reviewAuthorAllowlist !== undefined
@@ -361,10 +349,10 @@ export class AgentService {
     });
     const missingRequiredEnv = await this.computeMissingRequiredEnv(
       row.id,
-      resolveSpecialty(row),
+      row.specialty,
       client,
     );
-    return { ...withResolvedSpecialty(row), missingRequiredEnv };
+    return { ...row, missingRequiredEnv };
   }
 
   /**
@@ -395,18 +383,18 @@ export class AgentService {
   }
 
   /**
-   * List all agents (id + name + selfHosted + typeName), ordered by name asc.
+   * List all agents (id + name + selfHosted + specialty), ordered by name asc.
    */
   async list(): Promise<AgentSummary[]> {
     const rows = await this.prisma.agent.findMany({
       select: SUMMARY_SELECT,
       orderBy: { name: "asc" },
     });
-    return rows.map(withResolvedSpecialty);
+    return rows;
   }
 
   /**
-   * Get {id, name, selfHosted, typeName} for a single agent. Returns null if
+   * Get {id, name, selfHosted, specialty} for a single agent. Returns null if
    * not found.
    */
   async getSummary(id: string): Promise<AgentSummary | null> {
@@ -414,7 +402,7 @@ export class AgentService {
       where: { id },
       select: SUMMARY_SELECT,
     });
-    return row ? withResolvedSpecialty(row) : null;
+    return row;
   }
 
   /**
@@ -428,11 +416,11 @@ export class AgentService {
    */
   private async computeMissingRequiredEnv(
     agentId: string,
-    typeName: string,
+    specialty: string,
     client: PrismaTransactionClient = this.prisma,
   ): Promise<string[]> {
     const requiredKeys = this.specialtyRegistry
-      .getManifest(typeName)
+      .getManifest(specialty)
       .env.required.map((entry) => entry.key);
 
     if (requiredKeys.length === 0) return [];
@@ -447,7 +435,7 @@ export class AgentService {
   }
 
   /**
-   * Get the full agent record (incl. repos/typeName/timestamps), plus
+   * Get the full agent record (incl. repos/specialty/timestamps), plus
    * `missingRequiredEnv` (see computeMissingRequiredEnv). Returns null if not
    * found.
    */
@@ -460,9 +448,9 @@ export class AgentService {
 
     const missingRequiredEnv = await this.computeMissingRequiredEnv(
       id,
-      resolveSpecialty(row),
+      row.specialty,
     );
-    return { ...withResolvedSpecialty(row), missingRequiredEnv };
+    return { ...row, missingRequiredEnv };
   }
 
   /**
@@ -531,9 +519,9 @@ export class AgentService {
     });
     const missingRequiredEnv = await this.computeMissingRequiredEnv(
       id,
-      resolveSpecialty(row),
+      row.specialty,
     );
-    return { ...withResolvedSpecialty(row), missingRequiredEnv };
+    return { ...row, missingRequiredEnv };
   }
 
   /**
@@ -553,7 +541,6 @@ export class AgentService {
         restrictSlackToMembers: true,
         trialExpiresAt: true,
         selfHosted: true,
-        typeName: true,
         specialty: true,
         account: { select: { status: true } },
         autoPostReviews: true,
@@ -570,7 +557,7 @@ export class AgentService {
     const memberEmails = members.map((m) => m.email);
     const { account, ...rest } = row;
     return {
-      ...withResolvedSpecialty(rest),
+      ...rest,
       memberEmails,
       accountStatus: account?.status ?? null,
     };
@@ -583,7 +570,7 @@ export class AgentService {
    * order Prisma returns.
    */
   async listAll(): Promise<AgentRecord[]> {
-    return (await this.prisma.agent.findMany()).map(withResolvedSpecialty);
+    return await this.prisma.agent.findMany();
   }
 
   /**
@@ -595,7 +582,7 @@ export class AgentService {
     const rows = await this.prisma.agent.findMany({
       where: { id: { in: ids } },
     });
-    return rows.map(withResolvedSpecialty);
+    return rows;
   }
 
   /**
@@ -606,7 +593,7 @@ export class AgentService {
     const rows = await this.prisma.agent.findMany({
       where: { name: { contains: query, mode: "insensitive" } },
     });
-    return rows.map(withResolvedSpecialty);
+    return rows;
   }
 
   /**
@@ -677,10 +664,10 @@ export class AgentService {
     });
     const missingRequiredEnv = await this.computeMissingRequiredEnv(
       id,
-      resolveSpecialty(row),
+      row.specialty,
       client,
     );
-    return { ...withResolvedSpecialty(row), missingRequiredEnv };
+    return { ...row, missingRequiredEnv };
   }
 }
 
@@ -696,7 +683,7 @@ export class AgentService {
  */
 export interface CreateAgentFormInput {
   name: string | undefined;
-  typeName: string | undefined;
+  specialty: string | undefined;
   /**
    * "in-cluster" means K8s-provisioned; anything else (including absent)
    * means self-hosted — matches the pre-APA-1.1 handler's fallback rule.
@@ -845,7 +832,7 @@ type CreateAgentTxOutcome =
   | { ok: false; errorCode: CreateAgentErrorCode; errorMessage?: string };
 
 /**
- * Atomically create an agent: validate name/typeName, create the Agent row,
+ * Atomically create an agent: validate name/specialty, create the Agent row,
  * seed AgentTool/AgentPlugin from the resolved type manifest, attach
  * repos/allowlists/members, patch Claude credentials, provision Kubernetes
  * resources when requested, and best-effort reconcile system crons.
@@ -887,11 +874,11 @@ export async function createAgent(
   // Resolve the requested type BEFORE creating any row — an unknown/missing
   // type must fail with zero rows created. The resolved manifest is
   // captured (not discarded) so its tools/plugins can be seeded below.
-  const typeName = input.typeName;
-  const manifest = typeName
-    ? deps.specialtyRegistry.tryGetManifest(typeName)
+  const specialty = input.specialty;
+  const manifest = specialty
+    ? deps.specialtyRegistry.tryGetManifest(specialty)
     : undefined;
-  if (!typeName || !manifest) {
+  if (!specialty || !manifest) {
     return { ok: false, errorCode: "invalid_type" };
   }
 
@@ -936,7 +923,7 @@ export async function createAgent(
         {
           name,
           selfHosted: !inCluster,
-          typeName,
+          specialty,
           restrictSlackToMembers,
           ...(input.accountId !== undefined
             ? { accountId: input.accountId }

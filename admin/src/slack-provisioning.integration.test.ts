@@ -242,7 +242,7 @@ function makeMockDeps(
         reviewAuthorAllowlist: [],
         patchAuthorAllowlist: [],
         restrictSlackToMembers: false,
-        typeName: "coding",
+        specialty: "coding",
         missingRequiredEnv: [],
       }),
       updateFields: async (id: string) => ({
@@ -256,7 +256,7 @@ function makeMockDeps(
         reviewAuthorAllowlist: [],
         patchAuthorAllowlist: [],
         restrictSlackToMembers: false,
-        typeName: "coding",
+        specialty: "coding",
         missingRequiredEnv: [],
       }),
     },

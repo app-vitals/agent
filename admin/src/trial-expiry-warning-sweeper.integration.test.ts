@@ -88,7 +88,7 @@ function buildDeps(
         name: agent.name,
         slackId: null,
         selfHosted: false,
-        typeName: "coding",
+        specialty: "coding",
         createdAt: NOW,
         updatedAt: NOW,
         missingRequiredEnv: [],

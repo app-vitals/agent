@@ -80,7 +80,7 @@ export interface AgentDetail {
    */
   restrictSlackToMembers: boolean;
   /** The agent's type name (e.g. "coding"), resolved at creation time. */
-  typeName: string;
+  specialty: string;
   /**
    * Required env keys declared by the agent's type manifest with no
    * corresponding AgentEnv row yet — key names only, never values. Always
@@ -1911,7 +1911,7 @@ export function renderAgentDetailPage(
       <div>
         <a href="/admin/agents" style="font-size:13px;color:#6b7280;text-decoration:none">← Agents</a>
         <h1 class="page-title" style="margin-top:4px">${escapeHtml(agent.name)}</h1>
-        <span style="font-size:13px;color:#6b7280">Type: <span class="mono">${escapeHtml(agent.typeName)}</span></span>
+        <span style="font-size:13px;color:#6b7280">Type: <span class="mono">${escapeHtml(agent.specialty)}</span></span>
         ${agent.slackId ? `<span style="font-size:13px;color:#6b7280">Slack ID: <span class="mono">${escapeHtml(agent.slackId)}</span></span>` : ""}
       </div>
       ${

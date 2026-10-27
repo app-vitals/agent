@@ -75,7 +75,7 @@ const REQUIRED_TEMPLATES: readonly string[] = [
 /**
  * Resolves the workspace template directory for a specialty (ARD-6.1).
  *
- * Reads `identity.templatesDir` from `<repoRoot>/specialties/<typeName>/manifest.yaml`
+ * Reads `identity.templatesDir` from `<repoRoot>/specialties/<specialty>/manifest.yaml`
  * (relative paths resolve against the repo root, matching how the manifests
  * spell them). Returns the built-in workspace/ dir for `coding`, an absent
  * type, and any type that does not resolve (no manifest, unparseable, or the
@@ -89,17 +89,17 @@ export function resolveTemplatesDir(
   env: Record<string, string | undefined> = process.env,
 ): string {
   const repoRoot = repoRootOverride ?? resolveShipwrightRepoRoot(env);
-  const typeName =
+  const specialty =
     requestedType ||
     env.SHIPWRIGHT_DEFAULT_AGENT_TYPE ||
     DEFAULT_SPECIALTY_NAME;
-  if (typeName === DEFAULT_SPECIALTY_NAME) {
+  if (specialty === DEFAULT_SPECIALTY_NAME) {
     return WORKSPACE_TEMPLATE_DIR;
   }
   try {
     const manifestPath = join(
       env.SHIPWRIGHT_SPECIALTIES_DIR || join(repoRoot, "specialties"),
-      typeName,
+      specialty,
       "manifest.yaml",
     );
     const manifest = Bun.YAML.parse(readFileSync(manifestPath, "utf8")) as {
@@ -128,7 +128,7 @@ export function resolveTemplatesDir(
     return dir;
   } catch (err) {
     warn(
-      `[setup] could not resolve workspace templates for specialty "${typeName}" ` +
+      `[setup] could not resolve workspace templates for specialty "${specialty}" ` +
         `(${(err as Error).message}) — falling back to "${DEFAULT_SPECIALTY_NAME}" templates`,
     );
     return WORKSPACE_TEMPLATE_DIR;
@@ -648,8 +648,8 @@ export function ensureAgentHome(
   home: string,
   // ARD-6.1: the entrypoint exports the agent's type (from the config
   // response) as SHIPWRIGHT_AGENT_TYPE before spawning this process.
-  typeName: string | undefined = process.env.SHIPWRIGHT_AGENT_TYPE,
-  templatesDir: string = resolveTemplatesDir(typeName),
+  specialty: string | undefined = process.env.SHIPWRIGHT_AGENT_TYPE,
+  templatesDir: string = resolveTemplatesDir(specialty),
 ): void {
   const workspaceDir = join(home, "workspace");
   const stateDir = join(workspaceDir, "state");

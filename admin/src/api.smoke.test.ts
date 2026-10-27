@@ -94,6 +94,7 @@ function makeMockAgentService(agents: Map<string, MockAgent>): {
     restrictSlackToMembers: boolean;
     memberEmails: string[];
     accountStatus?: string | null;
+    specialty: string;
     selfHosted?: boolean;
     autoPostReviews: boolean;
     allowSelfReview: boolean;
@@ -112,6 +113,7 @@ function makeMockAgentService(agents: Map<string, MockAgent>): {
       restrictSlackToMembers: boolean;
       memberEmails: string[];
       accountStatus?: string | null;
+      specialty: string;
       selfHosted?: boolean;
       autoPostReviews: boolean;
       allowSelfReview: boolean;
@@ -130,6 +132,7 @@ function makeMockAgentService(agents: Map<string, MockAgent>): {
             restrictSlackToMembers: agent.restrictSlackToMembers,
             memberEmails: agent.memberEmails,
             accountStatus: agent.accountStatus,
+            specialty: "coding",
             selfHosted: agent.selfHosted,
             autoPostReviews: agent.autoPostReviews,
             allowSelfReview: agent.allowSelfReview,
@@ -736,6 +739,7 @@ function buildCombinedApp() {
           patchAuthorAllowlist: [],
           restrictSlackToMembers: false,
           memberEmails: [],
+          specialty: "coding",
           // APM-1.5: required by AgentConfigResponseSchema.
           autoPostReviews: true,
           allowSelfReview: false,
@@ -772,7 +776,7 @@ function buildCombinedApp() {
         reviewAuthorAllowlist: [],
         patchAuthorAllowlist: [],
         restrictSlackToMembers: false,
-        typeName: "coding",
+        specialty: "coding",
         createdAt: new Date(),
         updatedAt: new Date(),
         missingRequiredEnv: [],
@@ -791,7 +795,7 @@ function buildCombinedApp() {
         reviewAuthorAllowlist: [],
         patchAuthorAllowlist: [],
         restrictSlackToMembers: false,
-        typeName: "coding",
+        specialty: "coding",
         createdAt: new Date(),
         updatedAt: new Date(),
         missingRequiredEnv: [],

@@ -65,7 +65,6 @@ import type { AgentEnvService } from "./agent-envs.ts";
 import type { AgentGitHubInstallationsService } from "./agent-github-installations.ts";
 import type { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
-import { resolveSpecialty } from "./agent-specialty.ts";
 import {
   type AgentProvisioner,
   hasPerAgentIdentity,
@@ -411,8 +410,6 @@ const GetAgentResultSchema = z
     reviewAuthorAllowlist: z.array(z.string()),
     patchAuthorAllowlist: z.array(z.string()),
     restrictSlackToMembers: z.boolean(),
-    typeName: z.string(),
-    /** AGR-6.1: specialty (specialty ?? typeName); additive next to typeName. */
     specialty: z.string(),
     /** COS-49.1: the pod ServiceAccount; null when unset. */
     podServiceAccountName: z.string().nullable(),
@@ -570,7 +567,7 @@ const listAgentsRoute = createRoute({
   path: "/agents",
   summary: "List all agents",
   description:
-    "Admin-only. Returns every agent's `id`, `name`, `selfHosted`, and `typeName` — used for metrics name resolution.",
+    "Admin-only. Returns every agent's `id`, `name`, `selfHosted`, and `specialty` — used for metrics name resolution.",
   responses: {
     200: {
       description: "List of agents",
@@ -585,7 +582,7 @@ const createAgentRoute = createRoute({
   path: "/agents",
   summary: "Create an agent",
   description:
-    'Admin-only. Validates name/typeName, creates the Agent row, seeds AgentTool/AgentPlugin rows from the resolved type manifest, attaches repos/allowlists/members, patches Claude credentials, and provisions Kubernetes when `runtime` is "in-cluster" — the same createAgent() implementation (APA-1.1) the web UI form at /admin/agents/new uses. Transactional: on any failure zero rows persist, and this route never returns a partial-success 200. Returns the created agent in the same shape as GET /agents/:id.',
+    'Admin-only. Validates name/specialty, creates the Agent row, seeds AgentTool/AgentPlugin rows from the resolved type manifest, attaches repos/allowlists/members, patches Claude credentials, and provisions Kubernetes when `runtime` is "in-cluster" — the same createAgent() implementation (APA-1.1) the web UI form at /admin/agents/new uses. Transactional: on any failure zero rows persist, and this route never returns a partial-success 200. Returns the created agent in the same shape as GET /agents/:id.',
   request: {
     body: {
       content: { "application/json": { schema: CreateAgentBodySchema } },
@@ -606,7 +603,7 @@ const getAgentRoute = createRoute({
   path: "/agents/{id}",
   summary: "Get an agent",
   description:
-    "Admin-only. Returns the full agent record including `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `typeName`, `accountId` (null for unassigned agents), and `missingRequiredEnv` — required env keys declared by the agent's type manifest with no corresponding AgentEnv row yet (informational only).",
+    "Admin-only. Returns the full agent record including `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `specialty`, `accountId` (null for unassigned agents), and `missingRequiredEnv` — required env keys declared by the agent's type manifest with no corresponding AgentEnv row yet (informational only).",
   request: { params: AgentIdParamSchema },
   responses: {
     200: {
@@ -623,7 +620,7 @@ const patchAgentRoute = createRoute({
   path: "/agents/{id}",
   summary: "Update an agent",
   description:
-    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `typeName` and `trialExpiryWarnedAt` are not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
+    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `specialty` and `trialExpiryWarnedAt` are not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
   request: {
     params: AgentIdParamSchema,
     body: {
@@ -1908,7 +1905,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         anthropicFederationRuleId: _r,
         k8sServiceAccountName: _k,
         ...summary
-      }) => ({ ...summary, specialty: resolveSpecialty(summary) }),
+      }) => summary,
     );
     if (c.get("isAdmin") === true || email === undefined) {
       return c.json(agents, 200);
@@ -1971,8 +1968,8 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       },
       {
         name: body.name,
-        typeName:
-          accountId !== undefined ? getSelfServeSpecialty() : body.typeName,
+        specialty:
+          accountId !== undefined ? getSelfServeSpecialty() : body.specialty,
         ...(accountId !== undefined ? { accountId } : {}),
         // PAI-1.2: owner comes from the authenticated caller only; the body
         // schema has no owner field, so a client-supplied one is stripped.
@@ -2818,8 +2815,7 @@ function serializeAgent(
     reviewAuthorAllowlist?: string[];
     patchAuthorAllowlist?: string[];
     restrictSlackToMembers?: boolean;
-    typeName: string;
-    specialty?: string | null;
+    specialty: string;
     accountId?: string | null;
     podServiceAccountName?: string | null;
     createdAt: Date;
@@ -2849,8 +2845,7 @@ function serializeAgent(
     reviewAuthorAllowlist: agent.reviewAuthorAllowlist ?? [],
     patchAuthorAllowlist: agent.patchAuthorAllowlist ?? [],
     restrictSlackToMembers: agent.restrictSlackToMembers ?? false,
-    typeName: agent.typeName,
-    specialty: resolveSpecialty(agent),
+    specialty: agent.specialty,
     accountId: agent.accountId ?? null,
     podServiceAccountName: agent.podServiceAccountName ?? null,
     createdAt: agent.createdAt.toISOString(),

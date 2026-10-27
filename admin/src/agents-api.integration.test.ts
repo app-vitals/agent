@@ -104,18 +104,18 @@ const CODING_MANIFEST: SpecialtyManifest = {
 
 /**
  * Fake SpecialtyManifestResolver — resolves a fixed map of manifests by
- * typeName. tryGetManifest() returns undefined (no fallback) for anything
+ * specialty. tryGetManifest() returns undefined (no fallback) for anything
  * not in the map, mirroring SpecialtyRegistry's real contract.
  */
 function fakeSpecialtyRegistry(
   byType: Record<string, SpecialtyManifest> = { coding: CODING_MANIFEST },
 ): SpecialtyManifestResolver {
   return {
-    getManifest(typeName: string): SpecialtyManifest {
-      return byType[typeName] ?? (byType.coding as SpecialtyManifest);
+    getManifest(specialty: string): SpecialtyManifest {
+      return byType[specialty] ?? (byType.coding as SpecialtyManifest);
     },
-    tryGetManifest(typeName: string): SpecialtyManifest | undefined {
-      return byType[typeName];
+    tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+      return byType[specialty];
     },
     listTypes() {
       return Object.entries(byType).map(([name, manifest]) => ({
@@ -309,9 +309,9 @@ describeOrSkip("admin CRUD API (integration)", () => {
     expect(listedToken.id).toBe(dbRecord?.id);
   });
 
-  // ─── typeName field ─────────────────────────────────────────────────────────
+  // ─── specialty field ─────────────────────────────────────────────────────────
 
-  it("GET /agents includes typeName:'coding' for an agent created before typeName existed", async () => {
+  it("GET /agents includes specialty:'coding' for an agent created before specialty existed", async () => {
     const res = await app.request("/agents", {
       headers: { Cookie: `admin_session=${cookie}` },
     });
@@ -319,30 +319,30 @@ describeOrSkip("admin CRUD API (integration)", () => {
     const body = await res.json();
     const entry = body.find((a: { id: string }) => a.id === agentId);
     expect(entry).toBeDefined();
-    expect(entry.typeName).toBe("coding");
+    expect(entry.specialty).toBe("coding");
   });
 
-  it("GET /agents/:id includes typeName:'coding' by default", async () => {
+  it("GET /agents/:id includes specialty:'coding' by default", async () => {
     const res = await app.request(`/agents/${agentId}`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.typeName).toBe("coding");
+    expect(body.specialty).toBe("coding");
   });
 
   // ─── Migration backfill read-back (pre-existing rows + child rows) ────────────
   //
   // Simulates the exact scenario the 20260724000000_add_agent_type_name
-  // migration must handle: rows that existed *before* the typeName column was
-  // added (never received an explicit value) must read back typeName="coding"
+  // migration must handle: rows that existed *before* the specialty column was
+  // added (never received an explicit value) must read back specialty="coding"
   // via the column DEFAULT, and every child row (cron/plugin/tool/env/member)
   // must be completely untouched — same count, same updatedAt — since the
   // migration only ALTERs the Agent table.
 
-  it("migration backfill: pre-existing agent rows read back typeName='coding' and child rows (cron/plugin/tool/env/member) are untouched", async () => {
+  it("migration backfill: pre-existing agent rows read back specialty='coding' and child rows (cron/plugin/tool/env/member) are untouched", async () => {
     // Seed a second "pre-existing" agent with one row in every child table,
-    // simulating data that existed prior to the typeName migration landing.
+    // simulating data that existed prior to the specialty migration landing.
     const preExisting = await prisma.agent.create({
       data: { name: "Pre-Existing Agent" },
     });
@@ -379,11 +379,11 @@ describeOrSkip("admin CRUD API (integration)", () => {
 
     // Read back via the raw Agent row (bypasses the API layer entirely) —
     // this is the direct DB-level assertion that the column DEFAULT applies
-    // to a row that never set typeName explicitly.
+    // to a row that never set specialty explicitly.
     const rawAgent = await prisma.agent.findUniqueOrThrow({
       where: { id: preExisting.id },
     });
-    expect(rawAgent.typeName).toBe("coding");
+    expect(rawAgent.specialty).toBe("coding");
 
     // Read back via the HTTP API too — end-to-end confirmation.
     const res = await app.request(`/agents/${preExisting.id}`, {
@@ -391,7 +391,7 @@ describeOrSkip("admin CRUD API (integration)", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.typeName).toBe("coding");
+    expect(body.specialty).toBe("coding");
 
     // Child row counts are unchanged — exactly one of each, still linked to
     // the same agent.
@@ -411,7 +411,7 @@ describeOrSkip("admin CRUD API (integration)", () => {
       await prisma.agentMember.count({ where: { agentId: preExisting.id } }),
     ).toBe(1);
 
-    // Child row updatedAt values are unchanged — the typeName column only
+    // Child row updatedAt values are unchanged — the specialty column only
     // touches the Agent table, so nothing here should have been rewritten.
     const cronAfter = await prisma.agentCronJob.findUniqueOrThrow({
       where: { id: cron.id },
@@ -438,7 +438,7 @@ describeOrSkip("admin CRUD API (integration)", () => {
     expect(memberAfter.createdAt.getTime()).toBe(member.createdAt.getTime());
   });
 
-  it("prisma migrate deploy is idempotent — running it twice does not error or duplicate the typeName column", async () => {
+  it("prisma migrate deploy is idempotent — running it twice does not error or duplicate the specialty column", async () => {
     // The migration has already been applied once (this test DB was
     // provisioned via `prisma migrate deploy` before the suite ran). Re-run
     // deploy here and confirm the column is still readable with a single,
@@ -455,7 +455,7 @@ describeOrSkip("admin CRUD API (integration)", () => {
     const rawAgent = await prisma.agent.findUniqueOrThrow({
       where: { id: agentId },
     });
-    expect(rawAgent.typeName).toBe("coding");
+    expect(rawAgent.specialty).toBe("coding");
   });
 
   // ─── repos field round-trip ───────────────────────────────────────────────────

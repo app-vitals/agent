@@ -45,7 +45,7 @@ After the next config sync Claude has no shell or external HTTP; only the seven 
 
 ## System crons
 
-A new agent's system crons come from its **specialty manifest**: the `crons` array of `<specialties dir>/<typeName>/manifest.yaml`. See [specialties.md](./specialties.md#crons) for the field reference and [agent-types.md](./agent-types.md#resolution-at-runtime) for how `typeName` is resolved (including the fallback to the default type for an unknown name). The `specialist` type shipped in this repo declares no crons.
+A new agent's system crons come from its **specialty manifest**: the `crons` array of `<specialties dir>/<specialty>/manifest.yaml`. See [specialties.md](./specialties.md#crons) for the field reference and [agent-types.md](./agent-types.md#resolution-at-runtime) for how `specialty` is resolved (including the fallback to the default type for an unknown name). The `specialist` type shipped in this repo declares no crons.
 
 On startup the runtime calls `POST /agents/:id/crons/reconcile` (`reconcileSystemCrons`, best effort and non-fatal; see [agent-runtime.md](./agent-runtime.md#boot-order-bootts)). Reconciliation runs in one transaction with three passes:
 

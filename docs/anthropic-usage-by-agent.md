@@ -77,7 +77,7 @@ The agent's name is built from the owner's email (see
 `staging` cluster. That is enough for a quick read.
 
 For the exact owner and agent, look it up in Shipwright. `GET /agents` returns
-a bare array of `{id, name, selfHosted, typeName}`. `GET /agents/:id` adds
+a bare array of `{id, name, selfHosted, specialty}`. `GET /agents/:id` adds
 `ownerEmail`, `anthropicIdentityName`, `anthropicServiceAccountId` and
 `anthropicFederationRuleId`. The list route omits these fields, so read each
 agent:

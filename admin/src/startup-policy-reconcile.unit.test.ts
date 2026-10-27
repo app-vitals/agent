@@ -80,7 +80,7 @@ function agent(overrides: Partial<AgentSummary> & { id: string }) {
   return {
     name: `${overrides.id}-slug`,
     selfHosted: false,
-    typeName: "dev",
+    specialty: "dev",
     accountId: null,
     ...overrides,
   } satisfies AgentSummary;

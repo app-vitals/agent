@@ -17,7 +17,6 @@ import {
 } from "./specialty-manifest-loader.ts";
 import type { SpecialtyManifest } from "./specialty-registry.ts";
 import { type Clock, SystemClock } from "./clock.ts";
-import { resolveSpecialty } from "./agent-specialty.ts";
 import { NotFoundError, UnprocessableEntityError } from "./errors.ts";
 
 /**
@@ -442,8 +441,8 @@ export class AgentCronJobService {
    * Reconcile system crons for the given agent.
    *
    * The cron list is resolved from the agent's type manifest — the agent's
-   * stored `typeName` is looked up via the injected SpecialtyRegistry's
-   * `tryGetManifest()` (the parsed `specialties/{typeName}/manifest.yaml`),
+   * stored `specialty` is looked up via the injected SpecialtyRegistry's
+   * `tryGetManifest()` (the parsed `specialties/{specialty}/manifest.yaml`),
    * deliberately WITHOUT the "coding" fallback: a non-default type with no
    * loadable manifest logs an error and reconciles nothing (no seeding of
    * coding crons, no deletion of existing system crons), while a "coding"
@@ -489,12 +488,12 @@ export class AgentCronJobService {
     // than leaving its crons untouched.
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
-      select: { typeName: true, specialty: true },
+      select: { specialty: true },
     });
     if (!agent) {
       throw new NotFoundError(`agent ${agentId} not found`);
     }
-    const specialty = resolveSpecialty(agent);
+    const { specialty } = agent;
     const manifest = this.specialtyRegistry.tryGetManifest(specialty);
     if (!manifest) {
       const defaultName = resolveDefaultSpecialtyName();

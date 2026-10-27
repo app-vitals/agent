@@ -22,6 +22,7 @@ const API_KEY = "test-bearer-key";
 const AGENT_ID = "agent-abc-123";
 
 const SAMPLE_CONFIG: AgentConfigResponse = {
+  specialty: "coding",
   env: { ANTHROPIC_MODEL: "claude-sonnet-4-6" },
   allowedTools: ["Read", "Bash"],
   plugins: [{ marketplace: "shipwright", plugin: "my-plugin" }],

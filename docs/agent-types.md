@@ -59,9 +59,8 @@ own directory (for self-contained types).
 
 `admin/src/specialty-manifest-loader.ts` maps an agent's stored specialty to its
 manifest by reading `<specialties dir>/<specialty>/manifest.yaml`. The specialty is
-resolved from the Agent row as `specialty ?? typeName` (AGR-6.1 ADD step: the
-`specialty` column is preferred when set; `typeName` is used for legacy agents that
-predate the column).
+read from the required `Agent.specialty` column (AGR-6.3 removed the legacy
+`typeName` column and its fallback).
 
 - `SHIPWRIGHT_SPECIALTIES_DIR` overrides the specialties directory.
 - `SHIPWRIGHT_DEFAULT_AGENT_TYPE` overrides the fallback type (default `coding`).

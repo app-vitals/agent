@@ -18,6 +18,7 @@ import { RecordedShipwrightConfigClient } from "./shipwright-config-client.ts";
 // ─── Test fixtures ─────────────────────────────────────────────────────────────
 
 const SAMPLE_CONFIG: AgentConfigResponse = {
+  specialty: "coding",
   env: {
     ANTHROPIC_MODEL: "claude-sonnet-4-6",
     CUSTOM_VAR: "custom-value",
@@ -139,18 +140,18 @@ describe("runEntrypoint — happy path", () => {
   it("exports the specialty to the server process when the config carries one (ARD-6.1)", async () => {
     const configClient = new RecordedShipwrightConfigClient({
       ...SAMPLE_CONFIG,
-      typeName: "specialist",
+      specialty: "specialist",
     });
     const { deps, appliedEnv } = makeDeps(configClient);
     await runEntrypoint(deps);
     expect(appliedEnv.SHIPWRIGHT_AGENT_TYPE).toBe("specialist");
   });
 
-  it("does not set SHIPWRIGHT_AGENT_TYPE when the config has no typeName (ARD-6.1)", async () => {
+  it("exports the default specialty from the config bundle (AGR-6.3: specialty is required)", async () => {
     const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
     const { deps, appliedEnv } = makeDeps(configClient);
     await runEntrypoint(deps);
-    expect(appliedEnv.SHIPWRIGHT_AGENT_TYPE).toBeUndefined();
+    expect(appliedEnv.SHIPWRIGHT_AGENT_TYPE).toBe("coding");
   });
 
   it("fetches config and applies env vars from the bundle", async () => {
@@ -272,6 +273,7 @@ describe("runEntrypoint — missing required vars", () => {
 describe("runEntrypoint — config with empty env", () => {
   it("handles config with no env vars gracefully", async () => {
     const emptyConfig: AgentConfigResponse = {
+      specialty: "coding",
       env: {},
       allowedTools: [],
       plugins: [],

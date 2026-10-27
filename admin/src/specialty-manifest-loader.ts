@@ -1,8 +1,8 @@
 /**
  * admin/src/specialty-manifest-loader.ts
  *
- * SpecialtyRegistry — resolves an agent's stored `typeName` to its parsed
- * Specialty manifest by loading `specialties/{typeName}/manifest.yaml` from
+ * SpecialtyRegistry — resolves an agent's stored `specialty` to its parsed
+ * Specialty manifest by loading `specialties/{specialty}/manifest.yaml` from
  * disk (relative to the repo root) and validating it via
  * parseSpecialtyManifest().
  *
@@ -10,7 +10,7 @@
  * (and, in time, its default plugins/tools/env contract). It replaces the
  * former hardcoded SYSTEM_CRONS array in admin/src/system-crons.ts.
  *
- * Fallback contract: an unknown `typeName` (a value with no matching
+ * Fallback contract: an unknown `specialty` (a value with no matching
  * directory under specialties/) resolves to the "coding" manifest with a
  * logged warning — never throws. This keeps the boot-path
  * POST /agents/:id/crons/reconcile route from beginning to 5xx for an agent
@@ -36,13 +36,13 @@ import {
 export const DEFAULT_SPECIALTY_NAME = "coding";
 
 /** Reads a manifest's raw YAML text for a type; throws if it does not exist. */
-type ManifestReader = (typeName: string) => string;
+type ManifestReader = (specialty: string) => string;
 
-/** Sink for the unknown-typeName warning (defaults to console.warn). */
+/** Sink for the unknown-specialty warning (defaults to console.warn). */
 type WarnFn = (message: string) => void;
 
 /**
- * Lists the typeName of every discoverable specialty directory (e.g. the
+ * Lists the name of every discoverable specialty directory (e.g. the
  * names of the subdirectories under specialties/). Used by listTypes() to
  * discover candidates before resolving each one's manifest via `read`.
  */
@@ -99,12 +99,12 @@ export function resolveDefaultSpecialtyName(
   return env.SHIPWRIGHT_DEFAULT_AGENT_TYPE || DEFAULT_SPECIALTY_NAME;
 }
 
-/** Default reader: loads {typesDir}/{typeName}/manifest.yaml from disk. */
+/** Default reader: loads {typesDir}/{specialty}/manifest.yaml from disk. */
 export function defaultManifestReader(
-  typeName: string,
+  specialty: string,
   typesDir: string = resolveSpecialtiesDir(),
 ): string {
-  return readFileSync(join(typesDir, typeName, "manifest.yaml"), "utf-8");
+  return readFileSync(join(typesDir, specialty, "manifest.yaml"), "utf-8");
 }
 
 /** Default lister: the directory names under the specialties dir on disk. */
@@ -122,20 +122,20 @@ export function defaultTypeDirLister(
  */
 export interface SpecialtyManifestResolver {
   /**
-   * Resolve `typeName` to its parsed manifest. Falls back to the "coding"
+   * Resolve `specialty` to its parsed manifest. Falls back to the "coding"
    * manifest (with a warning) when the type is unknown. Never throws for an
    * unknown type — only if the "coding" fallback itself fails to load.
    */
-  getManifest(typeName: string): SpecialtyManifest;
+  getManifest(specialty: string): SpecialtyManifest;
   /**
-   * Resolve `typeName` to its parsed manifest WITHOUT falling back to
+   * Resolve `specialty` to its parsed manifest WITHOUT falling back to
    * "coding" — returns undefined for an unknown type instead. No warning is
    * logged (an unknown type here is an expected, callers-handle-it outcome,
    * not a degraded-boot condition). Used by POST /admin/agents to reject an
    * unknown requested `type` with 400 rather than silently seeding a
    * "coding" agent under a different label.
    */
-  tryGetManifest(typeName: string): SpecialtyManifest | undefined;
+  tryGetManifest(specialty: string): SpecialtyManifest | undefined;
   /**
    * Discover every specialty directory (via the injected `list` fn) and
    * resolve each to its {name, displayName} for populating the new-agent
@@ -178,18 +178,18 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
       opts.defaultTypeName ?? resolveDefaultSpecialtyName();
   }
 
-  getManifest(typeName: string): SpecialtyManifest {
-    const resolved = this.tryLoad(typeName);
+  getManifest(specialty: string): SpecialtyManifest {
+    const resolved = this.tryLoad(specialty);
     if (resolved) return resolved;
 
     // Unknown type — warn once and fall back to "coding". The fallback load is
     // deliberately NOT wrapped in tryLoad: if "coding" can't load, that's a
     // hard startup bug and must surface, not silently become a no-op.
     this.warn(
-      `SpecialtyRegistry: unknown agent typeName "${typeName}" — ` +
+      `SpecialtyRegistry: unknown agent specialty "${specialty}" — ` +
         `falling back to "${this.defaultTypeName}" manifest`,
     );
-    if (typeName === this.defaultTypeName) {
+    if (specialty === this.defaultTypeName) {
       // Guard against infinite intent: the default itself failed to load.
       throw missingDefaultSpecialtyError(this.defaultTypeName, this.typesDir);
     }
@@ -205,19 +205,19 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
   }
 
   /**
-   * Resolve `typeName` without falling back to "coding" — see the interface
+   * Resolve `specialty` without falling back to "coding" — see the interface
    * doc comment. Thin public wrapper around the existing tryLoad() used
    * internally by getManifest().
    */
-  tryGetManifest(typeName: string): SpecialtyManifest | undefined {
-    return this.tryLoad(typeName);
+  tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+    return this.tryLoad(specialty);
   }
 
   listTypes(): SpecialtyOption[] {
-    const typeNames = this.list();
+    const specialties = this.list();
     const options: SpecialtyOption[] = [];
-    for (const typeName of typeNames) {
-      const manifest = this.tryLoad(typeName);
+    for (const specialty of specialties) {
+      const manifest = this.tryLoad(specialty);
       if (!manifest) continue;
       options.push({
         name: manifest.metadata.name,
@@ -228,28 +228,28 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
   }
 
   /** Load + cache a manifest, returning undefined only if the file is missing. */
-  private tryLoad(typeName: string): SpecialtyManifest | undefined {
-    const cached = this.cache.get(typeName);
+  private tryLoad(specialty: string): SpecialtyManifest | undefined {
+    const cached = this.cache.get(specialty);
     if (cached) return cached;
     let raw: string;
     try {
-      raw = this.read(typeName);
+      raw = this.read(specialty);
     } catch {
       return undefined;
     }
-    return this.parseAndCache(typeName, raw);
+    return this.parseAndCache(specialty, raw);
   }
 
   /** Load + cache a manifest, propagating any read/parse error. */
-  private loadOrThrow(typeName: string): SpecialtyManifest {
-    const cached = this.cache.get(typeName);
+  private loadOrThrow(specialty: string): SpecialtyManifest {
+    const cached = this.cache.get(specialty);
     if (cached) return cached;
-    return this.parseAndCache(typeName, this.read(typeName));
+    return this.parseAndCache(specialty, this.read(specialty));
   }
 
-  private parseAndCache(typeName: string, raw: string): SpecialtyManifest {
+  private parseAndCache(specialty: string, raw: string): SpecialtyManifest {
     const manifest = parseSpecialtyManifest(raw);
-    this.cache.set(typeName, manifest);
+    this.cache.set(specialty, manifest);
     return manifest;
   }
 }

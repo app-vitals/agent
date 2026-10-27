@@ -140,7 +140,7 @@ function makeService(opts?: {
           reviewAuthorAllowlist: [],
           patchAuthorAllowlist: [],
           restrictSlackToMembers: false,
-          typeName: "coding",
+          specialty: "coding",
           missingRequiredEnv: [],
         })),
       updateFields: async (id: string, input: unknown) => {
@@ -156,7 +156,7 @@ function makeService(opts?: {
           reviewAuthorAllowlist: [],
           patchAuthorAllowlist: [],
           restrictSlackToMembers: false,
-          typeName: "coding",
+          specialty: "coding",
           missingRequiredEnv: [],
         };
       },

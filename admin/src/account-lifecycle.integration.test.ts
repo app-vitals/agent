@@ -86,7 +86,7 @@ describeOrSkip("account lifecycle (integration)", () => {
     trialExpiresAt: Date | null = null,
   ): Promise<string> {
     const a = await prisma.agent.create({
-      data: { name: "agent", typeName: "coding", accountId, trialExpiresAt },
+      data: { name: "agent", specialty: "coding", accountId, trialExpiresAt },
     });
     return a.id;
   }
