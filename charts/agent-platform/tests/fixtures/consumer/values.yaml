@@ -1,0 +1,29 @@
+nameOverride: ""
+fullnameOverride: ""
+global:
+  imageRegistry: ""
+serviceAccount:
+  create: true
+  name: ""
+admin:
+  podLabels: {}
+  serviceAccount:
+    create: true
+    name: ""
+agent:
+  provisioning:
+    serviceAccount:
+      create: true
+      name: ""
+  voice:
+    whisper:
+      service:
+        port: 9000
+# Inputs for the imageRef / podLabels helpers.
+image:
+  repository: ghcr.io/app-vitals/shipwright-admin
+  tag: v1
+  digest: ""
+podLabelsSelector: |
+  app.kubernetes.io/name: shipwright
+  app.kubernetes.io/instance: shipwright
