@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   ApiError,
+  RateLimitError,
+  rateLimitDelay,
   classifyDiff,
   createApiClient,
   DEFAULT_MAX_BYTES,
@@ -281,5 +283,124 @@ describe("readMaxBytes / parseRepoSlug", () => {
       "acme/widgets",
     );
     expect(parseRepoSlug("/tmp/local")).toBeUndefined();
+  });
+});
+
+describe("rateLimitDelay", () => {
+  const h = (o: Record<string, string> = {}) => new Headers(o);
+  test("429 and rate-limit 403s are limited; other statuses are not", () => {
+    expect(rateLimitDelay(429, h(), "", 0, 0)).toBe(2);
+    expect(
+      rateLimitDelay(
+        403,
+        h(),
+        "You have exceeded a secondary rate limit",
+        1,
+        0,
+      ),
+    ).toBe(4);
+    expect(
+      rateLimitDelay(403, h(), "Resource not accessible", 0, 0),
+    ).toBeUndefined();
+    expect(
+      rateLimitDelay(422, h({ "retry-after": "5" }), "", 0, 0),
+    ).toBeUndefined();
+  });
+  test("Retry-After wins, then the primary-quota reset", () => {
+    expect(rateLimitDelay(403, h({ "retry-after": "7" }), "x", 3, 0)).toBe(7);
+    expect(
+      rateLimitDelay(
+        403,
+        h({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": "130" }),
+        "x",
+        0,
+        100_000,
+      ),
+    ).toBe(30);
+  });
+});
+
+describe("createApiClient rate limiting", () => {
+  const limitedThenOk = (
+    limitedCount: number,
+    headers: Record<string, string>,
+  ) => {
+    let n = 0;
+    return (async () =>
+      n++ < limitedCount
+        ? new Response(JSON.stringify({ message: "rate limit" }), {
+            status: 403,
+            headers,
+          })
+        : new Response(
+            JSON.stringify({ ok: true }),
+          )) as unknown as typeof fetch;
+  };
+
+  test("retries after the Retry-After delay and then succeeds", async () => {
+    const sleeps: number[] = [];
+    const call = createApiClient({
+      token: "t",
+      fetch: limitedThenOk(2, { "retry-after": "3" }),
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      now: () => 0,
+    });
+    expect(await call<unknown>("POST", "/x", {})).toEqual({ ok: true });
+    expect(sleeps).toEqual([3000, 3000]);
+  });
+
+  test("gives up with a RateLimitError after maxRetries", async () => {
+    let calls = 0;
+    const call = createApiClient({
+      token: "t",
+      fetch: (async () => {
+        calls++;
+        return new Response("{}", { status: 429 });
+      }) as unknown as typeof fetch,
+      sleep: async () => {},
+      maxRetries: 2,
+    });
+    const err = (await call("GET", "/x").catch((e) => e)) as RateLimitError;
+    expect(err).toBeInstanceOf(RateLimitError);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(429);
+    expect(calls).toBe(3);
+  });
+
+  test("fails fast when Retry-After exceeds the max delay", async () => {
+    let calls = 0;
+    const call = createApiClient({
+      token: "t",
+      fetch: (async () => {
+        calls++;
+        return new Response("{}", {
+          status: 403,
+          headers: { "retry-after": "3600" },
+        });
+      }) as unknown as typeof fetch,
+      sleep: async () => {},
+    });
+    const err = (await call("GET", "/x").catch((e) => e)) as RateLimitError;
+    expect(err.retryAfter).toBe(3600);
+    expect(calls).toBe(1);
+  });
+
+  test("never has more requests in flight than the concurrency cap", async () => {
+    let active = 0;
+    let peak = 0;
+    const call = createApiClient({
+      token: "t",
+      concurrency: 2,
+      fetch: (async () => {
+        peak = Math.max(peak, ++active);
+        await new Promise((r) => setTimeout(r, 5));
+        active--;
+        return new Response("{}");
+      }) as unknown as typeof fetch,
+    });
+    await Promise.all(Array.from({ length: 8 }, () => call("GET", "/x")));
+    expect(peak).toBe(2);
   });
 });

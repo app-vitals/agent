@@ -17,6 +17,14 @@
  * Then the worktree is synced (`git fetch` + `git reset --mixed <newhead>`,
  * never `--hard`: the trees are identical so uncommitted work survives).
  *
+ * Request volume is kept low because GitHub rate-limits content-creating
+ * requests (documented around 80/min and 500/hour; NOT VERIFIED here): blobs
+ * already present in a parent commit on the remote are referenced by sha, text
+ * goes inline in the tree request, only binary files use `POST /git/blobs`,
+ * requests run under a concurrency cap, and 403/429 rate-limit responses are
+ * retried with backoff honouring Retry-After before failing with a git-style
+ * error.
+ *
  * Reads (default branch, remote head) use REST too, so there is one client.
  *
  * Token: `SHIPWRIGHT_GH_OWNER` selects `gh-token.d/<owner>`, a directory next
@@ -262,12 +270,87 @@ export type ApiClient = <T>(
   body?: unknown,
 ) => Promise<T>;
 
+/** GitHub kept answering with a rate limit after every retry. */
+export class RateLimitError extends ApiError {
+  constructor(
+    status: number,
+    message: string,
+    /** Seconds GitHub asked us to wait, when it said. */
+    readonly retryAfter?: number,
+  ) {
+    super(status, message);
+    this.name = "RateLimitError";
+  }
+}
+
+export const DEFAULT_CONCURRENCY = 4;
+export const DEFAULT_MAX_RETRIES = 4;
+/** Longest single wait honoured; a longer Retry-After fails fast instead. */
+export const DEFAULT_MAX_DELAY_MS = 120_000;
+const BASE_BACKOFF_MS = 2_000;
+
+/**
+ * Seconds to wait before retrying a rate-limited response, or undefined when
+ * the response is not a rate limit. 429 always is; 403 only with a Retry-After
+ * header, an exhausted primary quota, or a rate-limit message.
+ */
+export function rateLimitDelay(
+  status: number,
+  headers: Headers,
+  message: string,
+  attempt: number,
+  nowMs: number,
+): number | undefined {
+  const limited =
+    status === 429 ||
+    (status === 403 &&
+      (headers.has("retry-after") ||
+        headers.get("x-ratelimit-remaining") === "0" ||
+        /rate limit|abuse/i.test(message)));
+  if (!limited) return undefined;
+  const retryAfter = Number(headers.get("retry-after"));
+  if (headers.has("retry-after") && Number.isFinite(retryAfter)) {
+    return Math.max(0, retryAfter);
+  }
+  const reset = Number(headers.get("x-ratelimit-reset"));
+  if (headers.get("x-ratelimit-remaining") === "0" && reset > 0) {
+    return Math.max(0, reset - nowMs / 1000);
+  }
+  return (BASE_BACKOFF_MS * 2 ** attempt) / 1000;
+}
+
 export function createApiClient(opts: {
   fetch: typeof fetch;
   token: string;
   url?: string;
+  /** Requests in flight at once. */
+  concurrency?: number;
+  maxRetries?: number;
+  maxDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
 }): ApiClient {
-  return async <T>(method: string, path: string, body?: unknown) => {
+  const limit = Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY);
+  const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
+  const maxDelayMs = opts.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
+  const sleep =
+    opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const now = opts.now ?? Date.now;
+  let active = 0;
+  const queue: (() => void)[] = [];
+  const acquire = async () => {
+    if (active >= limit) await new Promise<void>((r) => queue.push(r));
+    else active++;
+  };
+  const release = () => {
+    const next = queue.shift();
+    if (next) next();
+    else active--;
+  };
+  // A rate limit applies to every in-flight caller, not just the one that saw it.
+  let pausedUntil = 0;
+
+  const send = async (method: string, path: string, body: unknown) => {
     const res = await opts.fetch(`${opts.url ?? API_URL}${path}`, {
       method,
       headers: {
@@ -286,16 +369,39 @@ export function createApiClient(opts: {
     } catch {
       json = undefined;
     }
-    if (!res.ok) {
-      const detail =
-        (json as { message?: string } | undefined)?.message ??
-        text.slice(0, 200);
-      throw new ApiError(
+    const detail =
+      (json as { message?: string } | undefined)?.message ?? text.slice(0, 200);
+    return { res, json, detail };
+  };
+
+  return async <T>(method: string, path: string, body?: unknown) => {
+    for (let attempt = 0; ; attempt++) {
+      const wait = pausedUntil - now();
+      if (wait > 0) await sleep(wait);
+      await acquire();
+      let out: Awaited<ReturnType<typeof send>>;
+      try {
+        out = await send(method, path, body);
+      } finally {
+        release();
+      }
+      const { res, json, detail } = out;
+      if (res.ok) return json as T;
+      const message = `GitHub API ${method} ${path} failed: HTTP ${res.status} ${detail}`;
+      const delay = rateLimitDelay(
         res.status,
-        `GitHub API ${method} ${path} failed: HTTP ${res.status} ${detail}`,
+        res.headers,
+        detail,
+        attempt,
+        now(),
       );
+      if (delay === undefined) throw new ApiError(res.status, message);
+      const delayMs = Math.ceil(delay * 1000);
+      if (attempt >= maxRetries || delayMs > maxDelayMs) {
+        throw new RateLimitError(res.status, message, delay);
+      }
+      pausedUntil = Math.max(pausedUntil, now() + delayMs);
     }
-    return json as T;
   };
 }
 
@@ -328,6 +434,12 @@ function runGit(cwd: string, args: string[]) {
     text: p.stdout.toString().trim(),
     err: p.stderr.toString().trim(),
   };
+}
+
+/** Blob sha of `path` in commit `rev`, if it exists there. */
+function blobAt(cwd: string, rev: string, path: string): string | undefined {
+  const r = runGit(cwd, ["rev-parse", "--verify", "-q", `${rev}:${path}`]);
+  return r.code === 0 ? r.text : undefined;
 }
 
 function gitOk(cwd: string, args: string[]): string {
@@ -363,6 +475,8 @@ export interface SignedPushOptions {
   fetch: typeof fetch;
   /** `owner/repo`; derived from the remote URL when omitted. */
   repo?: string;
+  /** Test hooks for the request client (concurrency, retries, sleep). */
+  client?: Partial<Parameters<typeof createApiClient>[0]>;
 }
 
 interface Plan {
@@ -375,11 +489,35 @@ interface Plan {
     mode: string;
     contents?: Buffer;
     commit?: string;
+    /** Blob sha already present in a parent commit that is on the remote. */
+    remoteSha?: string;
   }[];
   deletions: Deletion[];
 }
 
 export async function signedPush(
+  opts: SignedPushOptions,
+): Promise<{ message: string }> {
+  try {
+    return await replayPush(opts);
+  } catch (err) {
+    if (!(err instanceof RateLimitError)) throw err;
+    const remote = parseArgs(opts.argv).remote ?? "origin";
+    const url = runGit(opts.cwd, ["remote", "get-url", remote]).text || remote;
+    const wait =
+      err.retryAfter === undefined
+        ? ""
+        : ` Retry in about ${Math.ceil(err.retryAfter)}s.`;
+    throw new PushRejected(
+      [
+        `error: GitHub rate-limited the push (HTTP ${err.status}; secondary limits apply to content-creating requests).${wait}`,
+        `error: failed to push some refs to '${url}'`,
+      ].join("\n"),
+    );
+  }
+}
+
+async function replayPush(
   opts: SignedPushOptions,
 ): Promise<{ message: string }> {
   const { cwd, env } = opts;
@@ -400,7 +538,7 @@ export async function signedPush(
   if (!repo) {
     throw new Error(`signed-push: remote '${remote}' is not a github.com URL`);
   }
-  const api = createApiClient({ fetch: opts.fetch, token });
+  const api = createApiClient({ fetch: opts.fetch, token, ...opts.client });
   const repoPath = `/repos/${repo}`;
   const rejected = (): never => {
     throw new PushRejected(
@@ -471,8 +609,12 @@ export async function signedPush(
 
   // Validate every commit before any API call so a refusal changes nothing.
   const emptyTree = gitOk(cwd, ["hash-object", "-t", "tree", "/dev/null"]);
+  const replayed = new Set(lines.map((l) => l.split(" ")[0] as string));
   const plans: Plan[] = lines.map((line) => {
     const [sha, ...parents] = line.split(" ") as [string, ...string[]];
+    // Parents outside the replay are on the remote, so any blob they hold
+    // already exists there and can be referenced by sha instead of uploaded.
+    const remoteParents = parents.filter((p) => !replayed.has(p));
     // Diff against the first parent (or the empty tree for a root commit): the
     // tree entries are relative to the first parent's tree.
     const diff = runGit(cwd, [
@@ -489,6 +631,9 @@ export async function signedPush(
     const additions = c.additions.map((a) => {
       if (entryType(a.mode) === "commit") {
         return { path: a.path, mode: a.mode, commit: a.sha };
+      }
+      if (remoteParents.some((p) => blobAt(cwd, p, a.path) === a.sha)) {
+        return { path: a.path, mode: a.mode, remoteSha: a.sha };
       }
       const contents = runGit(cwd, ["cat-file", "blob", a.sha]).stdout;
       bytes += Math.ceil((contents.length * 4) / 3);
@@ -516,43 +661,27 @@ export async function signedPush(
         ? undefined
         : (newTree.get(parent) ??
           gitOk(cwd, ["rev-parse", `${parent}^{tree}`]));
-    const entries: Record<string, unknown>[] = [];
-    for (const a of plan.additions) {
-      if (a.commit !== undefined) {
-        entries.push({
-          path: a.path,
-          mode: a.mode,
-          type: "commit",
-          sha: a.commit,
-        });
-        continue;
-      }
-      const contents = a.contents as Buffer;
-      const text = asInlineText(contents);
-      if (text !== undefined) {
-        entries.push({
-          path: a.path,
-          mode: a.mode,
-          type: "blob",
-          content: text,
-        });
-      } else {
+    // Binary files need a blob request; the client caps how many run at once.
+    const entries: Record<string, unknown>[] = await Promise.all(
+      plan.additions.map(async (a) => {
+        const base = { path: a.path, mode: a.mode };
+        if (a.commit !== undefined) {
+          return { ...base, type: "commit", sha: a.commit };
+        }
+        if (a.remoteSha !== undefined) {
+          return { ...base, type: "blob", sha: a.remoteSha };
+        }
+        const contents = a.contents as Buffer;
+        const text = asInlineText(contents);
+        if (text !== undefined) return { ...base, type: "blob", content: text };
         const blob = await api<{ sha: string }>(
           "POST",
           `${repoPath}/git/blobs`,
-          {
-            content: contents.toString("base64"),
-            encoding: "base64",
-          },
+          { content: contents.toString("base64"), encoding: "base64" },
         );
-        entries.push({
-          path: a.path,
-          mode: a.mode,
-          type: "blob",
-          sha: blob.sha,
-        });
-      }
-    }
+        return { ...base, type: "blob", sha: blob.sha };
+      }),
+    );
     for (const d of plan.deletions) entries.push(deletionEntry(d));
     const tree = await api<{ sha: string }>("POST", `${repoPath}/git/trees`, {
       base_tree: baseTree,
