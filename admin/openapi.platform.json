@@ -3093,6 +3093,11 @@
             "type": "string",
             "example": "coding"
           },
+          "typeName": {
+            "type": "string",
+            "example": "coding",
+            "deprecated": true
+          },
           "phaseMethodology": {
             "type": "object",
             "additionalProperties": {

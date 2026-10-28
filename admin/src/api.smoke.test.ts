@@ -39,6 +39,7 @@ interface MockAgent {
   restrictSlackToMembers: boolean;
   memberEmails: string[];
   accountStatus?: string | null;
+  specialty?: string;
   selfHosted?: boolean;
   // APM-1.5: the 6 agent-policy fields passed through by GET /:id/config.
   autoPostReviews: boolean;
@@ -132,7 +133,7 @@ function makeMockAgentService(agents: Map<string, MockAgent>): {
             restrictSlackToMembers: agent.restrictSlackToMembers,
             memberEmails: agent.memberEmails,
             accountStatus: agent.accountStatus,
-            specialty: "coding",
+            specialty: agent.specialty ?? "coding",
             selfHosted: agent.selfHosted,
             autoPostReviews: agent.autoPostReviews,
             allowSelfReview: agent.allowSelfReview,
@@ -231,6 +232,7 @@ function buildApp(opts?: {
   restrictSlackToMembers?: boolean;
   memberEmails?: string[];
   accountStatus?: string | null;
+  specialty?: string;
   selfHosted?: boolean;
   anthropicFederationEnabled?: boolean;
   phaseMethodology?: MockPhaseMethodology[];
@@ -286,6 +288,7 @@ function buildApp(opts?: {
       restrictSlackToMembers,
       memberEmails,
       accountStatus: opts?.accountStatus,
+      specialty: opts?.specialty,
       selfHosted: opts?.selfHosted,
       autoPostReviews,
       allowSelfReview,
@@ -332,6 +335,21 @@ describe("GET /:id/config with no phase-methodology service (platform only)", ()
     const body = await res.json();
     expect("phaseMethodology" in body).toBe(false);
     expect(body.repos).toEqual(["org/repo1", "org/repo2"]);
+  });
+});
+
+describe("GET /:id/config deprecated typeName alias (AGR-6.3)", () => {
+  // Pre-AGR-6.3 runtime images read only config.typeName to set
+  // SHIPWRIGHT_AGENT_TYPE; the alias must mirror specialty until they roll.
+  test("typeName equals specialty for a non-coding specialty", async () => {
+    const app = buildApp({ specialty: "research" });
+    const res = await app.request(`/${KNOWN_AGENT_ID}/config`, {
+      headers: { Authorization: `Bearer ${VALID_ADMIN_KEY}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.specialty).toBe("research");
+    expect(body.typeName).toBe("research");
   });
 });
 

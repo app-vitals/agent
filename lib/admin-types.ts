@@ -4282,6 +4282,11 @@ export interface components {
             /** @example coding */
             specialty: string;
             /**
+             * @deprecated
+             * @example coding
+             */
+            typeName?: string;
+            /**
              * @example {
              *       "prd": null,
              *       "plan-session": null,

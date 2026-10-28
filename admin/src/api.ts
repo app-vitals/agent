@@ -71,6 +71,12 @@ export interface AgentConfigResponse {
    */
   specialty: string;
   /**
+   * @deprecated Back-compat alias of `specialty` for pre-AGR-6.3 runtime
+   * images (their entrypoint reads `config.typeName`). Remove once every
+   * runtime image reads `specialty`.
+   */
+  typeName?: string;
+  /**
    * PMC-1.1: phase -> subagentType (or null) map, covering all six pipeline
    * phases regardless of whether the agent has an explicit override row for
    * each — phases without a row default to null. The live handler always
@@ -345,6 +351,11 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
         : null,
       accountStatus: agent.accountStatus ?? null,
       specialty: agent.specialty,
+      // DEPRECATED (AGR-6.3): back-compat alias for pre-AGR-6.3 runtime images,
+      // whose entrypoint only reads `config.typeName` to set
+      // SHIPWRIGHT_AGENT_TYPE. Without it those pods silently fall back to
+      // coding templates. Remove in a follow-up once all images have rolled.
+      typeName: agent.specialty,
       // Omitted entirely when no phase-methodology service was supplied
       // (platform-only admin, no coding extension).
       ...(agentPhaseMethodologyService ? { phaseMethodology } : {}),

@@ -1345,6 +1345,16 @@ export const AgentConfigResponseSchema = z
      */
     specialty: z.string().openapi({ example: "coding" }),
     /**
+     * DEPRECATED back-compat alias of `specialty` (always equal to it). Kept
+     * only for pre-AGR-6.3 runtime images, whose entrypoint reads
+     * `config.typeName` to set SHIPWRIGHT_AGENT_TYPE. Remove in a follow-up
+     * once every runtime image reads `specialty`.
+     */
+    typeName: z
+      .string()
+      .optional()
+      .openapi({ example: "coding", deprecated: true }),
+    /**
      * PMC-1.1: phase -> subagentType (or null) map, covering all six pipeline
      * phases (see AGENT_PHASES) regardless of whether the agent has an
      * explicit override row for each — phases without a row default to null.
