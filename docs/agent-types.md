@@ -79,17 +79,10 @@ admin API.
 
 ## Known drift
 
-The `specialist` manifest and some loader comments still spell paths as
+The `specialist` manifest header comments and some loader comments still spell paths as
 `specialties/specialist/...` (the monorepo layout), while the files live under
 `agent-types/`. The loader's built-in default directory is likewise `<repo>/specialties`,
 so in this repository point `SHIPWRIGHT_SPECIALTIES_DIR` at `agent-types/`.
-
-That alone does not make the specialist templates load. The manifest's
-`identity.templatesDir` is `specialties/specialist/templates/`, and `resolveTemplatesDir()`
-tries it against the repo root and then against the manifest's own directory. Neither path
-exists here, so the lookup throws, warns, and falls back to the built-in `workspace/`
-templates. For the type to seed its own identity files, change the manifest's
-`templatesDir` to `agent-types/specialist/templates/`.
 
 ## Adding a type
 

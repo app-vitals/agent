@@ -24,7 +24,7 @@ metadata:
   version: 1.0.0
   skills: []
 identity:
-  templatesDir: specialties/specialist/templates/
+  templatesDir: agent-types/specialist/templates/
 crons: []
 plugins: []
 tools:
