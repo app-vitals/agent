@@ -2293,6 +2293,7 @@ describe("admin API — POST /agents/reconcile", () => {
         anthropicServiceAccountId: null,
         anthropicFederationRuleId: null,
         k8sServiceAccountName: null,
+        specialty: "coding",
       },
     ]);
   });
@@ -5407,7 +5408,12 @@ describe("admin API — PATCH /agents/:id accountId (SSP-5.3)", () => {
       "acct-b",
     );
     expect(provisioner.reconciled).toEqual([
-      { id: AGENT_ID, slug: "Existing Agent", accountId: "acct-b" },
+      {
+        id: AGENT_ID,
+        slug: "Existing Agent",
+        accountId: "acct-b",
+        specialty: "coding",
+      },
     ]);
   });
 
@@ -5423,7 +5429,12 @@ describe("admin API — PATCH /agents/:id accountId (SSP-5.3)", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { accountId: unknown }).accountId).toBeNull();
     expect(provisioner.reconciled).toEqual([
-      { id: AGENT_ID, slug: "Existing Agent", accountId: null },
+      {
+        id: AGENT_ID,
+        slug: "Existing Agent",
+        accountId: null,
+        specialty: "coding",
+      },
     ]);
   });
 
