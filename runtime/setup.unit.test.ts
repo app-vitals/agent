@@ -267,6 +267,20 @@ describe("discoverBakedMarketplaces", () => {
 });
 
 describe("resolveTemplatesDir option resolution (AEP-1.2)", () => {
+  it("resolves the shipped specialist manifest to agent-types/specialist/templates/ with no warning (SAI-1.2)", async () => {
+    const { resolveTemplatesDir } = await import("./setup.ts");
+    const repoRoot = join(import.meta.dir, "..");
+    const warnings: string[] = [];
+    const dir = resolveTemplatesDir(
+      "specialist",
+      repoRoot,
+      (m) => warnings.push(m),
+      { SHIPWRIGHT_SPECIALTIES_DIR: join(repoRoot, "agent-types") },
+    );
+    expect(dir).toBe(join(repoRoot, "agent-types", "specialist", "templates"));
+    expect(warnings).toEqual([]);
+  });
+
   it("resolves an absent type to the built-in templates with no env set", async () => {
     const { resolveTemplatesDir } = await import("./setup.ts");
     const dir = resolveTemplatesDir(undefined, "/nonexistent", () => {}, {});
