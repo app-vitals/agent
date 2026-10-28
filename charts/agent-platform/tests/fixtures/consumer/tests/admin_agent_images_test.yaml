@@ -1,0 +1,54 @@
+suite: admin SHIPWRIGHT_AGENT_IMAGES env (SPI-2.1)
+# agent.provisioning.images renders the per-specialty image map as JSON on the
+# admin Deployment, only when provisioning is on and the map is non-empty.
+templates:
+  - templates/admin-deployment.yaml
+tests:
+  - it: renders no images env by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_AGENT_IMAGES
+          any: true
+
+  - it: renders no images env when provisioning is on but the map is empty
+    set:
+      agent.provisioning.enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_AGENT_IMAGES
+          any: true
+
+  - it: renders one specialty as a JSON object
+    set:
+      agent.provisioning.enabled: true
+      agent.provisioning.images:
+        coding:
+          repository: ghcr.io/app-vitals/agent-coding
+          tag: v2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_AGENT_IMAGES
+            value: '{"coding":{"repository":"ghcr.io/app-vitals/agent-coding","tag":"v2"}}'
+
+  - it: renders several specialties including a default key
+    set:
+      agent.provisioning.enabled: true
+      agent.provisioning.images:
+        default:
+          repository: ghcr.io/app-vitals/agent
+          tag: v1
+        coding:
+          repository: ghcr.io/app-vitals/agent-coding
+          tag: v2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_AGENT_IMAGES
+            value: '{"coding":{"repository":"ghcr.io/app-vitals/agent-coding","tag":"v2"},"default":{"repository":"ghcr.io/app-vitals/agent","tag":"v1"}}'

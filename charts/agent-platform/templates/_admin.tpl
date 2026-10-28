@@ -259,6 +259,13 @@ spec:
               value: {{ .Values.agent.provisioning.image.repository | quote }}
             - name: SHIPWRIGHT_AGENT_IMAGE_TAG
               value: {{ .Values.agent.provisioning.image.tag | default .Chart.AppVersion | quote }}
+            {{- with .Values.agent.provisioning.images }}
+            # Per-specialty agent images (SPI-2.1): JSON {specialty: {repository, tag}}
+            # read by admin/src/agent-image-map.ts. Rendered only when the map is
+            # non-empty; a `default` key overrides the single image above.
+            - name: SHIPWRIGHT_AGENT_IMAGES
+              value: {{ toJson . | quote }}
+            {{- end }}
             - name: SHIPWRIGHT_AGENT_REPLICAS
               value: {{ .Values.agent.provisioning.replicas | quote }}
             # In-cluster admin/gateway URL the provisioner hands to agent pods.
