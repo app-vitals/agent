@@ -27,7 +27,7 @@ Tests ship in the same PR as the change, at the right layer:
 - **unit** (`*.unit.test.ts`): pure logic, no I/O
 - **integration** (`*.integration.test.ts`): real dependency behavior through injected doubles or a test database
 - **smoke** (`*.smoke.test.ts`): endpoints exercised in-process, or image-level checks in CI
-- **e2e** (`admin/e2e/`): browser flows through Playwright
+- **e2e** (`admin/e2e/`): browser flows through Playwright (`*.e2e.ts`, not picked up by `bun test`; CI runs them in the `admin e2e` job)
 
 ### The import boundary
 
