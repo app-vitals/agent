@@ -63,6 +63,22 @@ label and annotation is unchanged:
 - Agent provisioning: `agent.serviceaccount`, `agent.provisioningRbac`,
   `agent.claudePolicyConfigMap`
 
+### Per-specialty agent images
+
+`agent.provisioning.images` is an optional map keyed by specialty whose values are
+`{repository, tag}`. When non-empty, `agent-platform.admin.deployment` renders it as
+the JSON env var `SHIPWRIGHT_AGENT_IMAGES` on the admin Deployment; a `default` key
+overrides `agent.provisioning.image` for specialties without their own entry. Empty
+(the default) renders no env var and every agent runs `agent.provisioning.image`.
+
+```yaml
+agent:
+  provisioning:
+    images:
+      default: {repository: ghcr.io/app-vitals/agent, tag: v1}
+      coding: {repository: ghcr.io/app-vitals/agent-coding, tag: v2}
+```
+
 They read the consumer's `.Values` (`admin`, `auth`, `agent`, `postgresql`,
 `externalDatabase`, `cloudSqlProxy`, `chat`, `networking`, `selfServe`, ...), so
 the consumer's values file must define those keys.

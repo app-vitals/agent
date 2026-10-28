@@ -511,6 +511,11 @@ agent:
     image:
       repository: ghcr.io/app-vitals/shipwright-agent
       tag: agent-v1.439.0
+    # -- Optional per-specialty agent images, keyed by specialty with
+    # {repository, tag} values (rendered as SHIPWRIGHT_AGENT_IMAGES). A `default`
+    # key overrides `image` for specialties without their own entry. Empty (default)
+    # renders no env var and every agent runs `image`.
+    images: {}
     # -- Replica count for provisioned agent Deployments.
     replicas: 1
     # -- ServiceAccount provisioned agent pods run as (SEPARATE from the admin SA).
