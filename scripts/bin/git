@@ -4,6 +4,11 @@
 # signed. Every other subcommand, and push with the flag unset or set to any
 # other value (e.g. `off`), execs the real git unchanged.
 #
+# The helper replays commits through the Git Data API (merge commits, modes,
+# symlinks and submodules included) and refuses only pushes it cannot
+# reproduce (force, tag, delete, --all/--mirror, multiple refspecs, oversized
+# commits); other failures print git-style errors.
+#
 # Global options (-C <dir>, -c <k=v>) are parsed to find the subcommand. For an
 # intercepted push they are applied to the helper (cd / GIT_CONFIG_*), since the
 # helper takes plain `git push` arguments.
