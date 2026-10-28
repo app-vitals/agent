@@ -21,6 +21,7 @@ type ReconcilableAgent = Partial<AgentAnthropicIdentity> & {
   selfHosted: boolean;
   accountId?: string | null;
   podServiceAccountName?: string | null;
+  specialty?: string;
 };
 
 export function reconcileAgentAfterAccountChange(
@@ -60,6 +61,9 @@ async function reconcileAgentWorkload(
       {
         id: agent.id,
         slug: agent.name,
+        ...(agent.specialty !== undefined
+          ? { specialty: agent.specialty }
+          : {}),
         accountId: agent.accountId ?? null,
         ownerEmail: agent.ownerEmail,
         anthropicIdentityName: agent.anthropicIdentityName,

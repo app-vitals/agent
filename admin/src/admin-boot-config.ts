@@ -12,6 +12,7 @@
 import { join } from "node:path";
 import type { PrismaClient } from "../prisma/client/client.ts";
 import { AgentAnthropicIdentityService } from "./agent-anthropic-identity.ts";
+import { parseAgentImageMap } from "./agent-image-map.ts";
 import type { AgentAnthropicFederation } from "./agent-manifest.ts";
 import type {
   AgentProvisioner,
@@ -120,6 +121,8 @@ export function buildProvisioner(
   const namespace = env.SHIPWRIGHT_K8S_NAMESPACE ?? "default";
   const image = env.SHIPWRIGHT_AGENT_IMAGE ?? "";
   const imageTag = env.SHIPWRIGHT_AGENT_IMAGE_TAG ?? "latest";
+  // Malformed → throws here, so admin boot fails rather than falling back.
+  const images = parseAgentImageMap(env.SHIPWRIGHT_AGENT_IMAGES);
   const apiUrl = env.SHIPWRIGHT_API_URL ?? "";
   const replicasRaw = env.SHIPWRIGHT_AGENT_REPLICAS;
   const replicas = replicasRaw ? Number(replicasRaw) : undefined;
@@ -201,6 +204,7 @@ export function buildProvisioner(
     namespace,
     image,
     imageTag,
+    ...(images ? { images } : {}),
     apiUrl,
     ...(replicas !== undefined && Number.isFinite(replicas)
       ? { replicas }

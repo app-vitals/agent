@@ -45,6 +45,11 @@ import type {
   AgentAnthropicIdentityService,
 } from "./agent-anthropic-identity.ts";
 import {
+  type AgentImageMap,
+  type AgentImageRef,
+  resolveImage,
+} from "./agent-image-map.ts";
+import {
   type AgentAnthropicFederation,
   type AgentContainerResourceOverrides,
   type AgentVoiceEnv,
@@ -151,6 +156,8 @@ export interface ReconcileTarget extends Partial<AgentAnthropicIdentity> {
   accountId?: string | null;
   /** The Agent row's pod ServiceAccount (COS-48.1); rendered only when the flag is on. */
   podServiceAccountName?: string | null;
+  /** The agent's specialty; selects its image (SHIPWRIGHT_AGENT_IMAGES). */
+  specialty?: string;
   /**
    * The pod ServiceAccount this agent had before the change being reconciled
    * (COS-49.1). Only used to clear: when `podServiceAccountName` is now unset,
@@ -179,6 +186,8 @@ export interface AgentProvisioner {
       slug?: string;
       accountId?: string | null;
       podServiceAccountName?: string | null;
+      /** Selects the agent's image (SHIPWRIGHT_AGENT_IMAGES). */
+      specialty?: string;
     },
   ): Promise<ProvisionResult>;
   /**
@@ -236,6 +245,11 @@ export interface KubernetesAgentProvisionerConfig {
   image: string;
   /** Image tag, joined as `image:tag`. */
   imageTag: string;
+  /**
+   * Optional per-specialty image map (SHIPWRIGHT_AGENT_IMAGES). A specialty
+   * without an entry (and no `default` key) uses `image`/`imageTag`.
+   */
+  images?: AgentImageMap;
   /** In-cluster admin/API base URL the agent calls home to. */
   apiUrl: string;
   /**
@@ -833,6 +847,15 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
       : `${resourceName}-token`;
   }
 
+  /** The image an agent of `specialty` runs (see resolveImage). */
+  private resolveImage(specialty?: string | null): AgentImageRef {
+    return resolveImage(
+      { repository: this.config.image, tag: this.config.imageTag },
+      this.config.images,
+      specialty,
+    );
+  }
+
   private pvcNameFor(resourceName: string, slug?: string): string {
     return this.config.pvcName
       ? this.config.pvcName(slug ? sanitizeAgentName(slug) : resourceName)
@@ -902,13 +925,15 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
     accountId: string | null | undefined,
     federation: AgentAnthropicFederation | undefined,
     podServiceAccountName?: string | null,
+    specialty?: string,
   ) {
     const resourceName = this.resourceName(agentId);
+    const { repository, tag } = this.resolveImage(specialty);
     return buildAgentDeploymentManifest({
       agentId,
       namespace: this.config.namespace,
-      image: this.config.image,
-      imageTag: this.config.imageTag,
+      image: repository,
+      imageTag: tag,
       apiUrl: this.config.apiUrl,
       pvcName: this.pvcNameFor(resourceName, slug),
       secretName: this.secretNameFor(resourceName),
@@ -935,6 +960,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
       slug?: string;
       accountId?: string | null;
       podServiceAccountName?: string | null;
+      specialty?: string;
     },
   ): Promise<ProvisionResult> {
     const resourceName = this.resourceName(agentId);
@@ -1147,6 +1173,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
           slug?: string;
           accountId?: string | null;
           podServiceAccountName?: string | null;
+          specialty?: string;
         }
       | undefined,
     result: ProvisionResult,
@@ -1241,6 +1268,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
           opts?.accountId,
           federation,
           opts?.podServiceAccountName,
+          opts?.specialty,
         ),
       );
     } catch (err) {
@@ -1388,6 +1416,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
               slug: agent.slug,
               accountId: agent.accountId,
               podServiceAccountName: agent.podServiceAccountName,
+              specialty: agent.specialty,
             });
           }
           recreated.push(agent.id);
@@ -1453,6 +1482,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
             agent.accountId,
             desiredFederation,
             agent.podServiceAccountName,
+            agent.specialty,
           );
           const desired = desiredDeployment.spec.template.spec.containers[0];
           const desiredLabels = desiredDeployment.spec.template.metadata.labels;
