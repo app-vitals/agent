@@ -1243,3 +1243,114 @@ describe("KubernetesAgentProvisioner.reconcile() — anthropic federation (casse
     expect(patches).toEqual([]);
   });
 });
+
+// ─── Per-specialty images (SPI-1.1) ─────────────────────────────────────────
+// Not DB-backed: a stub token service stands in for the minting path, and the
+// in-memory RecordedKubernetesClient for the cluster. The single-image tests
+// above are the unset-map regression guard.
+
+describe("KubernetesAgentProvisioner — per-specialty images", () => {
+  const stubTokens = {
+    create: async () => ({ rawToken: "raw-token" }),
+  } as unknown as AgentTokenService;
+  const REVIEWER = "ghcr.io/app-vitals/shipwright-agent-reviewer:v2.0.0";
+  const SINGLE = `${CONFIG.image}:${CONFIG.imageTag}`;
+  const MAPPED: KubernetesAgentProvisionerConfig = {
+    ...CONFIG,
+    images: {
+      reviewer: {
+        repository: "ghcr.io/app-vitals/shipwright-agent-reviewer",
+        tag: "v2.0.0",
+      },
+    },
+  };
+
+  async function imageOf(
+    k8s: RecordedKubernetesClient,
+    agentId: string,
+  ): Promise<string | undefined> {
+    const dep = await k8s.getDeployment(NAMESPACE, sanitizeAgentName(agentId));
+    return dep.spec.template.spec.containers[0]?.image;
+  }
+
+  it("provision() applies the mapped image for a mapped specialty and the single image otherwise", async () => {
+    const k8s = emptyClient();
+    const provisioner = new KubernetesAgentProvisioner(k8s, stubTokens, MAPPED);
+
+    await provisioner.provision("agent-rev", { specialty: "reviewer" });
+    await provisioner.provision("agent-dev", { specialty: "developer" });
+    await provisioner.provision("agent-none");
+
+    expect(await imageOf(k8s, "agent-rev")).toBe(REVIEWER);
+    expect(await imageOf(k8s, "agent-dev")).toBe(SINGLE);
+    expect(await imageOf(k8s, "agent-none")).toBe(SINGLE);
+  });
+
+  it("provision() ignores specialty when no map is configured", async () => {
+    const k8s = emptyClient();
+    const provisioner = new KubernetesAgentProvisioner(k8s, stubTokens, CONFIG);
+
+    await provisioner.provision("agent-rev", { specialty: "reviewer" });
+
+    expect(await imageOf(k8s, "agent-rev")).toBe(SINGLE);
+  });
+
+  it("reconcile() patches only the Deployments whose resolved image differs", async () => {
+    const k8s = emptyClient();
+    const patched: string[] = [];
+    const spy: KubernetesClient = {
+      createSecret: (ns, s) => k8s.createSecret(ns, s),
+      createDeploymentManifest: (ns, d) => k8s.createDeploymentManifest(ns, d),
+      createPvc: (ns, p) => k8s.createPvc(ns, p),
+      getSecret: (ns, n) => k8s.getSecret(ns, n),
+      getDeployment: (ns, n) => k8s.getDeployment(ns, n),
+      listDeployments: (ns, l) => k8s.listDeployments(ns, l),
+      deleteDeployment: (ns, n) => k8s.deleteDeployment(ns, n),
+      deleteSecret: (ns, n) => k8s.deleteSecret(ns, n),
+      deletePvc: (ns, n) => k8s.deletePvc(ns, n),
+      patchDeployment: (ns, n, p) => {
+        patched.push(n);
+        return k8s.patchDeployment(ns, n, p);
+      },
+    } as KubernetesClient;
+
+    // Both agents were provisioned under the single-image config.
+    const before = new KubernetesAgentProvisioner(spy, stubTokens, CONFIG);
+    await before.provision("agent-rev", { specialty: "reviewer" });
+    await before.provision("agent-dev", { specialty: "developer" });
+
+    // The map is introduced: only the reviewer's resolved image changes.
+    const after = new KubernetesAgentProvisioner(spy, stubTokens, MAPPED);
+    const result = await after.reconcile([
+      { id: "agent-rev", specialty: "reviewer" },
+      { id: "agent-dev", specialty: "developer" },
+    ]);
+
+    expect(result.updated).toEqual(["agent-rev"]);
+    expect(result.failed).toEqual([]);
+    expect(patched).toEqual([sanitizeAgentName("agent-rev")]);
+    expect(await imageOf(k8s, "agent-rev")).toBe(REVIEWER);
+    expect(await imageOf(k8s, "agent-dev")).toBe(SINGLE);
+
+    // A second pass is a no-op.
+    patched.length = 0;
+    const again = await after.reconcile([
+      { id: "agent-rev", specialty: "reviewer" },
+      { id: "agent-dev", specialty: "developer" },
+    ]);
+    expect(again.updated).toEqual([]);
+    expect(patched).toEqual([]);
+  });
+
+  it("reconcile() recreates a missing Deployment with its specialty's image", async () => {
+    const k8s = emptyClient();
+    const provisioner = new KubernetesAgentProvisioner(k8s, stubTokens, MAPPED);
+
+    const result = await provisioner.reconcile([
+      { id: "agent-rev", specialty: "reviewer" },
+    ]);
+
+    expect(result.recreated).toEqual(["agent-rev"]);
+    expect(await imageOf(k8s, "agent-rev")).toBe(REVIEWER);
+  });
+});

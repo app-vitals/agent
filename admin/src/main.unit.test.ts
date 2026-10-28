@@ -98,6 +98,35 @@ describe("buildProvisioner", () => {
     expect(configOf(off).podServiceAccount).toEqual({ enabled: false });
   });
 
+  it("parses SHIPWRIGHT_AGENT_IMAGES into the config, and omits it when unset", () => {
+    const env = { SHIPWRIGHT_K8S_PROVISIONING: "enabled" };
+    expect(
+      configOf(buildProvisioner(env, stubAgentTokenService())).images,
+    ).toBe(undefined);
+    const mapped = buildProvisioner(
+      {
+        ...env,
+        SHIPWRIGHT_AGENT_IMAGES: '{"reviewer":{"repository":"r","tag":"1"}}',
+      },
+      stubAgentTokenService(),
+    );
+    expect(configOf(mapped).images).toEqual({
+      reviewer: { repository: "r", tag: "1" },
+    });
+  });
+
+  it("throws at boot on a malformed SHIPWRIGHT_AGENT_IMAGES", () => {
+    expect(() =>
+      buildProvisioner(
+        {
+          SHIPWRIGHT_K8S_PROVISIONING: "enabled",
+          SHIPWRIGHT_AGENT_IMAGES: "{oops",
+        },
+        stubAgentTokenService(),
+      ),
+    ).toThrow(/SHIPWRIGHT_AGENT_IMAGES/);
+  });
+
   it("returns a NoopAgentProvisioner when SHIPWRIGHT_K8S_PROVISIONING is unset", () => {
     const provisioner = buildProvisioner({}, stubAgentTokenService());
     expect(provisioner).toBeInstanceOf(NoopAgentProvisioner);

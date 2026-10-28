@@ -1087,6 +1087,7 @@ export async function createAgent(
       await deps.provisioner.provision(agent.id, {
         slug: agent.name,
         accountId: agent.accountId,
+        specialty: agent.specialty,
       });
     } catch (err) {
       console.error(

@@ -97,8 +97,8 @@ describe("managedReconcileTargets", () => {
         agent({ id: "a3", name: "gamma" }),
       ]),
     ).toEqual([
-      { id: "a1", slug: "alpha", accountId: "acct-1" },
-      { id: "a3", slug: "gamma", accountId: null },
+      { id: "a1", slug: "alpha", accountId: "acct-1", specialty: "dev" },
+      { id: "a3", slug: "gamma", accountId: null, specialty: "dev" },
     ]);
   });
 });
@@ -128,8 +128,15 @@ describe("managedReconcileTargets identity fields", () => {
         anthropicServiceAccountId: "svac_1",
         anthropicFederationRuleId: "fdrl_1",
         k8sServiceAccountName: "a1",
+        specialty: "dev",
       },
-      { id: "a2", slug: "beta", accountId: null, ownerEmail: null },
+      {
+        id: "a2",
+        slug: "beta",
+        accountId: null,
+        ownerEmail: null,
+        specialty: "dev",
+      },
     ]);
   });
 });
@@ -151,8 +158,13 @@ describe("runStartupPolicyReconcile", () => {
     expect(calls).toEqual([
       {
         agents: [
-          { id: "a1", slug: "alpha", accountId: null },
-          { id: "a3", slug: "gamma", accountId: "acct-3" },
+          { id: "a1", slug: "alpha", accountId: null, specialty: "dev" },
+          {
+            id: "a3",
+            slug: "gamma",
+            accountId: "acct-3",
+            specialty: "dev",
+          },
         ],
         opts: { policyOnly: true },
       },

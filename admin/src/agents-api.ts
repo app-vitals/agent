@@ -1645,6 +1645,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       await provisioner.provision(agent.id, {
         slug: agent.name,
         accountId: agent.accountId,
+        specialty: agent.specialty,
       });
     return c.json({ resourceName, secretName, deploymentName }, 200);
   });

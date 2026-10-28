@@ -44,6 +44,7 @@ export function managedReconcileTargets(
     .map((a) => ({
       id: a.id,
       slug: a.name,
+      specialty: a.specialty,
       accountId: a.accountId,
       ownerEmail: a.ownerEmail,
       anthropicIdentityName: a.anthropicIdentityName,
