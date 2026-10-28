@@ -40,7 +40,8 @@
  *
  * A push the helper cannot reproduce exactly must not silently differ, so it
  * refuses (exit 1, message ending in the `SHIPWRIGHT_SIGNED_COMMITS=off git
- * push ...` bypass): force/tag/delete pushes and oversized commits.
+ * push ...` bypass): force/tag/delete pushes, --all/--mirror, multiple
+ * refspecs, and commits over the payload cap.
  * Other failures read like git's own: a non-fast-forward push prints
  * `! [rejected] <branch> -> <branch> (fetch first)` and `error: failed to push
  * some refs to <url>`. A short hint is added only where the cause is the agent
