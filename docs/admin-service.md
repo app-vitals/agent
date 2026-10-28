@@ -28,7 +28,7 @@ All paths are under `admin/src/`. Most modules have sibling `*.unit.test.ts`,
 |---|---|
 | `main.ts` | Composition root. Exports `adminExtensions` (empty for the plain platform) and calls `startAdmin()` only when run as the entry point. Downstream images replace it to pass their own extensions. |
 | `admin-boot.ts` | `startAdmin(extensions)`: the whole boot sequence (see "Boot order"). Process wiring only; must not import coding modules. |
-| `admin-boot-config.ts` | Pure/env-driven helpers used by boot: `runMigrations`, `buildProvisioner`, Anthropic federation parsing, `buildDeletionClients`, `checkDbReady`, sweeper interval resolvers, `DEFAULT_PORT`. |
+| `admin-boot-config.ts` | Pure/env-driven helpers used by boot: `runMigrations`, `buildProvisioner`, agent-image-map parsing (`parseAgentImageMap`), Anthropic federation parsing, `buildDeletionClients`, `checkDbReady`, sweeper interval resolvers, `DEFAULT_PORT`. |
 | `admin-extension.ts` | The `AdminExtension` seam: optional hooks `serviceIntegrations`, `services`, `apiRoutes`, `adminUiRoutes`, `agentDetailCards`, `backgroundPasses`, plus static `openApi()`. Hook order is `ADMIN_EXTENSION_HOOK_ORDER`. |
 | `service-integration.ts` | Interface for per-agent service integrations (token mint/revoke, Secret key, URL/token env) supplied by extensions; chat-service stays built in. |
 | `server.ts` | Package entry (`exports["."]`): re-exports app factories, services, error classes and clients. It does not start a server. |
@@ -73,6 +73,7 @@ Anthropic credential guard), `agent-cron-jobs.ts`, `agent-tools.ts`,
 | File | Role |
 |---|---|
 | `agent-provisioner.ts` | `AgentProvisioner` with `KubernetesAgentProvisioner` and `NoopAgentProvisioner`. Order: token, Secret, Deployment (PVC first; in perAgent identity mode also a K8s ServiceAccount, Anthropic service account and federation rule, with IDs saved as they are created so retries reuse them). Also `reconcile` and `deprovision`. |
+| `agent-image-map.ts` | Per-specialty Docker image resolution (SPI-1.1): `parseAgentImageMap()` parses the `SHIPWRIGHT_AGENT_IMAGES` JSON map; `resolveImage()` returns the image for a given specialty (its own map entry, a `default` entry, or the single-image fallback). Interfaces: `AgentImageMap`, `AgentImageRef`. |
 | `agent-manifest.ts` | Pure builders for the Deployment, token Secret and RFC1123 names. |
 | `kubernetes-client.ts` | First-party fetch client for the in-cluster API (Deployments, Secrets, PVCs, ServiceAccounts); no `@kubernetes/client-node`. |
 | `agent-deletion.ts`, `agent-deletion-checklist.ts` | `deleteAgentFully()`, shared by `DELETE /agents/:id` and the UI danger zone: deprovision, remove per-agent Anthropic identity, revoke extension tokens, revoke chat tokens and delete threads, optional Slack app delete; the Agent row is deleted last so retries work. Hand-pasted secrets become a manual-steps checklist. |
