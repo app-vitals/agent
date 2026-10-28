@@ -35,7 +35,7 @@ async function createAgent(
   const agent = await prisma.agent.create({
     data: {
       name: opts.name ?? "Test Agent",
-      typeName: "coding",
+      specialty: "coding",
       trialExpiresAt: opts.trialExpiresAt ?? null,
     },
   });

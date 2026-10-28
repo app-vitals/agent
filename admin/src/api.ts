@@ -23,7 +23,6 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AgentCronJob } from "./agent-cron-jobs.ts";
 import type { AgentEnvBundle } from "./agent-envs.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
-import { resolveSpecialty } from "./agent-specialty.ts";
 import { anthropicCredentialKeysIn } from "./anthropic-credential-guard.ts";
 import { type AdminApiKey, createAdminAuthMiddleware } from "./api-auth.ts";
 import {
@@ -67,13 +66,16 @@ export interface AgentConfigResponse {
    */
   accountStatus?: string | null;
   /**
-   * ARD-6.1: the agent's Specialty name (e.g. "coding"). Additive and
-   * optional — fixtures/doubles built before this field keep compiling, and
-   * the agent runtime treats an absent value as "coding".
+   * ARD-6.1: the agent's Specialty name (e.g. "coding"), read by the agent
+   * runtime to pick its workspace template directory.
+   */
+  specialty: string;
+  /**
+   * @deprecated Back-compat alias of `specialty` for pre-AGR-6.3 runtime
+   * images (their entrypoint reads `config.typeName`). Remove once every
+   * runtime image reads `specialty`.
    */
   typeName?: string;
-  /** AGR-6.1: specialty (specialty ?? typeName); additive, optional for doubles. */
-  specialty?: string;
   /**
    * PMC-1.1: phase -> subagentType (or null) map, covering all six pipeline
    * phases regardless of whether the agent has an explicit override row for
@@ -136,8 +138,7 @@ interface AgentServiceLike {
     trialExpiresAt?: Date | null;
     /** SSP-8.3: owning account status; optional for pre-existing test doubles. */
     accountStatus?: string | null;
-    typeName?: string;
-    specialty?: string | null;
+    specialty: string;
     /** WIF-2.1: optional so pre-existing test doubles keep compiling; absent is treated as not self-hosted. */
     selfHosted?: boolean;
     /** APM-1.5: the 6 agent-policy fields, direct-passthrough into the response. */
@@ -349,14 +350,12 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
         ? agent.trialExpiresAt.toISOString()
         : null,
       accountStatus: agent.accountStatus ?? null,
-      typeName: agent.typeName,
-      specialty:
-        agent.typeName === undefined
-          ? undefined
-          : resolveSpecialty({
-              typeName: agent.typeName,
-              specialty: agent.specialty,
-            }),
+      specialty: agent.specialty,
+      // DEPRECATED (AGR-6.3): back-compat alias for pre-AGR-6.3 runtime images,
+      // whose entrypoint only reads `config.typeName` to set
+      // SHIPWRIGHT_AGENT_TYPE. Without it those pods silently fall back to
+      // coding templates. Remove in a follow-up once all images have rolled.
+      typeName: agent.specialty,
       // Omitted entirely when no phase-methodology service was supplied
       // (platform-only admin, no coding extension).
       ...(agentPhaseMethodologyService ? { phaseMethodology } : {}),

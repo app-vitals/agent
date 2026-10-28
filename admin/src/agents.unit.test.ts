@@ -29,7 +29,7 @@ interface FakeAgentRow {
   reviewAuthorAllowlist: string[];
   patchAuthorAllowlist: string[];
   restrictSlackToMembers: boolean;
-  typeName: string;
+  specialty: string;
   createdAt: Date;
   updatedAt: Date;
   // APM-1.3: the six real agent-policy fields (APM-1.1 DB columns).
@@ -93,7 +93,7 @@ function makeFakePrisma(
         reviewAuthorAllowlist: data.reviewAuthorAllowlist ?? [],
         patchAuthorAllowlist: data.patchAuthorAllowlist ?? [],
         restrictSlackToMembers: data.restrictSlackToMembers ?? false,
-        typeName: "coding",
+        specialty: "coding",
         createdAt: new Date("2024-01-01"),
         updatedAt: new Date("2024-01-01"),
         autoPostReviews: true,
@@ -257,8 +257,8 @@ function fakeRegistry(
   requiredEnvByType: Record<string, string[]>,
 ): SpecialtyManifestResolver {
   return {
-    getManifest(typeName: string): SpecialtyManifest {
-      const required = requiredEnvByType[typeName] ?? [];
+    getManifest(specialty: string): SpecialtyManifest {
+      const required = requiredEnvByType[specialty] ?? [];
       return {
         env: {
           required: required.map((key) => ({
@@ -270,9 +270,9 @@ function fakeRegistry(
         },
       } as unknown as SpecialtyManifest;
     },
-    tryGetManifest(typeName: string): SpecialtyManifest | undefined {
-      if (!(typeName in requiredEnvByType)) return undefined;
-      return this.getManifest(typeName);
+    tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+      if (!(specialty in requiredEnvByType)) return undefined;
+      return this.getManifest(specialty);
     },
     listTypes() {
       return Object.keys(requiredEnvByType).map((name) => ({
@@ -293,7 +293,7 @@ function seedRow(overrides: Partial<FakeAgentRow> = {}): FakeAgentRow {
     reviewAuthorAllowlist: [],
     patchAuthorAllowlist: [],
     restrictSlackToMembers: false,
-    typeName: "coding",
+    specialty: "coding",
     createdAt: new Date("2024-01-01"),
     updatedAt: new Date("2024-01-01"),
     autoPostReviews: true,
@@ -399,7 +399,7 @@ describe("AgentService.delete", () => {
 // ─── list ───────────────────────────────────────────────────────────────────
 
 describe("AgentService.list", () => {
-  it("returns id/name/selfHosted/typeName for all agents, ordered by name asc", async () => {
+  it("returns id/name/selfHosted/specialty for all agents, ordered by name asc", async () => {
     const prisma = makeFakePrisma([
       seedRow({ id: "a1", name: "Zeta", selfHosted: false }),
       seedRow({ id: "a2", name: "Alpha", selfHosted: true }),
@@ -413,14 +413,12 @@ describe("AgentService.list", () => {
         id: "a2",
         name: "Alpha",
         selfHosted: true,
-        typeName: "coding",
         specialty: "coding",
       },
       {
         id: "a1",
         name: "Zeta",
         selfHosted: false,
-        typeName: "coding",
         specialty: "coding",
       },
     ]);
@@ -437,7 +435,7 @@ describe("AgentService.list", () => {
 // ─── getSummary ─────────────────────────────────────────────────────────────
 
 describe("AgentService.getSummary", () => {
-  it("returns {id, name, selfHosted, typeName} for an existing agent", async () => {
+  it("returns {id, name, selfHosted, specialty} for an existing agent", async () => {
     const row = seedRow({ id: "a1", name: "Existing", selfHosted: true });
     const prisma = makeFakePrisma([row]) as unknown as FakePrisma;
     const service = new AgentService(prisma as never);
@@ -446,7 +444,6 @@ describe("AgentService.getSummary", () => {
       id: "a1",
       name: "Existing",
       selfHosted: true,
-      typeName: "coding",
       specialty: "coding",
     });
   });
@@ -462,7 +459,7 @@ describe("AgentService.getSummary", () => {
 // ─── getDetail ──────────────────────────────────────────────────────────────
 
 describe("AgentService.getDetail", () => {
-  it("returns the full record including repos, typeName, timestamps, and an empty missingRequiredEnv when the type has no required contract", async () => {
+  it("returns the full record including repos, specialty, timestamps, and an empty missingRequiredEnv when the type has no required contract", async () => {
     const row = seedRow({
       id: "a1",
       name: "Existing",
@@ -487,7 +484,6 @@ describe("AgentService.getDetail", () => {
       reviewAuthorAllowlist: ["octocat"],
       patchAuthorAllowlist: [],
       restrictSlackToMembers: false,
-      typeName: "coding",
       specialty: "coding",
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -527,7 +523,7 @@ describe("AgentService.getDetail", () => {
     expect(detail?.cleanupAfterDays).toBe(30);
   });
 
-  it("defaults typeName to 'coding' when the row was seeded without an explicit value", async () => {
+  it("defaults specialty to 'coding' when the row was seeded without an explicit value", async () => {
     const row = seedRow({ id: "a1" });
     const prisma = makeFakePrisma([row]) as unknown as FakePrisma;
     const service = new AgentService(
@@ -537,7 +533,7 @@ describe("AgentService.getDetail", () => {
 
     const detail = await service.getDetail("a1");
 
-    expect(detail?.typeName).toBe("coding");
+    expect(detail?.specialty).toBe("coding");
   });
 
   it("returns null when the agent does not exist", async () => {
@@ -548,7 +544,7 @@ describe("AgentService.getDetail", () => {
   });
 
   it("lists a required env key in missingRequiredEnv when no AgentEnv row exists for it", async () => {
-    const row = seedRow({ id: "a1", typeName: "coding" });
+    const row = seedRow({ id: "a1", specialty: "coding" });
     const prisma = makeFakePrisma([row]) as unknown as FakePrisma;
     const service = new AgentService(
       prisma as never,
@@ -561,7 +557,7 @@ describe("AgentService.getDetail", () => {
   });
 
   it("clears a required key from missingRequiredEnv once its AgentEnv row is seeded", async () => {
-    const row = seedRow({ id: "a1", typeName: "coding" });
+    const row = seedRow({ id: "a1", specialty: "coding" });
     const prisma = makeFakePrisma([row], {
       a1: ["CLAUDE_CODE_OAUTH_TOKEN"],
     }) as unknown as FakePrisma;
@@ -576,7 +572,7 @@ describe("AgentService.getDetail", () => {
   });
 
   it("returns an empty missingRequiredEnv array (not undefined/null) when the manifest's required contract is empty, without querying AgentEnv", async () => {
-    const row = seedRow({ id: "a1", typeName: "coding" });
+    const row = seedRow({ id: "a1", specialty: "coding" });
     const prisma = makeFakePrisma([row]) as unknown as FakePrisma;
     let findManyCalled = false;
     const originalFindMany = prisma.agentEnv.findMany.bind(prisma.agentEnv);
@@ -597,7 +593,7 @@ describe("AgentService.getDetail", () => {
   });
 
   it("never includes AgentEnv values in the computed result — only key names are read", async () => {
-    const row = seedRow({ id: "a1", typeName: "coding" });
+    const row = seedRow({ id: "a1", specialty: "coding" });
     const prisma = makeFakePrisma([row], {
       a1: ["CLAUDE_CODE_OAUTH_TOKEN"],
     }) as unknown as FakePrisma;
@@ -747,8 +743,7 @@ describe("AgentService.getById", () => {
       restrictSlackToMembers: false,
       memberEmails: [],
       accountStatus: null,
-      // ARD-6.1: getById() now selects typeName for the runtime config response.
-      typeName: "coding",
+      // ARD-6.1: getById() now selects specialty for the runtime config response.
       specialty: "coding",
       selfHosted: false,
       // APM-1.5: getById() now selects these 6 policy fields too.
@@ -785,8 +780,7 @@ describe("AgentService.getById", () => {
       restrictSlackToMembers: false,
       memberEmails: [],
       accountStatus: null,
-      // ARD-6.1: getById() now selects typeName for the runtime config response.
-      typeName: "coding",
+      // ARD-6.1: getById() now selects specialty for the runtime config response.
       specialty: "coding",
       selfHosted: false,
       // APM-1.5: getById() now selects these 6 policy fields too.
@@ -1055,7 +1049,6 @@ describe("AgentService.updateFields", () => {
       reviewAuthorAllowlist: ["octocat"],
       patchAuthorAllowlist: [],
       restrictSlackToMembers: false,
-      typeName: "coding",
       specialty: "coding",
       createdAt: row.createdAt,
       updatedAt: new Date("2024-01-02"),
@@ -1151,14 +1144,14 @@ function fakeCreateSpecialtyRegistry(
   byType: Record<string, SpecialtyManifest> = { coding: CODING_MANIFEST },
 ): Pick<SpecialtyManifestResolver, "tryGetManifest"> {
   return {
-    tryGetManifest: (typeName: string) => byType[typeName],
+    tryGetManifest: (specialty: string) => byType[specialty],
   };
 }
 
 interface CreateAgentHarnessCalls {
   created: Array<{
     name: string;
-    typeName?: string;
+    specialty?: string;
     selfHosted?: boolean;
   }>;
   deleted: string[];
@@ -1211,7 +1204,7 @@ function makeCreateAgentHarness(
         reviewAuthorAllowlist: input.reviewAuthorAllowlist ?? [],
         patchAuthorAllowlist: input.patchAuthorAllowlist ?? [],
         restrictSlackToMembers: input.restrictSlackToMembers ?? false,
-        typeName: input.typeName ?? "coding",
+        specialty: input.specialty ?? "coding",
         createdAt: new Date("2024-01-01"),
         updatedAt: new Date("2024-01-01"),
         missingRequiredEnv: [],
@@ -1219,7 +1212,7 @@ function makeCreateAgentHarness(
       agents.set(id, detail);
       calls.created.push({
         name: input.name,
-        typeName: input.typeName,
+        specialty: input.specialty,
         selfHosted: input.selfHosted,
       });
       return detail;
@@ -1313,7 +1306,7 @@ function baseCreateAgentInput(
 ): CreateAgentFormInput {
   return {
     name: "Test Agent",
-    typeName: "coding",
+    specialty: "coding",
     runtime: undefined,
     reposRaw: undefined,
     authorAllowlistRaw: undefined,
@@ -1434,24 +1427,24 @@ describe("createAgent()", () => {
     expect(calls.created).toEqual([]);
   });
 
-  it("returns invalid_type and creates nothing when typeName is unknown", async () => {
+  it("returns invalid_type and creates nothing when specialty is unknown", async () => {
     const { deps, calls } = makeCreateAgentHarness();
 
     const result = await createAgent(
       deps,
-      baseCreateAgentInput({ typeName: "nonexistent" }),
+      baseCreateAgentInput({ specialty: "nonexistent" }),
     );
 
     expect(result).toEqual({ ok: false, errorCode: "invalid_type" });
     expect(calls.created).toEqual([]);
   });
 
-  it("returns invalid_type and creates nothing when typeName is missing", async () => {
+  it("returns invalid_type and creates nothing when specialty is missing", async () => {
     const { deps, calls } = makeCreateAgentHarness();
 
     const result = await createAgent(
       deps,
-      baseCreateAgentInput({ typeName: undefined }),
+      baseCreateAgentInput({ specialty: undefined }),
     );
 
     expect(result).toEqual({ ok: false, errorCode: "invalid_type" });

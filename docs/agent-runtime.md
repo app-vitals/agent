@@ -33,7 +33,7 @@ tests pass doubles and production wires real ones in `entrypoint-main.ts`.
 3. Apply the bundle's `env` to `process.env` through `applyEnvToProcess`
    (`anthropic-federation-guard.ts` skips the Anthropic credential keys when
    workload-identity federation is active). `SHIPWRIGHT_AGENT_TYPE` is set from
-   the bundle's `typeName`.
+   the bundle's `specialty`.
 4. Symlink `~/.claude` to `$AGENT_HOME/dot-claude` (`ensureDotClaudeSymlink`).
 5. GitHub auth (`setup-github-auth.ts`, below).
 6. `runMiseStartup`: install the workspace's mise tools and put the shims on `PATH`.

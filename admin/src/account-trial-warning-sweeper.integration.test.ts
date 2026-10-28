@@ -100,7 +100,7 @@ describeOrSkip("AccountTrialWarningSweeper (integration)", () => {
     name = "bot",
   ): Promise<string> {
     const a = await prisma.agent.create({
-      data: { name, typeName: "coding", accountId },
+      data: { name, specialty: "coding", accountId },
     });
     if (slack) {
       slackEnv.set(a.id, {

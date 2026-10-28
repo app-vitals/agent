@@ -34,7 +34,6 @@ export const AgentSummarySchema = z
     id: z.string().openapi({ example: "clx1234567890" }),
     name: z.string().openapi({ example: "Bodhi" }),
     selfHosted: z.boolean().openapi({ example: false }),
-    typeName: z.string().openapi({ example: "coding" }),
     specialty: z.string().openapi({ example: "coding" }),
   })
   .openapi("AgentSummary");
@@ -148,7 +147,7 @@ export const PatchAgentBodySchema = z
 export const CreateAgentBodySchema = z
   .object({
     name: z.string().min(1).openapi({ example: "Bodhi" }),
-    typeName: z.string().min(1).openapi({ example: "coding" }),
+    specialty: z.string().min(1).openapi({ example: "coding" }),
     /**
      * "in-cluster" means K8s-provisioned; anything else (including absent)
      * means self-hosted.
@@ -1341,12 +1340,20 @@ export const AgentConfigResponseSchema = z
       .optional()
       .openapi({ example: "active" }),
     /**
-     * ARD-6.1: the agent's Specialty name. Optional (additive) — the runtime
-     * falls back to "coding" templates when absent.
+     * ARD-6.1: the agent's Specialty name, used by the runtime to pick its
+     * workspace template directory.
      */
-    typeName: z.string().optional().openapi({ example: "coding" }),
-    /** AGR-6.1: specialty (specialty ?? typeName); additive next to typeName. */
-    specialty: z.string().optional().openapi({ example: "coding" }),
+    specialty: z.string().openapi({ example: "coding" }),
+    /**
+     * DEPRECATED back-compat alias of `specialty` (always equal to it). Kept
+     * only for pre-AGR-6.3 runtime images, whose entrypoint reads
+     * `config.typeName` to set SHIPWRIGHT_AGENT_TYPE. Remove in a follow-up
+     * once every runtime image reads `specialty`.
+     */
+    typeName: z
+      .string()
+      .optional()
+      .openapi({ example: "coding", deprecated: true }),
     /**
      * PMC-1.1: phase -> subagentType (or null) map, covering all six pipeline
      * phases (see AGENT_PHASES) regardless of whether the agent has an

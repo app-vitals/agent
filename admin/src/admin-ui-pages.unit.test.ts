@@ -47,7 +47,7 @@ const AGENT: AgentDetail = {
   authorAllowlist: [],
   patchAuthorAllowlist: [],
   restrictSlackToMembers: false,
-  typeName: "coding",
+  specialty: "coding",
   missingRequiredEnv: [],
   autoPostReviews: true,
   allowSelfReview: false,
@@ -638,7 +638,7 @@ describe("renderAgentDetailPage — overview", () => {
   test("XSS: specialty name is escaped", () => {
     const xssAgent: AgentDetail = {
       ...AGENT,
-      typeName: '<script>alert("xss")</script>',
+      specialty: '<script>alert("xss")</script>',
     };
     const html = renderAgentDetailPage(
       xssAgent,

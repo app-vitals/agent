@@ -69,15 +69,15 @@ function fakeRegistry(
   const lookups: string[] = [];
   return {
     lookups,
-    getManifest(typeName: string): SpecialtyManifest {
-      lookups.push(typeName);
-      const crons = byType[typeName] ?? byType[fallbackType];
-      if (!crons) throw new Error(`no manifest for ${typeName}`);
+    getManifest(specialty: string): SpecialtyManifest {
+      lookups.push(specialty);
+      const crons = byType[specialty] ?? byType[fallbackType];
+      if (!crons) throw new Error(`no manifest for ${specialty}`);
       return manifestWithCrons(crons);
     },
-    tryGetManifest(typeName: string): SpecialtyManifest | undefined {
-      lookups.push(typeName);
-      const crons = byType[typeName];
+    tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+      lookups.push(specialty);
+      const crons = byType[specialty];
       return crons ? manifestWithCrons(crons) : undefined;
     },
     listTypes() {
@@ -90,12 +90,12 @@ type FakeCronRow = AgentCronJob;
 
 /**
  * In-memory prisma double covering only what reconcileSystemCrons() touches:
- *   agent.findUnique (typeName resolution),
+ *   agent.findUnique (specialty resolution),
  *   agentCronJob.findMany, and a $transaction exposing
  *   agentCronJob.{create,update,delete}.
  */
 function makeFakePrisma(opts: {
-  typeName: string;
+  specialty: string;
   existing?: Partial<FakeCronRow>[];
 }) {
   let nextId = 1;
@@ -193,8 +193,8 @@ function makeFakePrisma(opts: {
       where,
     }: {
       where: { id: string };
-    }): Promise<{ typeName: string } | null> {
-      return where.id === "agent-1" ? { typeName: opts.typeName } : null;
+    }): Promise<{ specialty: string } | null> {
+      return where.id === "agent-1" ? { specialty: opts.specialty } : null;
     },
   };
 
@@ -229,9 +229,9 @@ const childCron: ManifestCron = {
 };
 
 describe("reconcileSystemCrons (unit, injected registry)", () => {
-  test("resolves the agent's typeName via the injected registry", async () => {
+  test("resolves the agent's specialty via the injected registry", async () => {
     const registry = fakeRegistry({ coding: [loopCron] });
-    const { prisma } = makeFakePrisma({ typeName: "coding" });
+    const { prisma } = makeFakePrisma({ specialty: "coding" });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
       undefined,
@@ -245,7 +245,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
 
   test("creates one row per manifest cron on a fresh agent", async () => {
     const registry = fakeRegistry({ coding: [loopCron, childCron] });
-    const { prisma, rows } = makeFakePrisma({ typeName: "coding" });
+    const { prisma, rows } = makeFakePrisma({ specialty: "coding" });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
       undefined,
@@ -265,7 +265,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
 
   test("links a child cron to its parent on first reconcile", async () => {
     const registry = fakeRegistry({ coding: [childCron, loopCron] });
-    const { prisma, rows } = makeFakePrisma({ typeName: "coding" });
+    const { prisma, rows } = makeFakePrisma({ specialty: "coding" });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
       undefined,
@@ -284,7 +284,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
   test("updates a matching existing row in place, preserving its id", async () => {
     const registry = fakeRegistry({ coding: [loopCron] });
     const { prisma, rows } = makeFakePrisma({
-      typeName: "coding",
+      specialty: "coding",
       existing: [{ id: "stable-id", name: "shipwright-loop", enabled: false }],
     });
     const service = new AgentCronJobService(
@@ -303,7 +303,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
   test("orphan pass deletes a system cron absent from the manifest", async () => {
     const registry = fakeRegistry({ coding: [loopCron] });
     const { prisma, rows } = makeFakePrisma({
-      typeName: "coding",
+      specialty: "coding",
       existing: [{ id: "orphan", name: "removed-cron" }],
     });
     const service = new AgentCronJobService(
@@ -321,7 +321,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
   test("clears a stale parentCronId when the entry no longer declares a resolvable parent", async () => {
     const registry = fakeRegistry({ coding: [loopCron] });
     const { prisma, rows } = makeFakePrisma({
-      typeName: "coding",
+      specialty: "coding",
       existing: [
         {
           id: "loop-id",
@@ -341,10 +341,10 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
     expect(rows.get("loop-id")?.parentCronId).toBeNull();
   });
 
-  test("an unknown non-coding typeName logs an error and changes nothing", async () => {
+  test("an unknown non-coding specialty logs an error and changes nothing", async () => {
     const registry = fakeRegistry({ coding: [loopCron] });
     const { prisma, rows } = makeFakePrisma({
-      typeName: "specialist",
+      specialty: "specialist",
       existing: [
         { id: "sys-1", name: "old-system", system: true },
         { id: "user-1", name: "mine", system: false },
@@ -377,7 +377,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
   test("the default manifest that cannot load still throws", async () => {
     const registry = fakeRegistry({});
     const { prisma } = makeFakePrisma({
-      typeName: resolveDefaultSpecialtyName(),
+      specialty: resolveDefaultSpecialtyName(),
     });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
@@ -393,7 +393,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
   test("the default-manifest failure names the env vars that configure it", async () => {
     const registry = fakeRegistry({});
     const { prisma } = makeFakePrisma({
-      typeName: resolveDefaultSpecialtyName(),
+      specialty: resolveDefaultSpecialtyName(),
     });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
@@ -408,7 +408,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
 
   test("a valid non-coding manifest reconciles normally", async () => {
     const registry = fakeRegistry({ specialist: [loopCron] });
-    const { prisma, rows } = makeFakePrisma({ typeName: "specialist" });
+    const { prisma, rows } = makeFakePrisma({ specialty: "specialist" });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
       undefined,

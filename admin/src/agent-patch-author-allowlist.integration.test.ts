@@ -87,11 +87,11 @@ const CODING_MANIFEST: SpecialtyManifest = {
 function fakeSpecialtyRegistry(): SpecialtyManifestResolver {
   const byType: Record<string, SpecialtyManifest> = { coding: CODING_MANIFEST };
   return {
-    getManifest(typeName: string): SpecialtyManifest {
-      return byType[typeName] ?? (byType.coding as SpecialtyManifest);
+    getManifest(specialty: string): SpecialtyManifest {
+      return byType[specialty] ?? (byType.coding as SpecialtyManifest);
     },
-    tryGetManifest(typeName: string): SpecialtyManifest | undefined {
-      return byType[typeName];
+    tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+      return byType[specialty];
     },
     listTypes() {
       return Object.entries(byType).map(([name, manifest]) => ({

@@ -346,7 +346,7 @@ export interface AdminUIDeps {
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
   anthropicFederationEnabled?: boolean;
   /**
-   * Resolves an agent's typeName to its parsed Specialty manifest and lists
+   * Resolves an agent's specialty to its parsed Specialty manifest and lists
    * the registry's discoverable types (for the new-specialty picker).
    * Defaults to a disk-backed SpecialtyRegistry, matching the DI pattern
    * already used by agents-api.ts's AdminDeps.
@@ -1449,7 +1449,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       return new Response("Forbidden", { status: 403 });
     }
     let name: string | undefined;
-    let typeName: string | undefined;
+    let specialty: string | undefined;
     let reposRaw: string | undefined;
     let authorAllowlistRaw: string | undefined;
     let patchAuthorAllowlistRaw: string | undefined;
@@ -1470,7 +1470,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     try {
       const formData = await c.req.formData();
       name = formData.get("name")?.toString()?.trim();
-      typeName = formData.get("type")?.toString()?.trim();
+      specialty = formData.get("type")?.toString()?.trim();
       reposRaw = formData.get("repos")?.toString()?.trim();
       authorAllowlistRaw = formData.get("authorAllowlist")?.toString()?.trim();
       patchAuthorAllowlistRaw = formData
@@ -1509,7 +1509,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     const connectSlack = connectSlackRaw === "true";
     // SSP-4.2: account users always create "coding" agents in their own
     // account — any submitted type/accountId is ignored.
-    if (accountId !== null) typeName = getSelfServeSpecialty();
+    if (accountId !== null) specialty = getSelfServeSpecialty();
     // Absent/unrecognized runtime means self-hosted — the historical behavior
     // of this form. createAgent() below re-derives this same value itself
     // (it owns the runtime/provisioning validation); it's recomputed here
@@ -1518,7 +1518,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     // whether this agent is in-cluster.
     const inCluster = runtime === "in-cluster";
 
-    // APA-1.1: the entire create-agent sequence (validate name/typeName,
+    // APA-1.1: the entire create-agent sequence (validate name/specialty,
     // create the Agent row, seed AgentTool/AgentPlugin from the type
     // manifest, attach repos/allowlists/members, patch Claude credentials,
     // provision Kubernetes when requested, best-effort reconcile system
@@ -1561,7 +1561,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       },
       {
         name,
-        typeName,
+        specialty,
         runtime,
         reposRaw,
         authorAllowlistRaw,
@@ -1736,7 +1736,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       authorAllowlist: agent.reviewAuthorAllowlist,
       patchAuthorAllowlist: agent.patchAuthorAllowlist,
       restrictSlackToMembers: agent.restrictSlackToMembers,
-      typeName: agent.typeName,
+      specialty: agent.specialty,
       missingRequiredEnv: agent.missingRequiredEnv,
       autoPostReviews: agent.autoPostReviews ?? true,
       allowSelfReview: agent.allowSelfReview ?? false,
@@ -2425,7 +2425,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       authorAllowlist: agent.reviewAuthorAllowlist,
       patchAuthorAllowlist: agent.patchAuthorAllowlist,
       restrictSlackToMembers: agent.restrictSlackToMembers,
-      typeName: agent.typeName,
+      specialty: agent.specialty,
       missingRequiredEnv: agent.missingRequiredEnv,
       autoPostReviews: agent.autoPostReviews ?? true,
       allowSelfReview: agent.allowSelfReview ?? false,

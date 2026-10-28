@@ -1,7 +1,7 @@
 /**
  * admin/src/specialty-manifest-loader.unit.test.ts
  * Unit tests for SpecialtyRegistry — the disk-backed resolver from an agent's
- * typeName to its parsed manifest, with the unknown-type "coding" fallback.
+ * specialty to its parsed manifest, with the unknown-type "coding" fallback.
  *
  * Pure logic against an injected reader/warner — no filesystem, no DB. See
  * docs/testing.md for the unit-layer contract.
@@ -44,7 +44,7 @@ voice: true
 }
 
 describe("SpecialtyRegistry", () => {
-  it("resolves a known typeName to its parsed manifest", () => {
+  it("resolves a known specialty to its parsed manifest", () => {
     const registry = new SpecialtyRegistry({
       defaultTypeName: DEFAULT_SPECIALTY_NAME,
       read: (t) => manifestYaml(t),
@@ -54,7 +54,7 @@ describe("SpecialtyRegistry", () => {
     expect(manifest.crons[0]?.name).toBe("coding-cron");
   });
 
-  it("falls back to the coding manifest with a warning for an unknown typeName", () => {
+  it("falls back to the coding manifest with a warning for an unknown specialty", () => {
     const warnings: string[] = [];
     const registry = new SpecialtyRegistry({
       defaultTypeName: DEFAULT_SPECIALTY_NAME,
@@ -97,10 +97,10 @@ describe("SpecialtyRegistry", () => {
       defaultTypeName: "absent",
     });
 
-    for (const typeName of ["absent", "some-other-type"]) {
+    for (const specialty of ["absent", "some-other-type"]) {
       let message = "";
       try {
-        registry.getManifest(typeName);
+        registry.getManifest(specialty);
       } catch (err) {
         message = (err as Error).message;
       }
@@ -131,12 +131,12 @@ describe("SpecialtyRegistry", () => {
   // ─── tryGetManifest — non-fallback lookup ────────────────────────────────
   //
   // Unlike getManifest(), tryGetManifest() must NOT fall back to "coding" for
-  // an unknown typeName — it returns undefined instead. This is what lets
+  // an unknown specialty — it returns undefined instead. This is what lets
   // POST /agents distinguish "resolved to the exact requested type" from
   // "silently degraded", which the cron-reconcile boot path (getManifest())
   // deliberately does not need to distinguish.
 
-  it("tryGetManifest resolves a known typeName to its parsed manifest", () => {
+  it("tryGetManifest resolves a known specialty to its parsed manifest", () => {
     const registry = new SpecialtyRegistry({
       defaultTypeName: DEFAULT_SPECIALTY_NAME,
       read: (t) => manifestYaml(t),
@@ -145,7 +145,7 @@ describe("SpecialtyRegistry", () => {
     expect(manifest?.metadata.name).toBe("coding");
   });
 
-  it("tryGetManifest returns undefined for an unknown typeName — no fallback, no warning", () => {
+  it("tryGetManifest returns undefined for an unknown specialty — no fallback, no warning", () => {
     const warnings: string[] = [];
     const registry = new SpecialtyRegistry({
       defaultTypeName: DEFAULT_SPECIALTY_NAME,

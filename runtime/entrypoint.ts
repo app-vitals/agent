@@ -116,9 +116,7 @@ export async function runEntrypoint(deps: EntrypointDeps): Promise<void> {
     applyEnv(config.env);
     // ARD-6.1: hand the specialty to the server process (inherits our env) so
     // ensureAgentHome() can pick type-specific workspace templates.
-    if (config.typeName) {
-      applyEnv({ SHIPWRIGHT_AGENT_TYPE: config.typeName });
-    }
+    applyEnv({ SHIPWRIGHT_AGENT_TYPE: config.specialty });
 
     // Step 4: Symlink ~/.claude → $AGENT_HOME/dot-claude
     const dotClaudeTarget = join(agentHome, "dot-claude");

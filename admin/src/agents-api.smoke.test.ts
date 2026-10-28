@@ -28,7 +28,7 @@ import { identityCrypto } from "./token-crypto.ts";
 // ─── Fake SpecialtyManifestResolver ────────────────────────────────────────
 //
 // Mirrors the shape used by agent-cron-jobs.unit.test.ts's fakeRegistry —
-// resolves a fixed set of manifests by typeName, with tryGetManifest()
+// resolves a fixed set of manifests by specialty, with tryGetManifest()
 // returning undefined (no fallback) for anything not in the map.
 
 const CODING_MANIFEST: SpecialtyManifest = {
@@ -72,11 +72,11 @@ function fakeSpecialtyRegistry(
   },
 ): AdminDeps["specialtyRegistry"] {
   return {
-    getManifest(typeName: string) {
-      return byType[typeName] ?? (byType.coding as SpecialtyManifest);
+    getManifest(specialty: string) {
+      return byType[specialty] ?? (byType.coding as SpecialtyManifest);
     },
-    tryGetManifest(typeName: string) {
-      return byType[typeName];
+    tryGetManifest(specialty: string) {
+      return byType[specialty];
     },
     listTypes() {
       return Object.entries(byType).map(([name, manifest]) => ({
@@ -240,7 +240,7 @@ function makeMockDeps(): AdminDeps {
         reviewAuthorAllowlist: [],
         patchAuthorAllowlist: [],
         restrictSlackToMembers: input.restrictSlackToMembers ?? false,
-        typeName: "coding",
+        specialty: "coding",
         createdAt: new Date("2024-01-01"),
         updatedAt: new Date("2024-01-01"),
         missingRequiredEnv: [],
@@ -251,13 +251,13 @@ function makeMockDeps(): AdminDeps {
           id: AGENT_ID,
           name: "Existing Agent",
           selfHosted: false,
-          typeName: "coding",
+          specialty: "coding",
         },
         {
           id: "agent-other-id",
           name: "Other Agent",
           selfHosted: false,
-          typeName: "coding",
+          specialty: "coding",
         },
       ],
       getSummary: async (id: string) =>
@@ -266,7 +266,7 @@ function makeMockDeps(): AdminDeps {
               id: AGENT_ID,
               name: "Existing Agent",
               selfHosted: false,
-              typeName: "coding",
+              specialty: "coding",
             }
           : null,
       getDetail: async (id: string) =>
@@ -280,7 +280,7 @@ function makeMockDeps(): AdminDeps {
               reviewAuthorAllowlist: [],
               patchAuthorAllowlist: [],
               restrictSlackToMembers: false,
-              typeName: "coding",
+              specialty: "coding",
               createdAt: new Date("2024-01-01"),
               updatedAt: new Date("2024-01-01"),
               missingRequiredEnv: [],
@@ -312,7 +312,7 @@ function makeMockDeps(): AdminDeps {
         reviewAuthorAllowlist: [],
         patchAuthorAllowlist: [],
         restrictSlackToMembers: input.restrictSlackToMembers ?? false,
-        typeName: "coding",
+        specialty: "coding",
         createdAt: new Date("2024-01-01"),
         updatedAt: new Date("2024-01-01"),
         missingRequiredEnv: [],
@@ -343,7 +343,7 @@ function makeMockDeps(): AdminDeps {
         reviewAuthorAllowlist: input.reviewAuthorAllowlist ?? [],
         patchAuthorAllowlist: input.patchAuthorAllowlist ?? [],
         restrictSlackToMembers: input.restrictSlackToMembers ?? false,
-        typeName: "coding",
+        specialty: "coding",
         createdAt: new Date("2024-01-01"),
         updatedAt: new Date("2024-01-01"),
         missingRequiredEnv: [],
@@ -1651,7 +1651,7 @@ describe("admin API — POST /agents", () => {
     const app = createAdminApp(deps);
     const res = await app.request("/agents", {
       method: "POST",
-      body: JSON.stringify({ name: "New Agent", typeName: "coding" }),
+      body: JSON.stringify({ name: "New Agent", specialty: "coding" }),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ADMIN_API_KEY}`,
@@ -1669,7 +1669,7 @@ describe("admin API — POST /agents", () => {
       reviewAuthorAllowlist: [],
       patchAuthorAllowlist: [],
       restrictSlackToMembers: false,
-      typeName: "coding",
+      specialty: "coding",
       missingRequiredEnv: [],
     });
     expect(typeof body.createdAt).toBe("string");
@@ -1680,7 +1680,7 @@ describe("admin API — POST /agents", () => {
     const app = createAdminApp(makeMockDeps());
     const res = await app.request("/agents", {
       method: "POST",
-      body: JSON.stringify({ name: "Cookie Agent", typeName: "coding" }),
+      body: JSON.stringify({ name: "Cookie Agent", specialty: "coding" }),
       headers: {
         "Content-Type": "application/json",
         Cookie: `admin_session=${cookie}`,
@@ -1717,7 +1717,7 @@ describe("admin API — POST /agents", () => {
     const app = createAdminApp(deps);
     const res = await app.request("/agents", {
       method: "POST",
-      body: JSON.stringify({ name: "Owned Agent", typeName: "coding" }),
+      body: JSON.stringify({ name: "Owned Agent", specialty: "coding" }),
       headers: {
         "Content-Type": "application/json",
         Cookie: `admin_session=${cookie}`,
@@ -1735,7 +1735,7 @@ describe("admin API — POST /agents", () => {
       method: "POST",
       body: JSON.stringify({
         name: "Spoof Agent",
-        typeName: "coding",
+        specialty: "coding",
         ownerEmail: "attacker@evil.example",
       }),
       headers: {
@@ -1755,7 +1755,7 @@ describe("admin API — POST /agents", () => {
       method: "POST",
       body: JSON.stringify({
         name: "Key Agent",
-        typeName: "coding",
+        specialty: "coding",
         ownerEmail: "attacker@evil.example",
       }),
       headers: {
@@ -1775,7 +1775,7 @@ describe("admin API — POST /agents", () => {
     const app = createAdminApp(deps);
     const res = await app.request("/agents", {
       method: "POST",
-      body: JSON.stringify({ name: "Ops Agent", typeName: "coding" }),
+      body: JSON.stringify({ name: "Ops Agent", specialty: "coding" }),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ADMIN_API_KEY}`,
@@ -1791,7 +1791,7 @@ describe("admin API — POST /agents", () => {
       method: "POST",
       body: JSON.stringify({
         name: "Collider",
-        typeName: "coding",
+        specialty: "coding",
         reposRaw: "acme/api\nglobex/api",
       }),
       headers: {
@@ -1809,7 +1809,7 @@ describe("admin API — POST /agents", () => {
     const app = createAdminApp(makeMockDeps());
     const res = await app.request("/agents", {
       method: "POST",
-      body: JSON.stringify({ name: "New Agent", typeName: "coding" }),
+      body: JSON.stringify({ name: "New Agent", specialty: "coding" }),
       headers: { "Content-Type": "application/json" },
     });
     expect(res.status).toBe(401);
@@ -1832,7 +1832,7 @@ describe("admin API — POST /agents", () => {
     const app = createAdminApp(deps);
     const res = await app.request("/agents", {
       method: "POST",
-      body: JSON.stringify({ name: "New Agent", typeName: "coding" }),
+      body: JSON.stringify({ name: "New Agent", specialty: "coding" }),
       headers: {
         "Content-Type": "application/json",
         Authorization: "Bearer not-a-real-key",
@@ -1853,7 +1853,7 @@ describe("admin API — POST /agents", () => {
     const app = createAdminApp(deps);
     const res = await app.request("/agents", {
       method: "POST",
-      body: JSON.stringify({ name: "New Agent", typeName: "coding" }),
+      body: JSON.stringify({ name: "New Agent", specialty: "coding" }),
       headers: {
         "Content-Type": "application/json",
         Authorization: "Bearer per-agent-token",
@@ -1867,7 +1867,7 @@ describe("admin API — POST /agents", () => {
     const app = createAdminApp(deps);
     const res = await app.request("/agents", {
       method: "POST",
-      body: JSON.stringify({ typeName: "coding" }),
+      body: JSON.stringify({ specialty: "coding" }),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ADMIN_API_KEY}`,
@@ -1878,12 +1878,12 @@ describe("admin API — POST /agents", () => {
     expect(createCalls()).toBe(0);
   });
 
-  it("unresolvable typeName → 4xx and no Agent row created", async () => {
+  it("unresolvable specialty → 4xx and no Agent row created", async () => {
     const { deps, createCalls } = makeMockDepsCountingCreateCalls();
     const app = createAdminApp(deps);
     const res = await app.request("/agents", {
       method: "POST",
-      body: JSON.stringify({ name: "New Agent", typeName: "no-such-type" }),
+      body: JSON.stringify({ name: "New Agent", specialty: "no-such-type" }),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ADMIN_API_KEY}`,
@@ -1997,7 +1997,7 @@ describe("admin API — delete agent", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -2262,7 +2262,7 @@ describe("admin API — POST /agents/reconcile", () => {
             id: AGENT_ID,
             name: "Regular Agent",
             selfHosted: false,
-            typeName: "coding",
+            specialty: "coding",
             ownerEmail: "jane.doe@example.com",
             anthropicIdentityName: null,
             anthropicServiceAccountId: null,
@@ -2348,7 +2348,6 @@ describe("admin API — POST /agents/reconcile", () => {
       id: AGENT_ID,
       name: "Regular Agent",
       selfHosted: false,
-      typeName: "coding",
       specialty: "coding",
     });
   });
@@ -2378,7 +2377,7 @@ function makeStripDeps(): {
     id,
     name: id,
     selfHosted,
-    typeName: "coding",
+    specialty: "coding",
   });
   const deps: AdminDeps = {
     ...base,
@@ -2688,7 +2687,7 @@ describe("admin API — provision agent", () => {
                 id: AGENT_ID,
                 name: "Self-Hosted Agent",
                 selfHosted: true,
-                typeName: "coding",
+                specialty: "coding",
               }
             : null,
       },
@@ -2725,13 +2724,13 @@ describe("admin API — selfHosted field", () => {
             id: AGENT_ID,
             name: "Existing Agent",
             selfHosted: false,
-            typeName: "coding",
+            specialty: "coding",
           },
           {
             id: "agent-other-id",
             name: "Other Agent",
             selfHosted: true,
-            typeName: "coding",
+            specialty: "coding",
           },
         ],
       },
@@ -2863,13 +2862,13 @@ describe("admin API — selfHosted field", () => {
             id: AGENT_ID,
             name: "Regular Agent",
             selfHosted: false,
-            typeName: "coding",
+            specialty: "coding",
           },
           {
             id: "self-hosted-id",
             name: "Self-Hosted Agent",
             selfHosted: true,
-            typeName: "coding",
+            specialty: "coding",
           },
         ],
       },
@@ -3087,7 +3086,7 @@ describe("admin API — owner and Anthropic identity fields (PAI-2.5)", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -3149,7 +3148,7 @@ describe("admin API — owner and Anthropic identity fields (PAI-2.5)", () => {
             id: AGENT_ID,
             name: "Existing Agent",
             selfHosted: false,
-            typeName: "coding",
+            specialty: "coding",
             ownerEmail: "jane.doe@example.com",
             anthropicIdentityName: "shipwright-existing-agent",
             anthropicServiceAccountId: "svac_01ABC",
@@ -3169,16 +3168,16 @@ describe("admin API — owner and Anthropic identity fields (PAI-2.5)", () => {
   });
 });
 
-// ─── typeName field smoke tests ───────────────────────────────────────────────
+// ─── specialty field smoke tests ───────────────────────────────────────────────
 
-describe("admin API — typeName field", () => {
+describe("admin API — specialty field", () => {
   let cookie: string;
 
   beforeAll(async () => {
     cookie = await makeSessionCookie();
   });
 
-  it("GET /agents includes typeName in each list entry", async () => {
+  it("GET /agents includes specialty in each list entry", async () => {
     const app = createAdminApp(makeMockDeps());
     const res = await app.request("/agents", {
       headers: { Cookie: `admin_session=${cookie}` },
@@ -3186,17 +3185,17 @@ describe("admin API — typeName field", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body)).toBe(true);
-    expect(body[0].typeName).toBe("coding");
+    expect(body[0].specialty).toBe("coding");
   });
 
-  it("GET /agents/:id includes typeName in the full record", async () => {
+  it("GET /agents/:id includes specialty in the full record", async () => {
     const app = createAdminApp(makeMockDeps());
     const res = await app.request(`/agents/${AGENT_ID}`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.typeName).toBe("coding");
+    expect(body.specialty).toBe("coding");
   });
 
   it.each([
@@ -3260,7 +3259,7 @@ describe("admin API — missingRequiredEnv field", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: ["CLAUDE_CODE_OAUTH_TOKEN"],
@@ -3331,7 +3330,7 @@ describe("admin API — repos field", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -3349,7 +3348,7 @@ describe("admin API — repos field", () => {
           reviewAuthorAllowlist: [],
           patchAuthorAllowlist: [],
           restrictSlackToMembers: false,
-          typeName: "coding",
+          specialty: "coding",
           createdAt: new Date("2024-01-01"),
           updatedAt: new Date("2024-01-01"),
           missingRequiredEnv: [],
@@ -3387,7 +3386,7 @@ describe("admin API — repos field", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -3405,7 +3404,7 @@ describe("admin API — repos field", () => {
           reviewAuthorAllowlist: [],
           patchAuthorAllowlist: [],
           restrictSlackToMembers: false,
-          typeName: "coding",
+          specialty: "coding",
           createdAt: new Date("2024-01-01"),
           updatedAt: new Date("2024-01-01"),
           missingRequiredEnv: [],
@@ -3481,7 +3480,7 @@ describe("admin API — reviewAuthorAllowlist field", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -3503,7 +3502,7 @@ describe("admin API — reviewAuthorAllowlist field", () => {
           reviewAuthorAllowlist: input.reviewAuthorAllowlist ?? [],
           patchAuthorAllowlist: [],
           restrictSlackToMembers: false,
-          typeName: "coding",
+          specialty: "coding",
           createdAt: new Date("2024-01-01"),
           updatedAt: new Date("2024-01-01"),
           missingRequiredEnv: [],
@@ -3541,7 +3540,7 @@ describe("admin API — reviewAuthorAllowlist field", () => {
                 reviewAuthorAllowlist: ["octocat"],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -3563,7 +3562,7 @@ describe("admin API — reviewAuthorAllowlist field", () => {
           reviewAuthorAllowlist: input.reviewAuthorAllowlist ?? [],
           patchAuthorAllowlist: [],
           restrictSlackToMembers: false,
-          typeName: "coding",
+          specialty: "coding",
           createdAt: new Date("2024-01-01"),
           updatedAt: new Date("2024-01-01"),
           missingRequiredEnv: [],
@@ -3624,7 +3623,7 @@ describe("admin API — reviewAuthorAllowlist field", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -3642,7 +3641,7 @@ describe("admin API — reviewAuthorAllowlist field", () => {
           reviewAuthorAllowlist: input.reviewAuthorAllowlist ?? [],
           patchAuthorAllowlist: [],
           restrictSlackToMembers: false,
-          typeName: "coding",
+          specialty: "coding",
           createdAt: new Date("2024-01-01"),
           updatedAt: new Date("2024-01-01"),
           missingRequiredEnv: [],
@@ -3712,7 +3711,7 @@ describe("admin API — patchAuthorAllowlist field", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -3734,7 +3733,7 @@ describe("admin API — patchAuthorAllowlist field", () => {
           reviewAuthorAllowlist: [],
           patchAuthorAllowlist: input.patchAuthorAllowlist ?? [],
           restrictSlackToMembers: false,
-          typeName: "coding",
+          specialty: "coding",
           createdAt: new Date("2024-01-01"),
           updatedAt: new Date("2024-01-01"),
           missingRequiredEnv: [],
@@ -3801,7 +3800,7 @@ describe("admin API — trialExpiresAt field", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -3825,7 +3824,7 @@ describe("admin API — trialExpiresAt field", () => {
             reviewAuthorAllowlist: [],
             patchAuthorAllowlist: [],
             restrictSlackToMembers: false,
-            typeName: "coding",
+            specialty: "coding",
             createdAt: new Date("2024-01-01"),
             updatedAt: new Date("2024-01-01"),
             missingRequiredEnv: [],
@@ -3875,7 +3874,7 @@ describe("admin API — trialExpiresAt field", () => {
                 reviewAuthorAllowlist: [],
                 patchAuthorAllowlist: [],
                 restrictSlackToMembers: false,
-                typeName: "coding",
+                specialty: "coding",
                 createdAt: new Date("2024-01-01"),
                 updatedAt: new Date("2024-01-01"),
                 missingRequiredEnv: [],
@@ -3899,7 +3898,7 @@ describe("admin API — trialExpiresAt field", () => {
             reviewAuthorAllowlist: [],
             patchAuthorAllowlist: [],
             restrictSlackToMembers: false,
-            typeName: "coding",
+            specialty: "coding",
             createdAt: new Date("2024-01-01"),
             updatedAt: new Date("2024-01-01"),
             missingRequiredEnv: [],
@@ -3953,7 +3952,7 @@ describe("admin API — trialExpiresAt field", () => {
             reviewAuthorAllowlist: [],
             patchAuthorAllowlist: [],
             restrictSlackToMembers: false,
-            typeName: "coding",
+            specialty: "coding",
             createdAt: new Date("2024-01-01"),
             updatedAt: new Date("2024-01-01"),
             missingRequiredEnv: [],
@@ -3998,7 +3997,7 @@ describe("admin API — trialExpiresAt field", () => {
           reviewAuthorAllowlist: [],
           patchAuthorAllowlist: [],
           restrictSlackToMembers: false,
-          typeName: "coding",
+          specialty: "coding",
           createdAt: new Date("2024-01-01"),
           updatedAt: new Date("2024-01-01"),
           missingRequiredEnv: [],
@@ -5175,7 +5174,7 @@ describe("non-admin session cookie scoping", () => {
       (
         await req(app, memberCookie, "/agents", "POST", {
           name: "x",
-          typeName: "coding",
+          specialty: "coding",
         })
       ).status,
     ).toBe(403);
@@ -5261,32 +5260,32 @@ describe("admin API — account users create and delete agents (SSP-4.2)", () =>
       },
     });
 
-  it("account user creates an agent stamped with their own accountId and the self-serve typeName", async () => {
+  it("account user creates an agent stamped with their own accountId and the self-serve specialty", async () => {
     const { deps, created } = makeAccountDeps("acct-a");
     const res = await post(
       createAdminApp(deps),
-      { name: "Mine", typeName: "coding" },
+      { name: "Mine", specialty: "coding" },
       await accountCookie(),
     );
     expect(res.status).toBe(200);
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({
       accountId: "acct-a",
-      typeName: getSelfServeSpecialty(),
+      specialty: getSelfServeSpecialty(),
     });
   });
 
-  it("ignores a client-supplied accountId and typeName", async () => {
+  it("ignores a client-supplied accountId and specialty", async () => {
     const { deps, created } = makeAccountDeps("acct-a");
     const res = await post(
       createAdminApp(deps),
-      { name: "Sneaky", typeName: "other-type", accountId: "acct-b" },
+      { name: "Sneaky", specialty: "other-type", accountId: "acct-b" },
       await accountCookie(),
     );
     expect(res.status).toBe(200);
     expect(created[0]).toMatchObject({
       accountId: "acct-a",
-      typeName: getSelfServeSpecialty(),
+      specialty: getSelfServeSpecialty(),
     });
   });
 
@@ -5294,7 +5293,7 @@ describe("admin API — account users create and delete agents (SSP-4.2)", () =>
     const { deps, created } = makeAccountDeps(null);
     const res = await post(
       createAdminApp(deps),
-      { name: "Nope", typeName: "coding" },
+      { name: "Nope", specialty: "coding" },
       await accountCookie(),
     );
     expect(res.status).toBe(403);
@@ -5305,7 +5304,7 @@ describe("admin API — account users create and delete agents (SSP-4.2)", () =>
     const { deps, created } = makeAccountDeps("acct-a");
     const res = await post(
       createAdminApp(deps),
-      { name: "Admin Made", typeName: "coding", accountId: "acct-b" },
+      { name: "Admin Made", specialty: "coding", accountId: "acct-b" },
       await makeSessionCookie(),
     );
     expect(res.status).toBe(200);
@@ -5327,7 +5326,7 @@ describe("admin API — account users create and delete agents (SSP-4.2)", () =>
     });
     const res = await post(
       app,
-      { name: "Q", typeName: "coding" },
+      { name: "Q", specialty: "coding" },
       await accountCookie(),
     );
     expect(res.status).toBe(403);
@@ -5863,7 +5862,7 @@ describe("admin API — Anthropic credential guards (WIF-2.1)", () => {
     it("rejects claudeCodeOauthToken for an in-cluster agent under federation (400)", async () => {
       const { provisioner, res } = create(true, {
         name: "Fed Agent",
-        typeName: "coding",
+        specialty: "coding",
         runtime: "in-cluster",
         claudeCodeOauthToken: "sk-ant-oat-secret",
       });
@@ -5878,7 +5877,7 @@ describe("admin API — Anthropic credential guards (WIF-2.1)", () => {
     it("rejects anthropicApiKey for an in-cluster agent under federation (400)", async () => {
       const { res } = create(true, {
         name: "Fed Agent",
-        typeName: "coding",
+        specialty: "coding",
         runtime: "in-cluster",
         anthropicApiKey: "sk-ant-api-secret",
       });
@@ -5888,7 +5887,7 @@ describe("admin API — Anthropic credential guards (WIF-2.1)", () => {
     it("allows credentials for a self-hosted agent under federation", async () => {
       const { res } = create(true, {
         name: "Local Agent",
-        typeName: "coding",
+        specialty: "coding",
         claudeCodeOauthToken: "tok",
       });
       expect((await res).status).toBe(200);
@@ -5897,7 +5896,7 @@ describe("admin API — Anthropic credential guards (WIF-2.1)", () => {
     it("allows credentials when federation is disabled", async () => {
       const { res } = create(undefined, {
         name: "Plain Agent",
-        typeName: "coding",
+        specialty: "coding",
         runtime: "in-cluster",
         claudeCodeOauthToken: "tok",
       });
@@ -5923,7 +5922,7 @@ describe("admin API — POST/DELETE /agents/:id/repos", () => {
       reviewAuthorAllowlist: [],
       patchAuthorAllowlist: [],
       restrictSlackToMembers: false,
-      typeName: "coding",
+      specialty: "coding",
       createdAt: new Date("2024-01-01"),
       updatedAt: new Date("2024-01-01"),
       missingRequiredEnv: [],

@@ -72,12 +72,13 @@ const fixtureManifest = {
 
 /** Resolves only FIXTURE_TYPE; every other type is unknown. */
 const fixtureResolver: SpecialtyManifestResolver = {
-  getManifest(typeName: string): SpecialtyManifest {
-    if (typeName !== FIXTURE_TYPE) throw new Error(`no manifest: ${typeName}`);
+  getManifest(specialty: string): SpecialtyManifest {
+    if (specialty !== FIXTURE_TYPE)
+      throw new Error(`no manifest: ${specialty}`);
     return fixtureManifest;
   },
-  tryGetManifest(typeName: string): SpecialtyManifest | undefined {
-    return typeName === FIXTURE_TYPE ? fixtureManifest : undefined;
+  tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+    return specialty === FIXTURE_TYPE ? fixtureManifest : undefined;
   },
   listTypes() {
     return [{ name: FIXTURE_TYPE, displayName: FIXTURE_TYPE }];
@@ -87,9 +88,9 @@ const fixtureResolver: SpecialtyManifestResolver = {
 async function createAgent(
   prisma: PrismaClient,
   name = "Test Agent",
-  typeName = FIXTURE_TYPE,
+  specialty = FIXTURE_TYPE,
 ): Promise<string> {
-  const agent = await prisma.agent.create({ data: { name, typeName } });
+  const agent = await prisma.agent.create({ data: { name, specialty } });
   return agent.id;
 }
 
@@ -570,7 +571,7 @@ describeOrSkip("AgentCronJobService (integration)", () => {
     expect(systemJobs.length).toBe(FIXTURE_CRONS.length);
   });
 
-  it("reconcileSystemCrons() for an unknown typeName changes nothing (no fallback)", async () => {
+  it("reconcileSystemCrons() for an unknown specialty changes nothing (no fallback)", async () => {
     const agentId = await createAgent(prisma, "Renamed Agent", "renamed-type");
 
     // Must not throw, and must not seed another specialty's crons.
