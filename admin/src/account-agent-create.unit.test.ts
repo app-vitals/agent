@@ -7,8 +7,8 @@ import { describe, expect, it } from "bun:test";
 import { getSelfServeSpecialty } from "./account-agent-create.ts";
 
 describe("getSelfServeSpecialty", () => {
-  it("defaults to coding", () => {
-    expect(getSelfServeSpecialty({})).toBe("coding");
+  it("defaults to specialist", () => {
+    expect(getSelfServeSpecialty({})).toBe("specialist");
     expect(
       getSelfServeSpecialty({ SHIPWRIGHT_DEFAULT_AGENT_TYPE: "fixture" }),
     ).toBe("fixture");

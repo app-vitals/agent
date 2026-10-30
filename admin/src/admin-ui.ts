@@ -1511,7 +1511,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       return c.redirect("/admin/agents/new", 302);
     }
     const connectSlack = connectSlackRaw === "true";
-    // SSP-4.2: account users always create "coding" agents in their own
+    // SSP-4.2: account users always create self-serve-specialty agents in their own
     // account — any submitted type/accountId is ignored.
     if (accountId !== null) specialty = getSelfServeSpecialty();
     // Absent/unrecognized runtime means self-hosted — the historical behavior

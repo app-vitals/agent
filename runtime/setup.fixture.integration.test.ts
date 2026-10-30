@@ -112,27 +112,24 @@ describe("coding is not special-cased (PCD-2.2)", () => {
     ])
       writeFileSync(join(tpl, f), "x");
     const warnings: string[] = [];
-    const dir = resolveTemplatesDir(
-      "coding",
-      root,
-      (m) => warnings.push(m),
-      { SHIPWRIGHT_SPECIALTIES_DIR: writeCodingManifest(tpl) },
-    );
+    const dir = resolveTemplatesDir("coding", root, (m) => warnings.push(m), {
+      SHIPWRIGHT_SPECIALTIES_DIR: writeCodingManifest(tpl),
+    });
     expect(dir).toBe(tpl);
     expect(warnings).toEqual([]);
   });
 
   it("falls back to the built-in dir with a warning when coding is unresolvable", () => {
     const warnings: string[] = [];
-    const dir = resolveTemplatesDir(
-      "coding",
-      root,
-      (m) => warnings.push(m),
-      { SHIPWRIGHT_SPECIALTIES_DIR: join(root, "no-specialties") },
-    );
+    const dir = resolveTemplatesDir("coding", root, (m) => warnings.push(m), {
+      SHIPWRIGHT_SPECIALTIES_DIR: join(root, "no-specialties"),
+    });
     expect(dir).toMatch(/workspace$/);
-    expect(warnings).toHaveLength(1);
+    // Unknown "coding" warns and tries the default type, which is also absent
+    // here, so a second warning precedes the built-in fallback.
+    expect(warnings).toHaveLength(2);
     expect(warnings[0]).toContain('"coding"');
+    expect(warnings[1]).toContain("built-in");
   });
 });
 

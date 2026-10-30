@@ -2,24 +2,25 @@
  * admin/src/specialty-manifest-loader.ts
  *
  * SpecialtyRegistry — resolves an agent's stored `specialty` to its parsed
- * Specialty manifest by loading `specialties/{specialty}/manifest.yaml` from
- * disk (relative to the repo root) and validating it via
+ * Specialty manifest by loading `{typesDir}/{specialty}/manifest.yaml` from
+ * disk (typesDir defaults to the shipped agent-types/) and validating it via
  * parseSpecialtyManifest().
  *
  * This is the runtime source of truth for an agent's default system crons
  * (and, in time, its default plugins/tools/env contract). It replaces the
  * former hardcoded SYSTEM_CRONS array in admin/src/system-crons.ts.
  *
- * Fallback contract: an unknown `specialty` (a value with no matching
- * directory under specialties/) resolves to the "coding" manifest with a
- * logged warning — never throws. This keeps the boot-path
- * POST /agents/:id/crons/reconcile route from beginning to 5xx for an agent
- * whose type was renamed or removed.
+ * Defaults: the default type is `specialist` and the type directory is the
+ * shipped `agent-types/` (both resolved by @app-vitals/agent-lib/default-specialty,
+ * the single shared helper; SHIPWRIGHT_DEFAULT_AGENT_TYPE /
+ * SHIPWRIGHT_SPECIALTIES_DIR override them).
  *
- * Hard-failure contract: if the "coding" manifest itself (the universal
- * fallback) cannot be loaded or fails validation, that is a configuration error
- * (it names SHIPWRIGHT_SPECIALTIES_DIR / SHIPWRIGHT_DEFAULT_AGENT_TYPE) and the error propagates — we never silently degrade the fallback into a
- * no-op that would strip every agent's system crons.
+ * Fallback contract: getManifest() never throws. An unknown `specialty` (no
+ * matching directory under the type dir) resolves to the default type's
+ * manifest with a logged warning. If even the default cannot be loaded (bad
+ * env override, missing/invalid manifest) it warns and returns a built-in
+ * minimal manifest with no crons/plugins, so the boot-path
+ * POST /agents/:id/crons/reconcile route never 5xxs over configuration.
  *
  * The class takes an injectable reader/warner so unit tests can drive it
  * without touching the filesystem (see agent-cron-jobs.unit.test.ts).
@@ -28,12 +29,47 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  type SpecialtyManifest,
+  DEFAULT_SPECIALTY_NAME,
+  resolveDefaultSpecialtyName,
+  resolveSpecialtiesDir,
+} from "@app-vitals/agent-lib/default-specialty";
+import {
   parseSpecialtyManifest,
+  type SpecialtyManifest,
 } from "./specialty-registry.ts";
 
-/** The universal fallback type — every agent degrades to this manifest. */
-export const DEFAULT_SPECIALTY_NAME = "coding";
+export {
+  DEFAULT_SPECIALTY_NAME,
+  resolveDefaultSpecialtyName,
+  resolveSpecialtiesDir,
+};
+
+/**
+ * Built-in last-resort manifest: used only when the default type itself cannot
+ * be loaded. Declares nothing (no crons, plugins, tools) so it never seeds
+ * anything unexpected.
+ */
+const BUILT_IN_FALLBACK_MANIFEST_YAML = `apiVersion: shipwright.dev/v1alpha1
+kind: Specialty
+metadata:
+  name: ${DEFAULT_SPECIALTY_NAME}
+  displayName: Specialist Agent
+  description: Built-in fallback used when the default specialty manifest cannot be loaded.
+  version: 0.0.0
+  skills: []
+identity:
+  templatesDir: workspace/
+crons: []
+plugins: []
+tools: []
+env:
+  required: []
+  optional: []
+members: []
+repos: []
+chat: true
+voice: true
+`;
 
 /** Reads a manifest's raw YAML text for a type; throws if it does not exist. */
 type ManifestReader = (specialty: string) => string;
@@ -52,51 +88,6 @@ type TypeDirLister = () => string[];
 export interface SpecialtyOption {
   name: string;
   displayName: string;
-}
-
-/**
- * Repo root resolved relative to this module (admin/src/ → ../../). The
- * specialties/ directory lives at the repo root alongside admin/.
- */
-const REPO_ROOT = join(import.meta.dir, "..", "..");
-const BUILT_IN_SPECIALTIES_DIR = join(REPO_ROOT, "specialties");
-
-/**
- * The specialties directory: SHIPWRIGHT_SPECIALTIES_DIR when set, else the
- * repo-root specialties/ (today's location).
- */
-export function resolveSpecialtiesDir(
-  env: Record<string, string | undefined> = process.env,
-): string {
-  return env.SHIPWRIGHT_SPECIALTIES_DIR || BUILT_IN_SPECIALTIES_DIR;
-}
-
-/**
- * The universal fallback type: SHIPWRIGHT_DEFAULT_AGENT_TYPE when set, else
- * "coding".
- */
-/**
- * The actionable error for a default specialty that cannot be loaded. The
- * platform ships no specialty of its own, so this is a configuration problem:
- * the operator must point the two env vars at a real specialties directory.
- */
-export function missingDefaultSpecialtyError(
-  defaultTypeName: string,
-  typesDir: string,
-  cause?: unknown,
-): Error {
-  const detail = cause instanceof Error ? ` (${cause.message})` : "";
-  return new Error(
-    `SpecialtyRegistry: the default specialty "${defaultTypeName}" could not be loaded from "${typesDir}"${detail}. ` +
-      "Set SHIPWRIGHT_SPECIALTIES_DIR to a directory containing <type>/manifest.yaml and " +
-      "SHIPWRIGHT_DEFAULT_AGENT_TYPE to the name of a specialty in it.",
-  );
-}
-
-export function resolveDefaultSpecialtyName(
-  env: Record<string, string | undefined> = process.env,
-): string {
-  return env.SHIPWRIGHT_DEFAULT_AGENT_TYPE || DEFAULT_SPECIALTY_NAME;
 }
 
 /** Default reader: loads {typesDir}/{specialty}/manifest.yaml from disk. */
@@ -122,18 +113,19 @@ export function defaultTypeDirLister(
  */
 export interface SpecialtyManifestResolver {
   /**
-   * Resolve `specialty` to its parsed manifest. Falls back to the "coding"
-   * manifest (with a warning) when the type is unknown. Never throws for an
-   * unknown type — only if the "coding" fallback itself fails to load.
+   * Resolve `specialty` to its parsed manifest. Falls back to the default
+   * type's manifest (with a warning) when the type is unknown, and to a
+   * built-in empty-crons manifest (with a warning) if the default cannot load
+   * either. Never throws.
    */
   getManifest(specialty: string): SpecialtyManifest;
   /**
    * Resolve `specialty` to its parsed manifest WITHOUT falling back to
-   * "coding" — returns undefined for an unknown type instead. No warning is
+   * the default type — returns undefined for an unknown type instead. No warning is
    * logged (an unknown type here is an expected, callers-handle-it outcome,
    * not a degraded-boot condition). Used by POST /admin/agents to reject an
    * unknown requested `type` with 400 rather than silently seeding a
-   * "coding" agent under a different label.
+   * default-type agent under a different label.
    */
   tryGetManifest(specialty: string): SpecialtyManifest | undefined;
   /**
@@ -157,8 +149,8 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
 
   /**
    * `typesDir` and `defaultTypeName` default to SHIPWRIGHT_SPECIALTIES_DIR /
-   * SHIPWRIGHT_DEFAULT_AGENT_TYPE, then to today's repo-root specialties/
-   * and "coding". An injected `read`/`list` takes precedence over `typesDir`.
+   * SHIPWRIGHT_DEFAULT_AGENT_TYPE, then to the shipped agent-types/
+   * and "specialist". An injected `read`/`list` takes precedence over `typesDir`.
    */
   constructor(
     opts: {
@@ -179,33 +171,29 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
   }
 
   getManifest(specialty: string): SpecialtyManifest {
-    const resolved = this.tryLoad(specialty);
+    const resolved = this.tryLoadSafe(specialty);
     if (resolved) return resolved;
 
-    // Unknown type — warn once and fall back to "coding". The fallback load is
-    // deliberately NOT wrapped in tryLoad: if "coding" can't load, that's a
-    // hard startup bug and must surface, not silently become a no-op.
     this.warn(
       `SpecialtyRegistry: unknown agent specialty "${specialty}" — ` +
         `falling back to "${this.defaultTypeName}" manifest`,
     );
-    if (specialty === this.defaultTypeName) {
-      // Guard against infinite intent: the default itself failed to load.
-      throw missingDefaultSpecialtyError(this.defaultTypeName, this.typesDir);
+    if (specialty !== this.defaultTypeName) {
+      const fallback = this.tryLoadSafe(this.defaultTypeName);
+      if (fallback) return fallback;
     }
-    try {
-      return this.loadOrThrow(this.defaultTypeName);
-    } catch (err) {
-      throw missingDefaultSpecialtyError(
-        this.defaultTypeName,
-        this.typesDir,
-        err,
-      );
-    }
+    // Even the default is unloadable (bad SHIPWRIGHT_SPECIALTIES_DIR /
+    // SHIPWRIGHT_DEFAULT_AGENT_TYPE override). Degrade to an empty manifest
+    // rather than failing boot; the warning names the knobs to fix.
+    this.warn(
+      `SpecialtyRegistry: the default specialty "${this.defaultTypeName}" could not be loaded from "${this.typesDir}" — ` +
+        "using a built-in manifest with no crons. Check SHIPWRIGHT_SPECIALTIES_DIR and SHIPWRIGHT_DEFAULT_AGENT_TYPE.",
+    );
+    return parseSpecialtyManifest(BUILT_IN_FALLBACK_MANIFEST_YAML);
   }
 
   /**
-   * Resolve `specialty` without falling back to "coding" — see the interface
+   * Resolve `specialty` without falling back to the default type — see the interface
    * doc comment. Thin public wrapper around the existing tryLoad() used
    * internally by getManifest().
    */
@@ -227,6 +215,15 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
     return options;
   }
 
+  /** tryLoad, but an invalid (unparseable) manifest also yields undefined. */
+  private tryLoadSafe(specialty: string): SpecialtyManifest | undefined {
+    try {
+      return this.tryLoad(specialty);
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Load + cache a manifest, returning undefined only if the file is missing. */
   private tryLoad(specialty: string): SpecialtyManifest | undefined {
     const cached = this.cache.get(specialty);
@@ -238,13 +235,6 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
       return undefined;
     }
     return this.parseAndCache(specialty, raw);
-  }
-
-  /** Load + cache a manifest, propagating any read/parse error. */
-  private loadOrThrow(specialty: string): SpecialtyManifest {
-    const cached = this.cache.get(specialty);
-    if (cached) return cached;
-    return this.parseAndCache(specialty, this.read(specialty));
   }
 
   private parseAndCache(specialty: string, raw: string): SpecialtyManifest {

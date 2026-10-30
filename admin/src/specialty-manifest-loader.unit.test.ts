@@ -1,7 +1,7 @@
 /**
  * admin/src/specialty-manifest-loader.unit.test.ts
  * Unit tests for SpecialtyRegistry — the disk-backed resolver from an agent's
- * specialty to its parsed manifest, with the unknown-type "coding" fallback.
+ * specialty to its parsed manifest, with the unknown-type default-type fallback.
  *
  * Pure logic against an injected reader/warner — no filesystem, no DB. See
  * docs/testing.md for the unit-layer contract.
@@ -9,10 +9,10 @@
 
 import { describe, expect, it } from "bun:test";
 import {
-  SpecialtyRegistry,
   DEFAULT_SPECIALTY_NAME,
-  resolveSpecialtiesDir,
   resolveDefaultSpecialtyName,
+  resolveSpecialtiesDir,
+  SpecialtyRegistry,
 } from "./specialty-manifest-loader.ts";
 
 /** A minimal valid Specialty manifest YAML for a given type name. */
@@ -49,17 +49,17 @@ describe("SpecialtyRegistry", () => {
       defaultTypeName: DEFAULT_SPECIALTY_NAME,
       read: (t) => manifestYaml(t),
     });
-    const manifest = registry.getManifest("coding");
-    expect(manifest.metadata.name).toBe("coding");
-    expect(manifest.crons[0]?.name).toBe("coding-cron");
+    const manifest = registry.getManifest("specialist");
+    expect(manifest.metadata.name).toBe("specialist");
+    expect(manifest.crons[0]?.name).toBe("specialist-cron");
   });
 
-  it("falls back to the coding manifest with a warning for an unknown specialty", () => {
+  it("falls back to the default (specialist) manifest with a warning for an unknown specialty", () => {
     const warnings: string[] = [];
     const registry = new SpecialtyRegistry({
       defaultTypeName: DEFAULT_SPECIALTY_NAME,
       read: (t) => {
-        if (t === DEFAULT_SPECIALTY_NAME) return manifestYaml("coding");
+        if (t === DEFAULT_SPECIALTY_NAME) return manifestYaml("specialist");
         throw new Error(`ENOENT: no manifest for ${t}`);
       },
       warn: (m) => warnings.push(m),
@@ -67,49 +67,47 @@ describe("SpecialtyRegistry", () => {
 
     const manifest = registry.getManifest("renamed-type");
 
-    expect(manifest.metadata.name).toBe("coding");
+    expect(manifest.metadata.name).toBe("specialist");
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("renamed-type");
-    expect(warnings[0]).toContain("coding");
+    expect(warnings[0]).toContain("specialist");
   });
 
-  it("throws (does not silently no-op) when the coding fallback itself cannot load", () => {
-    const registry = new SpecialtyRegistry({
-      defaultTypeName: DEFAULT_SPECIALTY_NAME,
-      read: () => {
-        throw new Error("ENOENT: coding manifest missing");
-      },
-      warn: () => {},
-    });
-
-    // Requesting the default type when it can't load must surface a hard error
-    // rather than degrade into an empty cron set that would strip system crons.
-    expect(() => registry.getManifest("coding")).toThrow();
-  });
-
-  it("names SHIPWRIGHT_SPECIALTIES_DIR and SHIPWRIGHT_DEFAULT_AGENT_TYPE when the default specialty is missing", () => {
+  it("never throws: an unloadable default degrades to an empty-crons manifest with warnings naming the env knobs", () => {
+    const warnings: string[] = [];
     const registry = new SpecialtyRegistry({
       read: () => {
         throw new Error("ENOENT: no manifest");
       },
-      warn: () => {},
+      warn: (m) => warnings.push(m),
       typesDir: "/nonexistent/specialties",
       defaultTypeName: "absent",
     });
 
     for (const specialty of ["absent", "some-other-type"]) {
-      let message = "";
-      try {
-        registry.getManifest(specialty);
-      } catch (err) {
-        message = (err as Error).message;
-      }
-      expect(message).toContain('default specialty "absent"');
-      expect(message).toContain("/nonexistent/specialties");
-      expect(message).toContain("SHIPWRIGHT_SPECIALTIES_DIR");
-      expect(message).toContain("SHIPWRIGHT_DEFAULT_AGENT_TYPE");
-      expect(message).not.toContain("startup-time bug");
+      warnings.length = 0;
+      const manifest = registry.getManifest(specialty);
+      expect(manifest.crons).toEqual([]);
+      expect(manifest.plugins).toEqual([]);
+      const all = warnings.join("\n");
+      expect(all).toContain('default specialty "absent"');
+      expect(all).toContain("/nonexistent/specialties");
+      expect(all).toContain("SHIPWRIGHT_SPECIALTIES_DIR");
+      expect(all).toContain("SHIPWRIGHT_DEFAULT_AGENT_TYPE");
     }
+  });
+
+  it("uses the default manifest silently when the default type itself is requested and loads", () => {
+    const warnings: string[] = [];
+    const registry = new SpecialtyRegistry({
+      defaultTypeName: DEFAULT_SPECIALTY_NAME,
+      read: (t) => manifestYaml(t),
+      warn: (m) => warnings.push(m),
+    });
+    expect(registry.getManifest(DEFAULT_SPECIALTY_NAME).metadata.name).toBe(
+      "specialist",
+    );
+    expect(warnings).toEqual([]);
   });
 
   it("caches a resolved manifest — the reader is called once per type", () => {
@@ -122,15 +120,15 @@ describe("SpecialtyRegistry", () => {
       },
     });
 
-    registry.getManifest("coding");
-    registry.getManifest("coding");
+    registry.getManifest("specialist");
+    registry.getManifest("specialist");
 
     expect(reads).toBe(1);
   });
 
   // ─── tryGetManifest — non-fallback lookup ────────────────────────────────
   //
-  // Unlike getManifest(), tryGetManifest() must NOT fall back to "coding" for
+  // Unlike getManifest(), tryGetManifest() must NOT fall back to the default type for
   // an unknown specialty — it returns undefined instead. This is what lets
   // POST /agents distinguish "resolved to the exact requested type" from
   // "silently degraded", which the cron-reconcile boot path (getManifest())
@@ -141,8 +139,8 @@ describe("SpecialtyRegistry", () => {
       defaultTypeName: DEFAULT_SPECIALTY_NAME,
       read: (t) => manifestYaml(t),
     });
-    const manifest = registry.tryGetManifest("coding");
-    expect(manifest?.metadata.name).toBe("coding");
+    const manifest = registry.tryGetManifest("specialist");
+    expect(manifest?.metadata.name).toBe("specialist");
   });
 
   it("tryGetManifest returns undefined for an unknown specialty — no fallback, no warning", () => {
@@ -150,7 +148,7 @@ describe("SpecialtyRegistry", () => {
     const registry = new SpecialtyRegistry({
       defaultTypeName: DEFAULT_SPECIALTY_NAME,
       read: (t) => {
-        if (t === DEFAULT_SPECIALTY_NAME) return manifestYaml("coding");
+        if (t === DEFAULT_SPECIALTY_NAME) return manifestYaml("specialist");
         throw new Error(`ENOENT: no manifest for ${t}`);
       },
       warn: (m) => warnings.push(m),
@@ -172,8 +170,8 @@ describe("SpecialtyRegistry", () => {
       },
     });
 
-    registry.getManifest("coding");
-    registry.tryGetManifest("coding");
+    registry.getManifest("specialist");
+    registry.tryGetManifest("specialist");
 
     expect(reads).toBe(1);
   });
@@ -273,9 +271,9 @@ voice: true
 });
 
 describe("specialties option resolution", () => {
-  it("defaults to coding and the repo-root specialties/ with no env set", () => {
-    expect(resolveDefaultSpecialtyName({})).toBe("coding");
-    expect(resolveSpecialtiesDir({})).toMatch(/specialties$/);
+  it("defaults to specialist and the shipped agent-types/ with no env set", () => {
+    expect(resolveDefaultSpecialtyName({})).toBe("specialist");
+    expect(resolveSpecialtiesDir({})).toMatch(/agent-types$/);
   });
 
   it("honours SHIPWRIGHT_DEFAULT_AGENT_TYPE and SHIPWRIGHT_SPECIALTIES_DIR", () => {
