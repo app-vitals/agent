@@ -55,7 +55,7 @@ kubelet probes stay green during setup.
    `runtime/workspace/` (or the specialty's `identity.templatesDir`, see
    `resolveTemplatesDir`). Seeding never overwrites an existing file.
 2. Health server.
-3. `runMiseStartup` and `installPlugins` defaults.
+3. `runMiseStartup` and `installPlugins` (agent-specific plugins only).
 4. First config sync (awaited), then repeated every 60 s: fetch the bundle,
    re-apply env, update the live Claude config, repos and policy refs, install
    plugins, clone newly configured repos, and start Slack if credentials have
