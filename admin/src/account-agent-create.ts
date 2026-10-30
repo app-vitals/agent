@@ -3,9 +3,9 @@
  *
  * Shared rules for self-serve agent creation by account users (SSP-4.2),
  * used by both the admin UI form handler and the JSON API route so the two
- * cannot drift: account users always create the self-serve specialty
- * (see getSelfServeSpecialty) stamped with THEIR account (never a client-supplied one), and quota / account-status
- * failures surface as clear messages.
+ * cannot drift: account users always create the self-serve specialty (see
+ * getSelfServeSpecialty) stamped with THEIR account (never a client-supplied
+ * one), and quota / account-status failures surface as clear messages.
  */
 
 import type { CallerScope } from "./caller-scope.ts";
