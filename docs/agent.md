@@ -132,6 +132,27 @@ via `AgentCronJob`, and the breakdown and skill-usage rows via `AgentCronRun`).
 agents and do not cascade with agent deletion. Deleting an agent end to end goes
 through `deleteAgentFully()`; see [admin-service.md](admin-service.md#provisioning-and-deletion).
 
+### Decision: coding schema stays in the platform schema
+
+Decided 2026-10-30 (confirmed by Dan): the `coding.prisma` models (`AgentWorkQueueSnapshot`,
+`AgentPhaseMethodology`, `SessionFollow`, `SessionAlertState`) and the coding-owned `Agent`
+columns (`reviewAuthorAllowlist`, `patchAuthorAllowlist`, `autoPostReviews`, `allowSelfReview`,
+`minConfidence`, `maxFindings`) stay in the platform schema.
+
+**Reason.** The platform has one multi-file Prisma schema, one datasource, one generated
+client and one migration history, and Shipwright owns no schema. Moving them out would create
+a second migration chain on one database and touch the agents API, OpenAPI and UI for no
+functional gain.
+
+**Revisit when** a second extension needs its own tables, or the platform grows
+extension-schema composition.
+
+**Guard.** The coding-vs-platform gate (`scripts/check-coding-boundary.ts`) reads only
+TypeScript, so these schema paths are a permanent, documented exception, not part of the
+shrinking allowlist. `scripts/coding-schema-guard.unit.test.ts` fails when a platform module
+outside the agents API plumbing reads the coding columns, or any platform module touches the
+`coding.prisma` models.
+
 ## Testing
 
 Unit, integration and smoke layers (`bun run test` at the repo root, which sets
