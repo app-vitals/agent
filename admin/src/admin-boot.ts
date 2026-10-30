@@ -65,6 +65,7 @@ import {
   type AdminExtension,
   type AdminExtensionContext,
   collectServiceIntegrations,
+  collectSpecialtyDefaults,
   mountRouteContributions,
   resolveAdminExtensions,
   startBackgroundPasses,
@@ -178,7 +179,15 @@ export async function startAdmin(
     undefined,
     anthropicFederationEnabled,
   );
-  const agentCronJobService = new AgentCronJobService(prisma);
+  // Extension-supplied specialty defaults (crons/tools/plugins), consulted by
+  // the cron reconcile and create-time seeding before the manifest.
+  const specialtyDefaults = collectSpecialtyDefaults(extensions);
+  const agentCronJobService = new AgentCronJobService(
+    prisma,
+    undefined,
+    undefined,
+    specialtyDefaults,
+  );
   const agentCronRunService = new AgentCronRunService(prisma);
   const agentToolService = new AgentToolService(prisma);
   const agentTokenService = new AgentTokenService(prisma);
@@ -450,6 +459,7 @@ export async function startAdmin(
     agentMemberService,
     callerScopeResolver,
     specialtyRegistry: new SpecialtyRegistry(),
+    specialtyDefaults,
     agentChatTokenService,
     agentGitHubInstallationsService,
     prisma,
@@ -541,6 +551,7 @@ export async function startAdmin(
     agentService,
     provisioner,
     anthropicFederationEnabled,
+    specialtyDefaults,
     serviceIntegrations,
     chatService: deletionChatService,
     slack: slackClient,

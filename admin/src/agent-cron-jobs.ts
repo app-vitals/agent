@@ -15,6 +15,10 @@ import {
   resolveDefaultSpecialtyName,
   resolveSpecialtiesDir,
 } from "./specialty-manifest-loader.ts";
+import type {
+  SpecialtyDefaultCron,
+  SpecialtyDefaultsResolver,
+} from "./specialty-defaults.ts";
 import type { SpecialtyManifest } from "./specialty-registry.ts";
 import { type Clock, SystemClock } from "./clock.ts";
 import { NotFoundError, UnprocessableEntityError } from "./errors.ts";
@@ -87,6 +91,7 @@ export class AgentCronJobService {
     private prisma: PrismaClient,
     private clock: Clock = SystemClock(),
     private specialtyRegistry: SpecialtyManifestResolver = new SpecialtyRegistry(),
+    private specialtyDefaults: SpecialtyDefaultsResolver = () => undefined,
   ) {}
 
   /**
@@ -494,8 +499,12 @@ export class AgentCronJobService {
       throw new NotFoundError(`agent ${agentId} not found`);
     }
     const { specialty } = agent;
-    const manifest = this.specialtyRegistry.tryGetManifest(specialty);
-    if (!manifest) {
+    // Extension-supplied crons win; the manifest is the fallback.
+    const extensionCrons = this.specialtyDefaults(specialty)?.crons;
+    const manifest = extensionCrons
+      ? undefined
+      : this.specialtyRegistry.tryGetManifest(specialty);
+    if (!extensionCrons && !manifest) {
       const defaultName = resolveDefaultSpecialtyName();
       if (specialty === defaultName) {
         throw missingDefaultSpecialtyError(
@@ -509,7 +518,8 @@ export class AgentCronJobService {
       );
       return { created: 0, updated: 0, deleted: 0 };
     }
-    const manifestCrons: readonly ManifestCron[] = manifest.crons;
+    const manifestCrons: readonly (ManifestCron | SpecialtyDefaultCron)[] =
+      extensionCrons ?? manifest?.crons ?? [];
 
     // Fetch all existing system crons for this agent
     const existingSystemCrons = await this.prisma.agentCronJob.findMany({
@@ -566,7 +576,7 @@ export class AgentCronJobService {
               preCheck: systemCron.preCheck ?? null,
               channel: null,
               user: null,
-              enabled: systemCron.enabled,
+              enabled: systemCron.enabled ?? true,
             },
           });
           idByName.set(systemCron.name, createdCron.id);

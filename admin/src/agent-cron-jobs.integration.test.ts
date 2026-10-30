@@ -11,6 +11,10 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { PrismaClient } from "../prisma/client/client.ts";
+import {
+  type AdminExtension,
+  collectSpecialtyDefaults,
+} from "./admin-extension.ts";
 import { AgentCronJobService } from "./agent-cron-jobs.ts";
 import { NotFoundError, UnprocessableEntityError } from "./errors.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
@@ -579,5 +583,95 @@ describeOrSkip("AgentCronJobService (integration)", () => {
 
     expect(result).toEqual({ created: 0, updated: 0, deleted: 0 });
     expect(await service.list(agentId)).toEqual([]);
+  });
+});
+
+// A fixture extension supplying defaults, wired the way admin-boot.ts does.
+const fixtureExtension: AdminExtension = {
+  name: "fixture",
+  specialtyDefaults: (specialty) =>
+    specialty === FIXTURE_TYPE
+      ? {
+          crons: [
+            {
+              name: "ext-loop",
+              schedule: "*/10 * * * *",
+              prompt: "/ext:loop",
+              enabled: true,
+            },
+            {
+              name: "ext-child",
+              schedule: "5 * * * *",
+              prompt: "/ext:child",
+              enabled: false,
+              parentCron: "ext-loop",
+            },
+          ],
+        }
+      : undefined,
+};
+
+describeOrSkip("AgentCronJobService specialtyDefaults (integration)", () => {
+  let prisma: PrismaClient;
+  let service: AgentCronJobService;
+
+  beforeEach(async () => {
+    prisma = makePrisma();
+    await prisma.agentToken.deleteMany();
+    await prisma.agentCronJob.deleteMany();
+    await prisma.agentTool.deleteMany();
+    await prisma.agentEnv.deleteMany();
+    await prisma.agent.deleteMany();
+    service = new AgentCronJobService(
+      prisma,
+      undefined,
+      fixtureResolver,
+      collectSpecialtyDefaults([fixtureExtension]),
+    );
+  });
+
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+
+  it("reconcile seeds the extension's crons instead of the manifest's", async () => {
+    const agentId = await createAgent(prisma);
+    const result = await service.reconcileSystemCrons(agentId);
+    expect(result).toEqual({ created: 2, updated: 0, deleted: 0 });
+    const jobs = await service.list(agentId);
+    expect(jobs.map((j) => j.name).sort()).toEqual(["ext-child", "ext-loop"]);
+    const loop = jobs.find((j) => j.name === "ext-loop");
+    const child = jobs.find((j) => j.name === "ext-child");
+    expect(child?.parentCronId).toBe(loop?.id as string);
+    expect(child?.enabled).toBe(false);
+  });
+
+  it("re-reconcile keeps ids and enabled state and deletes orphaned system crons", async () => {
+    const agentId = await createAgent(prisma);
+    await service.reconcileSystemCrons(agentId);
+    const before = await service.list(agentId);
+    const loop = before.find((j) => j.name === "ext-loop");
+    await prisma.agentCronJob.update({
+      where: { id: loop?.id as string },
+      data: { enabled: false },
+    });
+    await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "stale-system",
+        system: true,
+        schedule: "* * * * *",
+        prompt: "x",
+      },
+    });
+
+    const result = await service.reconcileSystemCrons(agentId);
+
+    expect(result).toEqual({ created: 0, updated: 2, deleted: 1 });
+    const after = await service.list(agentId);
+    const loopAfter = after.find((j) => j.name === "ext-loop");
+    expect(loopAfter?.id).toBe(loop?.id as string);
+    expect(loopAfter?.enabled).toBe(false);
+    expect(after.some((j) => j.name === "stale-system")).toBe(false);
   });
 });

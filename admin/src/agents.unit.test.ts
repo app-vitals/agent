@@ -1319,6 +1319,76 @@ function baseCreateAgentInput(
   };
 }
 
+describe("createAgent() specialtyDefaults hook", () => {
+  it("seeds tools and plugins from the hook instead of the manifest", async () => {
+    const { deps, calls } = makeCreateAgentHarness();
+    deps.specialtyDefaults = () => ({
+      tools: ["Grep"],
+      plugins: ["ext-plugin"],
+    });
+
+    const result = await createAgent(deps, baseCreateAgentInput());
+
+    expect(result.ok).toBe(true);
+    expect(calls.toolsAdded.map((t) => t.pattern)).toEqual(["Grep"]);
+    expect(calls.pluginsAdded.map((p) => p.name)).toEqual(["ext-plugin"]);
+  });
+
+  it("falls back to the manifest when the hook returns nothing", async () => {
+    const { deps, calls } = makeCreateAgentHarness();
+    deps.specialtyDefaults = () => undefined;
+
+    await createAgent(deps, baseCreateAgentInput());
+
+    expect(calls.toolsAdded.map((t) => t.pattern)).toEqual(
+      CODING_MANIFEST.tools,
+    );
+    expect(calls.pluginsAdded.map((p) => p.name)).toEqual(
+      CODING_MANIFEST.plugins,
+    );
+  });
+
+  it("falls back per field when the hook omits tools or plugins", async () => {
+    const { deps, calls } = makeCreateAgentHarness();
+    deps.specialtyDefaults = () => ({ plugins: ["ext-plugin"] });
+
+    await createAgent(deps, baseCreateAgentInput());
+
+    expect(calls.toolsAdded.map((t) => t.pattern)).toEqual(
+      CODING_MANIFEST.tools,
+    );
+    expect(calls.pluginsAdded.map((p) => p.name)).toEqual(["ext-plugin"]);
+  });
+
+  it("accepts a specialty known only to the hook", async () => {
+    const { deps, calls } = makeCreateAgentHarness();
+    deps.specialtyDefaults = (s) =>
+      s === "ext-only" ? { tools: ["Read"] } : undefined;
+
+    const result = await createAgent(
+      deps,
+      baseCreateAgentInput({ specialty: "ext-only" }),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(calls.toolsAdded.map((t) => t.pattern)).toEqual(["Read"]);
+    expect(calls.pluginsAdded).toEqual([]);
+  });
+
+  it("still rejects a specialty unknown to both hook and manifest", async () => {
+    const { deps, calls } = makeCreateAgentHarness();
+    deps.specialtyDefaults = () => undefined;
+
+    const result = await createAgent(
+      deps,
+      baseCreateAgentInput({ specialty: "nope" }),
+    );
+
+    expect(result).toEqual({ ok: false, errorCode: "invalid_type" });
+    expect(calls.created).toHaveLength(0);
+  });
+});
+
 describe("createAgent()", () => {
   it("passes accountId through to agentService.create and tolerates an undefined tx (SSP-4.1)", async () => {
     const { deps, calls } = makeCreateAgentHarness();
