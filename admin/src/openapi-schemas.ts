@@ -34,7 +34,7 @@ export const AgentSummarySchema = z
     id: z.string().openapi({ example: "clx1234567890" }),
     name: z.string().openapi({ example: "Bodhi" }),
     selfHosted: z.boolean().openapi({ example: false }),
-    specialty: z.string().openapi({ example: "coding" }),
+    specialty: z.string().openapi({ example: "specialist" }),
   })
   .openapi("AgentSummary");
 
@@ -147,7 +147,7 @@ export const PatchAgentBodySchema = z
 export const CreateAgentBodySchema = z
   .object({
     name: z.string().min(1).openapi({ example: "Bodhi" }),
-    specialty: z.string().min(1).openapi({ example: "coding" }),
+    specialty: z.string().min(1).openapi({ example: "specialist" }),
     /**
      * "in-cluster" means K8s-provisioned; anything else (including absent)
      * means self-hosted.
@@ -1343,7 +1343,7 @@ export const AgentConfigResponseSchema = z
      * ARD-6.1: the agent's Specialty name, used by the runtime to pick its
      * workspace template directory.
      */
-    specialty: z.string().openapi({ example: "coding" }),
+    specialty: z.string().openapi({ example: "specialist" }),
     /**
      * DEPRECATED back-compat alias of `specialty` (always equal to it). Kept
      * only for pre-AGR-6.3 runtime images, whose entrypoint reads
@@ -1353,7 +1353,7 @@ export const AgentConfigResponseSchema = z
     typeName: z
       .string()
       .optional()
-      .openapi({ example: "coding", deprecated: true }),
+      .openapi({ example: "specialist", deprecated: true }),
     /**
      * PMC-1.1: phase -> subagentType (or null) map, covering all six pipeline
      * phases (see AGENT_PHASES) regardless of whether the agent has an

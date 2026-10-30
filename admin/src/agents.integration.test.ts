@@ -574,7 +574,7 @@ describeOrSkip("Agent.specialty — final shape (AGR-6.3)", () => {
     ).toBe("research");
   });
 
-  it("specialty is required: NULL is rejected and omitting it applies the 'coding' default", async () => {
+  it("specialty is required: NULL is rejected and omitting it applies the 'specialist' default", async () => {
     await expect(
       (async () =>
         prisma.agent.create({
@@ -584,6 +584,6 @@ describeOrSkip("Agent.specialty — final shape (AGR-6.3)", () => {
 
     const created = await agentService.create({ name: "No Specialty" });
     createdIds.push(created.id);
-    expect(created.specialty).toBe("coding");
+    expect(created.specialty).toBe("specialist");
   });
 });

@@ -40,6 +40,9 @@ function migrationSql(dir: string): string {
 const ADD_TYPE_NAME = migrationSql("20260724000000_add_agent_type_name");
 const ADD_SPECIALTY = migrationSql("20261029000000_add_agent_specialty");
 const DROP_TYPE_NAME = migrationSql("20261030000000_drop_agent_type_name");
+const SET_DEFAULT_SPECIALIST = migrationSql(
+  "20261030100000_set_agent_specialty_default_specialist",
+);
 
 describeOrSkip("typeName -> specialty migrations (AGR-6.1 / AGR-6.3)", () => {
   const schema = `agr63_${process.pid}_${Date.now()}`;
@@ -122,5 +125,32 @@ describeOrSkip("typeName -> specialty migrations (AGR-6.1 / AGR-6.3)", () => {
       `SELECT "specialty" FROM "Agent" WHERE "id" = 'a3'`,
     );
     expect(def.rows[0]?.specialty).toBe("coding");
+  });
+
+  it("set_agent_specialty_default_specialist changes only the default and leaves rows unchanged (PCD-3.4)", async () => {
+    await client.query(ADD_TYPE_NAME);
+    await client.query(ADD_SPECIALTY);
+    await client.query(DROP_TYPE_NAME);
+    for (const [i, s] of LIVE_SPECIALTIES.entries()) {
+      await client.query(
+        `INSERT INTO "Agent" ("id","name","specialty") VALUES ($1,$2,$3)`,
+        [`a${i}`, `agent-${i}`, s],
+      );
+    }
+
+    await client.query(SET_DEFAULT_SPECIALIST);
+
+    const { rows } = await client.query<{ specialty: string }>(
+      `SELECT "specialty" FROM "Agent" ORDER BY "id"`,
+    );
+    expect(rows.map((r) => r.specialty)).toEqual([...LIVE_SPECIALTIES]);
+
+    await client.query(
+      `INSERT INTO "Agent" ("id","name") VALUES ('a9','agent-9')`,
+    );
+    const def = await client.query<{ specialty: string }>(
+      `SELECT "specialty" FROM "Agent" WHERE "id" = 'a9'`,
+    );
+    expect(def.rows[0]?.specialty).toBe("specialist");
   });
 });
