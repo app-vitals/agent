@@ -139,6 +139,12 @@ export interface SpecialtyManifestResolver {
    * is discoverable the built-in default option is returned.
    */
   listTypes(): SpecialtyOption[];
+  /**
+   * True when an AdminExtension declares `specialty` via agentTypes() — a type
+   * with no manifest that POST /admin/agents must still accept. Optional: the
+   * disk-backed registry has none.
+   */
+  hasExtensionType?(specialty: string): boolean;
 }
 
 export class SpecialtyRegistry implements SpecialtyManifestResolver {

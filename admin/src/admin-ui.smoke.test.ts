@@ -7,9 +7,11 @@
  */
 
 import { beforeAll, describe, expect, it } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sign } from "hono/jwt";
+import { withExtensionAgentTypes } from "./admin-extension.ts";
 import { createAdminUIApp } from "./admin-ui.ts";
 import { SpecialtyRegistry } from "./specialty-manifest-loader.ts";
 import {
@@ -5664,6 +5666,36 @@ describe("admin UI — create agent seeds manifest tools and plugins", () => {
     expect(res.headers.get("Location")).toBe(`/admin/agents/${AGENT_ID}`);
     expect(seededTools).toEqual(registry.getManifest("fixture").tools);
     expect(seededPlugins).toEqual(["fixture-plugin"]);
+  });
+
+  it("an extension-contributed type (ETP-1.2) shows in the picker and POST /admin/agents accepts it with no manifest", async () => {
+    const emptyDir = mkdtempSync(join(tmpdir(), "no-specialties-"));
+    const registry = withExtensionAgentTypes(
+      new SpecialtyRegistry({ typesDir: emptyDir }),
+      [{ agentTypes: () => [{ name: "coding", displayName: "Coding Agent" }] }],
+    );
+    const deps = makeMockDeps();
+    deps.specialtyRegistry = registry;
+    const app = createAdminUIApp(deps);
+    const form = await app.request("/admin/agents/new", {
+      headers: { Cookie: `admin_session=${cookie}` },
+    });
+    expect(await form.text()).toContain(
+      '<option value="coding">Coding Agent</option>',
+    );
+    const res = await app.request("/admin/agents", {
+      method: "POST",
+      body: new URLSearchParams({
+        name: "Ext Agent",
+        type: "coding",
+      }).toString(),
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: `admin_session=${cookie}`,
+      },
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(`/admin/agents/${AGENT_ID}`);
   });
 
   it("POST /admin/agents rolls back the agent and redirects with error when tool seeding fails", async () => {
