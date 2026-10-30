@@ -1,10 +1,10 @@
 /**
- * SPECIALTY.md.template content regression guard — DPF-1.1
+ * SPECIALTY.md.template content regression guard — PCD-2.2
  *
- * Verifies the coding specialty's "Shipwright" section describes the
- * shipwright-loop-driven, explicit-target-only pipeline model (WLS-6.1), not
- * the stale self-discovering-cron model it replaced. Relocated from
- * the former CLAUDE template content test when the template was layered (ARD-6.2).
+ * The platform's SPECIALTY.md.template is the generic fallback for every agent
+ * type, so it must stay a neutral stub. Specialty-specific pipeline content
+ * (e.g. the coding specialty's Shipwright workflow) is shipped by the specialty
+ * itself through its manifest's identity.templatesDir.
  *
  * Content-assertion only: readFileSync, no I/O beyond local file reads.
  */
@@ -19,32 +19,23 @@ function readTemplate(): string {
   return readFileSync(TEMPLATE_PATH, "utf8");
 }
 
-describe("SPECIALTY.md.template — shipwright-loop model", () => {
-  it("mentions the shipwright-loop cron as the driver", () => {
-    expect(readTemplate()).toContain("shipwright-loop");
+describe("SPECIALTY.md.template — generic stub", () => {
+  it("is a non-empty stub", () => {
+    expect(readTemplate().trim().length).toBeGreaterThan(0);
   });
 
-  it("describes dev-task/review/patch/deploy as explicit-target-only executors", () => {
-    expect(readTemplate().toLowerCase()).toContain("explicit-target-only");
-  });
-
-  it("mentions strict age-based FIFO work selection", () => {
-    expect(readTemplate().toLowerCase()).toContain("fifo");
-  });
-
-  it("notes a standalone phase cron with shipwright-loop disabled is silently inert", () => {
-    expect(readTemplate().toLowerCase()).toContain("silently inert");
-  });
-
-  it("does not claim dev-task picks up pending items on a fixed schedule independent of the loop", () => {
-    expect(readTemplate()).not.toContain(
-      "picks up the next pending item every 30 minutes",
-    );
-  });
-
-  it("does not describe review/patch as independently self-discovering phases", () => {
-    expect(readTemplate()).not.toContain(
-      "run as independent phases — review posts",
-    );
+  it.each([
+    "shipwright",
+    "dev-task",
+    "dev-loop",
+    "plan-session",
+    "task-store",
+    "TASK_STORE",
+    "PullRequest",
+    "explicit-target-only",
+    "fifo",
+    "curl",
+  ])("does not mention Shipwright-pipeline term %p", (term) => {
+    expect(readTemplate().toLowerCase()).not.toContain(term.toLowerCase());
   });
 });

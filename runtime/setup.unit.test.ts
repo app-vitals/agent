@@ -281,9 +281,17 @@ describe("resolveTemplatesDir option resolution (AEP-1.2)", () => {
     expect(warnings).toEqual([]);
   });
 
-  it("resolves an absent type to the built-in templates with no env set", async () => {
+  it("resolves an absent type as coding and falls back to the built-in templates with a warning when no env is set", async () => {
     const { resolveTemplatesDir } = await import("./setup.ts");
-    const dir = resolveTemplatesDir(undefined, "/nonexistent", () => {}, {});
+    const warnings: string[] = [];
+    const dir = resolveTemplatesDir(
+      undefined,
+      "/nonexistent",
+      (m) => warnings.push(m),
+      {},
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('"coding"');
     expect(dir).toMatch(/workspace$/);
   });
 

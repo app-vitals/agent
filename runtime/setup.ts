@@ -59,8 +59,8 @@ const SHIPWRIGHT_MARKETPLACE = "shipwright";
 // Default plugin installed on all Shipwright agents.
 const DEFAULT_PLUGINS: readonly string[] = ["shipwright"];
 
-// The universal fallback type — mirrors admin's DEFAULT_SPECIALTY_NAME. Its
-// templates are the built-in workspace/ dir, so it never needs a manifest lookup.
+// The universal fallback type — mirrors admin's DEFAULT_SPECIALTY_NAME. It
+// resolves through its manifest's identity.templatesDir like any other type.
 const DEFAULT_SPECIALTY_NAME = "coding";
 
 // The persona templates a type's templatesDir must provide or it is not usable.
@@ -77,9 +77,10 @@ const REQUIRED_TEMPLATES: readonly string[] = [
  *
  * Reads `identity.templatesDir` from `<repoRoot>/specialties/<specialty>/manifest.yaml`
  * (relative paths resolve against the repo root, matching how the manifests
- * spell them). Returns the built-in workspace/ dir for `coding`, an absent
- * type, and any type that does not resolve (no manifest, unparseable, or the
- * directory is missing or lacks a required template) — logging a warning for the latter. Never throws:
+ * spell them). An absent type resolves as the default type. Returns the built-in
+ * (generic) workspace/ dir for any type that does not resolve (no manifest,
+ * unparseable, or the directory is missing or lacks a required template),
+ * logging a warning. No type is special-cased, `coding` included. Never throws:
  * a template lookup must not fail boot.
  */
 export function resolveTemplatesDir(
@@ -93,9 +94,6 @@ export function resolveTemplatesDir(
     requestedType ||
     env.SHIPWRIGHT_DEFAULT_AGENT_TYPE ||
     DEFAULT_SPECIALTY_NAME;
-  if (specialty === DEFAULT_SPECIALTY_NAME) {
-    return WORKSPACE_TEMPLATE_DIR;
-  }
   try {
     const manifestPath = join(
       env.SHIPWRIGHT_SPECIALTIES_DIR || join(repoRoot, "specialties"),
