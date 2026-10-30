@@ -311,7 +311,7 @@ describeOrSkip("admin CRUD API (integration)", () => {
 
   // ─── specialty field ─────────────────────────────────────────────────────────
 
-  it("GET /agents includes specialty:'coding' for an agent created before specialty existed", async () => {
+  it("GET /agents includes specialty:'specialist' for an agent created before specialty existed", async () => {
     const res = await app.request("/agents", {
       headers: { Cookie: `admin_session=${cookie}` },
     });
@@ -319,28 +319,28 @@ describeOrSkip("admin CRUD API (integration)", () => {
     const body = await res.json();
     const entry = body.find((a: { id: string }) => a.id === agentId);
     expect(entry).toBeDefined();
-    expect(entry.specialty).toBe("coding");
+    expect(entry.specialty).toBe("specialist");
   });
 
-  it("GET /agents/:id includes specialty:'coding' by default", async () => {
+  it("GET /agents/:id includes specialty:'specialist' by default", async () => {
     const res = await app.request(`/agents/${agentId}`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.specialty).toBe("coding");
+    expect(body.specialty).toBe("specialist");
   });
 
   // ─── Migration backfill read-back (pre-existing rows + child rows) ────────────
   //
   // Simulates the exact scenario the 20260724000000_add_agent_type_name
   // migration must handle: rows that existed *before* the specialty column was
-  // added (never received an explicit value) must read back specialty="coding"
+  // added (never received an explicit value) must read back specialty="specialist"
   // via the column DEFAULT, and every child row (cron/plugin/tool/env/member)
   // must be completely untouched — same count, same updatedAt — since the
   // migration only ALTERs the Agent table.
 
-  it("migration backfill: pre-existing agent rows read back specialty='coding' and child rows (cron/plugin/tool/env/member) are untouched", async () => {
+  it("migration backfill: pre-existing agent rows read back specialty='specialist' and child rows (cron/plugin/tool/env/member) are untouched", async () => {
     // Seed a second "pre-existing" agent with one row in every child table,
     // simulating data that existed prior to the specialty migration landing.
     const preExisting = await prisma.agent.create({
@@ -383,7 +383,7 @@ describeOrSkip("admin CRUD API (integration)", () => {
     const rawAgent = await prisma.agent.findUniqueOrThrow({
       where: { id: preExisting.id },
     });
-    expect(rawAgent.specialty).toBe("coding");
+    expect(rawAgent.specialty).toBe("specialist");
 
     // Read back via the HTTP API too — end-to-end confirmation.
     const res = await app.request(`/agents/${preExisting.id}`, {
@@ -391,7 +391,7 @@ describeOrSkip("admin CRUD API (integration)", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.specialty).toBe("coding");
+    expect(body.specialty).toBe("specialist");
 
     // Child row counts are unchanged — exactly one of each, still linked to
     // the same agent.
@@ -455,7 +455,7 @@ describeOrSkip("admin CRUD API (integration)", () => {
     const rawAgent = await prisma.agent.findUniqueOrThrow({
       where: { id: agentId },
     });
-    expect(rawAgent.specialty).toBe("coding");
+    expect(rawAgent.specialty).toBe("specialist");
   });
 
   // ─── repos field round-trip ───────────────────────────────────────────────────
