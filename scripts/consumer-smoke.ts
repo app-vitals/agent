@@ -493,7 +493,7 @@ export function buildDockerRunArgs(
   kind: keyof typeof BOOT_MARKERS,
   image: string,
   name: string,
-  fixtureSpecialties: string,
+  fixtureSpecialties: string | null,
 ): string[] {
   return [
     "docker",
@@ -503,7 +503,7 @@ export function buildDockerRunArgs(
     name,
     "-e",
     "AGENT_HOME=/tmp/agent-home",
-    ...(kind === "agent"
+    ...(kind === "agent" && fixtureSpecialties !== null
       ? [
           "-v",
           `${fixtureSpecialties}:/fixture-specialties:ro`,
@@ -519,11 +519,24 @@ export function buildDockerRunArgs(
   ];
 }
 
+/**
+ * The "shipped" agent scenario: SHIPWRIGHT_SPECIALTIES_DIR,
+ * SHIPWRIGHT_DEFAULT_AGENT_TYPE and SHIPWRIGHT_REPO_ROOT are all unset, so the
+ * image must seed the workspace from its own /app/agent-types/specialist.
+ */
+const SHIPPED_HEALTH_MARKER = "[agent] health server on port";
+const SHIPPED_SEED_CHECK = [
+  "cmp",
+  "/tmp/agent-home/workspace/CLAUDE.md",
+  "/app/agent-types/specialist/templates/CLAUDE.md.template",
+];
+
 async function bootImage(
   kind: keyof typeof BOOT_MARKERS,
   image: string,
+  shipped = false,
 ): Promise<boolean> {
-  const name = `consumer-smoke-${kind}-${process.pid}`;
+  const name = `consumer-smoke-${kind}${shipped ? "-shipped" : ""}-${process.pid}`;
   // A locally built image (CI's agent:ci) is not on any registry: only pull when absent.
   const local = run(["docker", "image", "inspect", image], process.cwd(), true);
   if (local.exitCode !== 0) {
@@ -531,12 +544,13 @@ async function bootImage(
     if (pull.exitCode !== 0) return false;
   }
   const start = run(
-    buildDockerRunArgs(kind, image, name, FIXTURE_SPECIALTIES),
+    buildDockerRunArgs(kind, image, name, shipped ? null : FIXTURE_SPECIALTIES),
     process.cwd(),
   );
   if (start.exitCode !== 0) return false;
   let logs = "";
   let exitCode: number | null = null;
+  let seedFailure: string | null = null;
   try {
     const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
@@ -556,19 +570,40 @@ async function bootImage(
       const [running, code] = st.stdout.trim().split(" ");
       if (running === "false") exitCode = Number(code);
       if (
-        logs.includes(BOOT_MARKERS[kind]) ||
-        RESOLUTION_ERROR.test(logs) ||
-        running === "false"
-      )
+        shipped
+          ? logs.includes(SHIPPED_HEALTH_MARKER)
+          : logs.includes(BOOT_MARKERS[kind])
+      ) {
+        if (shipped) {
+          const seed = run(
+            ["docker", "exec", name, ...SHIPPED_SEED_CHECK],
+            process.cwd(),
+            true,
+          );
+          if (seed.exitCode !== 0)
+            seedFailure =
+              `workspace CLAUDE.md differs from the shipped specialist template: ${seed.stdout}${seed.stderr}`.trim();
+        }
         break;
+      }
+      if (RESOLUTION_ERROR.test(logs) || running === "false") break;
       await Bun.sleep(2_000);
     }
   } finally {
     run(["docker", "rm", "-f", name], process.cwd(), true);
   }
   const verdict = evaluateBoot(kind, { logs, exitCode });
+  if (shipped && verdict.ok) {
+    if (!logs.includes(SHIPPED_HEALTH_MARKER))
+      Object.assign(verdict, {
+        ok: false,
+        reason: `never logged "${SHIPPED_HEALTH_MARKER}" (exit ${exitCode})`,
+      });
+    else if (seedFailure)
+      Object.assign(verdict, { ok: false, reason: seedFailure });
+  }
   console.log(
-    `[consumer-smoke] boot ${kind} ${image}: ${verdict.ok ? "ok" : "FAIL"} (${verdict.reason})`,
+    `[consumer-smoke] boot ${kind}${shipped ? " (shipped specialist, no env overrides)" : ""} ${image}: ${verdict.ok ? "ok" : "FAIL"} (${verdict.reason})`,
   );
   if (!verdict.ok) console.error(logs.split("\n").slice(-30).join("\n"));
   return verdict.ok;
@@ -692,7 +727,12 @@ async function main(): Promise<void> {
     libFailures.length === 0;
   if (args.boot) {
     const results = [
-      ...(args.bootAgent ? [await bootImage("agent", args.agentImage)] : []),
+      ...(args.bootAgent
+        ? [
+            await bootImage("agent", args.agentImage),
+            await bootImage("agent", args.agentImage, true),
+          ]
+        : []),
       ...(args.bootAdmin ? [await bootImage("admin", args.adminImage)] : []),
       ...(args.bootChat ? [await bootChat(args.chatImage)] : []),
     ];

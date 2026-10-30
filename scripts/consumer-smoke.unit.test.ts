@@ -129,6 +129,22 @@ describe("buildDockerRunArgs", () => {
     expect(args).toContain("SHIPWRIGHT_DEFAULT_AGENT_TYPE=fixture");
   });
 
+  test("shipped scenario sets no specialty env overrides and mounts nothing", () => {
+    const args = buildDockerRunArgs("agent", "agent:ci", "n", null);
+    const joined = args.join(" ");
+    expect(joined).not.toContain("SHIPWRIGHT_SPECIALTIES_DIR");
+    expect(joined).not.toContain("SHIPWRIGHT_DEFAULT_AGENT_TYPE");
+    expect(joined).not.toContain("SHIPWRIGHT_REPO_ROOT");
+    expect(args).not.toContain("-v");
+    expect(args.slice(args.indexOf("--entrypoint"))).toEqual([
+      "--entrypoint",
+      "bun",
+      "agent:ci",
+      "run",
+      "index.ts",
+    ]);
+  });
+
   test("admin keeps its image entrypoint", () => {
     const args = buildDockerRunArgs("admin", "admin:ci", "n", "/fx");
     expect(args).not.toContain("--entrypoint");
