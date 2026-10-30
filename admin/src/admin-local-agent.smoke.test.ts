@@ -1523,7 +1523,7 @@ describe("admin UI — account users create / delete agents (SSP-4.2)", () => {
     expect(res.status).toBe(403);
   });
 
-  it("POST /admin/agents — account user's agent is stamped with their account and forced to coding", async () => {
+  it("POST /admin/agents — account user's agent is stamped with their account and forced to the self-serve specialty", async () => {
     const { deps, created } = depsCapturingCreate("acct-a");
     const res = await createAdminUIApp(deps).request(
       "/admin/agents",

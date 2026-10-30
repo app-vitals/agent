@@ -6,7 +6,7 @@
  * No I/O, no Hono, no HTTP — pure string → string.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import {
   type AgentDetail,
@@ -4259,12 +4259,38 @@ describe("renderNewLocalAgentPage — self-serve account user (SSP-4.2)", () => 
     expect(html).toContain("Claude API key");
   });
 
-  test("forces the coding type via a hidden input instead of a type select", () => {
-    const html = renderNewLocalAgentPage(USER_NAME, [CODING_TYPE], {
-      selfServe,
+  describe("hidden type input", () => {
+    const saved = {
+      selfServe: process.env.SHIPWRIGHT_SELF_SERVE_AGENT_TYPE,
+      defaultType: process.env.SHIPWRIGHT_DEFAULT_AGENT_TYPE,
+    };
+    const restore = (key: string, value: string | undefined) => {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    };
+    afterEach(() => {
+      restore("SHIPWRIGHT_SELF_SERVE_AGENT_TYPE", saved.selfServe);
+      restore("SHIPWRIGHT_DEFAULT_AGENT_TYPE", saved.defaultType);
     });
-    expect(html).toContain('<input type="hidden" name="type" value="coding"');
-    expect(html).not.toMatch(/<select[^>]*name="type"/);
+
+    test("carries the SHIPWRIGHT_SELF_SERVE_AGENT_TYPE value instead of a type select", () => {
+      process.env.SHIPWRIGHT_SELF_SERVE_AGENT_TYPE = "base";
+      const html = renderNewLocalAgentPage(USER_NAME, [CODING_TYPE], {
+        selfServe,
+      });
+      expect(html).toContain('<input type="hidden" name="type" value="base"');
+      expect(html).not.toContain('name="type" value="coding"');
+      expect(html).not.toMatch(/<select[^>]*name="type"/);
+    });
+
+    test("falls back to the resolved default specialty when the env is unset", () => {
+      delete process.env.SHIPWRIGHT_SELF_SERVE_AGENT_TYPE;
+      delete process.env.SHIPWRIGHT_DEFAULT_AGENT_TYPE;
+      const html = renderNewLocalAgentPage(USER_NAME, [CODING_TYPE], {
+        selfServe,
+      });
+      expect(html).toContain('<input type="hidden" name="type" value="coding"');
+    });
   });
 
   test("at zero remaining, explains the limit and points at the contact email", () => {
