@@ -77,7 +77,7 @@ Anthropic credential guard), `agent-cron-jobs.ts`, `agent-tools.ts`,
 | `agent-manifest.ts` | Pure builders for the Deployment, token Secret and RFC1123 names. |
 | `kubernetes-client.ts` | First-party fetch client for the in-cluster API (Deployments, Secrets, PVCs, ServiceAccounts); no `@kubernetes/client-node`. |
 | `agent-deletion.ts`, `agent-deletion-checklist.ts` | `deleteAgentFully()`, shared by `DELETE /agents/:id` and the UI danger zone: deprovision, remove per-agent Anthropic identity, revoke extension tokens, revoke chat tokens and delete threads, optional Slack app delete; the Agent row is deleted last so retries work. Hand-pasted secrets become a manual-steps checklist. |
-| `account-agent-create.ts`, `agent-account-assignment.ts` | Self-serve create rules (always "coding", stamped with the caller's account, quota checked); re-reconcile a single agent after account (re)assignment. |
+| `account-agent-create.ts`, `agent-account-assignment.ts` | Self-serve create rules (resolved self-serve specialty via `getSelfServeSpecialty()`, stamped with the caller's account, quota checked); re-reconcile a single agent after account (re)assignment. |
 | `github-provisioning-service.ts`, `slack-provisioning-service.ts` | Connect an existing agent to GitHub (App manifest flow or PAT) or Slack (app manifest + OAuth); used by the UI. |
 
 ### Accounts, invites and trials
