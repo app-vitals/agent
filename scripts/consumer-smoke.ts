@@ -470,6 +470,28 @@ function importProbe(repoRoot: string, scratch: string): boolean {
   return !failed;
 }
 
+/** Script run inside the scratch dir: listTypes() must not throw without agent-types/. */
+export const LIST_TYPES_PROBE = `import { SpecialtyRegistry } from "@app-vitals/agent-admin/specialty-manifest-loader";
+const warn = console.warn;
+console.warn = () => {};
+const types = new SpecialtyRegistry().listTypes();
+console.warn = warn;
+if (!Array.isArray(types) || types.length < 1) {
+  console.error("  FAIL listTypes() returned no options: " + JSON.stringify(types));
+  process.exit(1);
+}
+console.log("[consumer-smoke] listTypes() ok: " + types.map((t) => t.name).join(", "));
+`;
+
+/** listTypes() from the installed tarball (no agent-types/ shipped) must not throw. */
+function listTypesProbe(scratch: string): boolean {
+  writeFileSync(join(scratch, "list-types-probe.mjs"), LIST_TYPES_PROBE);
+  const r = run(["bun", "list-types-probe.mjs"], scratch, true);
+  process.stdout.write(r.stdout);
+  process.stderr.write(r.stderr);
+  return r.exitCode === 0;
+}
+
 /**
  * `docker run` args for a boot check. The agent image ENTRYPOINT is
  * runtime/entrypoint-main.ts, which exits 1 on missing SHIPWRIGHT_AGENT_ID /
@@ -724,6 +746,7 @@ async function main(): Promise<void> {
   for (const f of libFailures) console.error(`  FAIL agent-lib: ${f}`);
   let ok =
     (args.importProbe ? importProbe(repoRoot, scratch) : true) &&
+    (args.importProbe ? listTypesProbe(scratch) : true) &&
     libFailures.length === 0;
   if (args.boot) {
     const results = [

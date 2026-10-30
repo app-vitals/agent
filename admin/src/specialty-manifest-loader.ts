@@ -134,7 +134,9 @@ export interface SpecialtyManifestResolver {
    * type picker. A directory whose manifest fails to load or parse is
    * skipped (not thrown) — the picker still renders every other valid type
    * rather than 500ing the whole /admin/agents/new page over one bad
-   * manifest. Order matches the underlying `list` fn's order.
+   * manifest. Order matches the underlying `list` fn's order. Never throws:
+   * a missing type dir is treated as empty (with a warning), and when no type
+   * is discoverable the built-in default option is returned.
    */
   listTypes(): SpecialtyOption[];
 }
@@ -202,7 +204,17 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
   }
 
   listTypes(): SpecialtyOption[] {
-    const specialties = this.list();
+    let specialties: string[];
+    try {
+      specialties = this.list();
+    } catch (err) {
+      // Missing dir (e.g. npm consumers, where agent-types/ is not shipped).
+      this.warn(
+        `SpecialtyRegistry: could not list specialties under "${this.typesDir}" — ` +
+          `treating as empty (${err instanceof Error ? err.message : String(err)})`,
+      );
+      specialties = [];
+    }
     const options: SpecialtyOption[] = [];
     for (const specialty of specialties) {
       const manifest = this.tryLoad(specialty);
@@ -212,7 +224,15 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
         displayName: manifest.metadata.displayName,
       });
     }
-    return options;
+    if (options.length > 0) return options;
+    // Nothing discoverable: offer the built-in default so the picker is never empty.
+    const fallback = parseSpecialtyManifest(BUILT_IN_FALLBACK_MANIFEST_YAML);
+    return [
+      {
+        name: fallback.metadata.name,
+        displayName: fallback.metadata.displayName,
+      },
+    ];
   }
 
   /** tryLoad, but an invalid (unparseable) manifest also yields undefined. */
