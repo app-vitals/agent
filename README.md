@@ -41,7 +41,7 @@ CI enforces the contract with `runtime/base-image-contract.smoke.test.ts`.
 bun install
 bun run lint
 bun run typecheck
-bun run check:boundary   # no import may leave runtime/, admin/, lib/ and agent-types/
+bun run check:boundary   # no import may leave runtime/, admin/, lib/ and agent-types/; plus the coding-vs-platform gate
 bun test
 ```
 

@@ -63,7 +63,7 @@ A top-level `.superRefine()` check also applies: every `crons[].parentCron` must
 
 | Name | Type | Default | Description |
 |---|---|---|---|
-| `templatesDir` | `string` | — | Path to this type's workspace template directory (e.g. `runtime/workspace/`), relative to the repo root. Read by the agent runtime when seeding a new workspace (the type reaches it via `specialty` on `GET /agents/:id/config`, exported by the entrypoint as `SHIPWRIGHT_AGENT_TYPE`). `coding`, an absent type and any type that does not resolve fall back to `runtime/workspace/` with a logged warning; existing workspace files are never rewritten. Min length 1. |
+| `templatesDir` | `string` | — | Path to this type's workspace template directory (e.g. `runtime/workspace/`), relative to the repo root. Read by the agent runtime when seeding a new workspace (the type reaches it via `specialty` on `GET /agents/:id/config`, exported by the entrypoint as `SHIPWRIGHT_AGENT_TYPE`). An absent type resolves as the default type, and any type that does not resolve (including `coding` when its manifest or templates are unusable; no type is special-cased) falls back to the generic `runtime/workspace/` with a logged warning; existing workspace files are never rewritten. Min length 1. |
 
 ### `crons[]`
 
