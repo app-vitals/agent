@@ -11,6 +11,7 @@
  */
 
 import { PROGRESS_LABELS } from "@app-vitals/agent-lib/progress-phases";
+import { getSelfServeSpecialty } from "./account-agent-create.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
 import {
   BREAKPOINT_MOBILE_MAX,
@@ -18,7 +19,6 @@ import {
   renderAdminToolbar,
 } from "./admin-ui-styles.ts";
 import type { ManualStep } from "./agent-deletion-checklist.ts";
-import type { SpecialtyOption } from "./specialty-manifest-loader.ts";
 import { isAudioFilename } from "./attachment-validation.ts";
 import { parseChatMarkers } from "./chat-markers.ts";
 import type {
@@ -28,6 +28,7 @@ import type {
   ThreadStats,
 } from "./http-chat-client.ts";
 import { renderPushToggle } from "./push-toggle.ts";
+import type { SpecialtyOption } from "./specialty-manifest-loader.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -566,7 +567,7 @@ export function renderNewLocalAgentPage(
     </div>`
     : "";
   const typeFieldHtml = selfServe
-    ? `<input type="hidden" name="type" value="coding" />`
+    ? `<input type="hidden" name="type" value="${escapeHtml(getSelfServeSpecialty())}" />`
     : `<div class="form-group">
           <label class="form-label" for="type">Specialty <span style="color:#ef4444">*</span></label>
           <select id="type" name="type" class="form-input" required>

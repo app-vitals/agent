@@ -1930,7 +1930,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     // SSP-4.2: platform admins keep today's behavior (and may create
     // unassigned agents). A session user with an account (flag on) may create
     // agents in THEIR account only: accountId comes from the resolved scope —
-    // never the body — and the type is forced to "coding".
+    // never the body — and the type is forced to the self-serve specialty.
     let accountId: string | undefined;
     if (c.get("isAdmin") !== true) {
       const email = c.get("callerEmail");
