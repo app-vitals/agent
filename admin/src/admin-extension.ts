@@ -24,6 +24,12 @@
  *   agentDetailCards(ctx)  — extra cards on the agent detail page, each placed
  *                            in the header or the Configuration group
  *   backgroundPasses(ctx)  — interval loops, started after the platform sweepers
+ *   specialtyDefaults(name) — a specialty's default crons/tools/plugins. Like
+ *                            serviceIntegrations it needs no context and is
+ *                            collected before the services are built; the cron
+ *                            reconcile and create-time seeding consult it
+ *                            before the specialty manifest, which remains the
+ *                            fallback when no extension returns anything
  *
  * openApi() is static (no context): scripts/generate-admin-spec.ts calls it to
  * fold extension routes/schemas into admin/openapi.json without booting.
@@ -52,6 +58,10 @@ import type { AgentPhaseMethodologyServiceLike } from "./api.ts";
 import type { createCallerScopeResolver } from "./caller-scope.ts";
 import type { PushService } from "./push-service.ts";
 import type { ServiceIntegration } from "./service-integration.ts";
+import type {
+  SpecialtyDefaults,
+  SpecialtyDefaultsResolver,
+} from "./specialty-defaults.ts";
 
 /** The platform services an extension may build on. */
 export interface AdminPlatformServices {
@@ -168,6 +178,8 @@ export interface AdminExtension {
   name?: string;
   /** See the header: env-only, resolved before the provisioner is built. */
   serviceIntegrations?(env: NodeJS.ProcessEnv): ServiceIntegration[];
+  /** See the header: undefined means "no opinion" — the manifest applies. */
+  specialtyDefaults?(specialty: string): SpecialtyDefaults | undefined;
   services?(ctx: AdminExtensionContext): AdminExtensionServices;
   apiRoutes?(ctx: AdminExtensionContext): AdminRouteContribution[];
   adminUiRoutes?(ctx: AdminExtensionContext): AdminRouteContribution[];
@@ -342,6 +354,23 @@ export function collectServiceIntegrations(
   env: NodeJS.ProcessEnv,
 ): ServiceIntegration[] {
   return extensions.flatMap((ext) => ext.serviceIntegrations?.(env) ?? []);
+}
+
+/**
+ * Builds the resolver the cron reconcile and create-time seeding consult
+ * before the manifest. The first extension returning defaults wins; with none
+ * registered (or none answering) it returns undefined and the manifest applies.
+ */
+export function collectSpecialtyDefaults(
+  extensions: readonly AdminExtension[],
+): SpecialtyDefaultsResolver {
+  return (specialty) => {
+    for (const ext of extensions) {
+      const defaults = ext.specialtyDefaults?.(specialty);
+      if (defaults) return defaults;
+    }
+    return undefined;
+  };
 }
 
 /** Mounts each contribution on root, in order. */

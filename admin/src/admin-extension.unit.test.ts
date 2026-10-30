@@ -9,6 +9,7 @@ import {
   applyOpenApiContributions,
   collectOpenApiContributions,
   collectServiceIntegrations,
+  collectSpecialtyDefaults,
   mountRouteContributions,
   renderAgentDetailCardSlots,
   renderAgentDetailCards,
@@ -528,5 +529,23 @@ describe("renderAgentDetailCardSlots", () => {
       configuration: ["<div>cfg</div>"],
     });
     expect(rendered).toBe(1);
+  });
+});
+
+describe("collectSpecialtyDefaults", () => {
+  it("returns undefined with no extensions or hookless extensions", () => {
+    expect(collectSpecialtyDefaults([])("coding")).toBeUndefined();
+    expect(
+      collectSpecialtyDefaults([{ name: "bare" }])("coding"),
+    ).toBeUndefined();
+  });
+
+  it("returns the first extension's defaults that answers for the specialty", () => {
+    const resolve = collectSpecialtyDefaults([
+      { specialtyDefaults: (s) => (s === "a" ? { tools: ["A"] } : undefined) },
+      { specialtyDefaults: () => ({ tools: ["B"] }) },
+    ]);
+    expect(resolve("a")).toEqual({ tools: ["A"] });
+    expect(resolve("b")).toEqual({ tools: ["B"] });
   });
 });

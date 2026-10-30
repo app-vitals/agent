@@ -422,3 +422,118 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
     expect(Array.from(rows.values())[0]?.name).toBe("shipwright-loop");
   });
 });
+
+describe("reconcileSystemCrons (specialtyDefaults hook)", () => {
+  const extCron = {
+    name: "ext-cron",
+    schedule: "*/5 * * * *",
+    prompt: "/ext",
+    enabled: false,
+  };
+
+  test("hook crons win over the manifest and the manifest is not consulted", async () => {
+    const registry = fakeRegistry({ coding: [loopCron] });
+    const { prisma, rows } = makeFakePrisma({ specialty: "coding" });
+    const service = new AgentCronJobService(
+      prisma as unknown as PrismaClient,
+      undefined,
+      registry,
+      (specialty) =>
+        specialty === "coding" ? { crons: [extCron] } : undefined,
+    );
+
+    const result = await service.reconcileSystemCrons("agent-1");
+
+    expect(result.created).toBe(1);
+    expect(registry.lookups).toEqual([]);
+    const [row] = Array.from(rows.values());
+    expect(row?.name).toBe("ext-cron");
+    expect(row?.enabled).toBe(false);
+  });
+
+  test("hook returning nothing falls back to the manifest", async () => {
+    const registry = fakeRegistry({ coding: [loopCron] });
+    const { prisma, rows } = makeFakePrisma({ specialty: "coding" });
+    const service = new AgentCronJobService(
+      prisma as unknown as PrismaClient,
+      undefined,
+      registry,
+      () => undefined,
+    );
+
+    await service.reconcileSystemCrons("agent-1");
+
+    expect(Array.from(rows.values()).map((r) => r.name)).toEqual([
+      "shipwright-loop",
+    ]);
+  });
+
+  test("defaults without crons fall back to the manifest crons", async () => {
+    const registry = fakeRegistry({ coding: [loopCron] });
+    const { prisma, rows } = makeFakePrisma({ specialty: "coding" });
+    const service = new AgentCronJobService(
+      prisma as unknown as PrismaClient,
+      undefined,
+      registry,
+      () => ({ tools: ["Read"] }),
+    );
+
+    await service.reconcileSystemCrons("agent-1");
+
+    expect(Array.from(rows.values()).map((r) => r.name)).toEqual([
+      "shipwright-loop",
+    ]);
+  });
+
+  test("reconciles hook crons without any manifest for the specialty", async () => {
+    const registry = fakeRegistry({});
+    const { prisma, rows } = makeFakePrisma({ specialty: "ext-only" });
+    const service = new AgentCronJobService(
+      prisma as unknown as PrismaClient,
+      undefined,
+      registry,
+      () => ({ crons: [extCron] }),
+    );
+
+    const result = await service.reconcileSystemCrons("agent-1");
+
+    expect(result.created).toBe(1);
+    expect(Array.from(rows.values())[0]?.name).toBe("ext-cron");
+  });
+
+  test("preserves row id and enabled state, links parents, and deletes orphans", async () => {
+    const registry = fakeRegistry({});
+    const { prisma, rows } = makeFakePrisma({
+      specialty: "coding",
+      existing: [
+        { id: "stable-id", name: "ext-cron", enabled: true },
+        { id: "orphan", name: "removed-cron" },
+      ],
+    });
+    const service = new AgentCronJobService(
+      prisma as unknown as PrismaClient,
+      undefined,
+      registry,
+      () => ({
+        crons: [
+          extCron,
+          {
+            name: "ext-child",
+            schedule: "* * * * *",
+            prompt: "/c",
+            parentCron: "ext-cron",
+          },
+        ],
+      }),
+    );
+
+    const result = await service.reconcileSystemCrons("agent-1");
+
+    expect(result).toEqual({ created: 1, updated: 1, deleted: 1 });
+    expect(rows.get("stable-id")?.enabled).toBe(true);
+    expect(rows.has("orphan")).toBe(false);
+    const child = Array.from(rows.values()).find((r) => r.name === "ext-child");
+    expect(child?.parentCronId).toBe("stable-id");
+    expect(child?.enabled).toBe(true);
+  });
+});

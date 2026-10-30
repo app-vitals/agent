@@ -78,6 +78,7 @@ import {
   type SpecialtyManifestResolver,
   SpecialtyRegistry,
 } from "./specialty-manifest-loader.ts";
+import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
 import type { AgentService } from "./agents.ts";
 import { createAgent, describeRepoNameCollision } from "./agents.ts";
 import { AnthropicCredentialsBlockedError } from "./anthropic-credential-guard.ts";
@@ -352,6 +353,8 @@ export interface AdminUIDeps {
    * already used by agents-api.ts's AdminDeps.
    */
   specialtyRegistry?: SpecialtyManifestResolver;
+  /** Extension-supplied specialty defaults, consulted before the manifest. */
+  specialtyDefaults?: SpecialtyDefaultsResolver;
   /**
    * Cleanup deps for the full delete-agent orchestration (POST
    * /admin/agents/:id/delete → deleteAgentFully()). Matches
@@ -782,6 +785,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     accountCreatedNotifier,
     accountServices,
     specialtyRegistry = new SpecialtyRegistry(),
+    specialtyDefaults,
     callerScopeResolver = memberOnlyCallerScopeResolver(agentMemberService),
     serviceIntegrations,
     chatService,
@@ -1557,6 +1561,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         agentCronJobService,
         provisioner,
         specialtyRegistry,
+        specialtyDefaults,
         anthropicFederationEnabled: deps.anthropicFederationEnabled,
       },
       {

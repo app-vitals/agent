@@ -156,6 +156,7 @@ import {
   UpsertChatTokenDailyBodySchema,
 } from "./openapi-schemas.ts";
 import type { SelfServeConfig } from "./self-serve-config.ts";
+import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
 import type { SpecialtyManifestResolver } from "./specialty-manifest-loader.ts";
 import { managedReconcileTargets } from "./startup-policy-reconcile.ts";
 
@@ -225,6 +226,8 @@ export interface AdminDeps {
    * Required (not optional) because the route needs it unconditionally.
    */
   specialtyRegistry: SpecialtyManifestResolver;
+  /** Extension-supplied specialty defaults, consulted before the manifest. */
+  specialtyDefaults?: SpecialtyDefaultsResolver;
   agentChatTokenService: Pick<
     AgentChatTokenService,
     "upsertDailyByModel" | "queryStats"
@@ -1522,6 +1525,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     agentPluginService,
     agentMemberService,
     specialtyRegistry,
+    specialtyDefaults,
     agentChatTokenService,
     agentGitHubInstallationsService,
     prisma,
@@ -1965,6 +1969,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         agentCronJobService,
         provisioner,
         specialtyRegistry,
+        specialtyDefaults,
         anthropicFederationEnabled: deps.anthropicFederationEnabled,
       },
       {

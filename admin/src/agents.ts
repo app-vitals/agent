@@ -23,6 +23,7 @@ import {
   type SpecialtyManifestResolver,
   SpecialtyRegistry,
 } from "./specialty-manifest-loader.ts";
+import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
 import { ANTHROPIC_CREDENTIALS_BLOCKED_CODE } from "./anthropic-credential-guard.ts";
 import type { PrismaTransactionClient } from "./prisma-tx.ts";
 
@@ -784,6 +785,8 @@ export interface CreateAgentDeps {
   agentCronJobService: Pick<AgentCronJobService, "reconcileSystemCrons">;
   provisioner: Pick<AgentProvisioner, "canProvision" | "provision">;
   specialtyRegistry: Pick<SpecialtyManifestResolver, "tryGetManifest">;
+  /** Extension-supplied tools/plugins, consulted before the manifest's. */
+  specialtyDefaults?: SpecialtyDefaultsResolver;
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
   anthropicFederationEnabled?: boolean;
 }
@@ -878,7 +881,10 @@ export async function createAgent(
   const manifest = specialty
     ? deps.specialtyRegistry.tryGetManifest(specialty)
     : undefined;
-  if (!specialty || !manifest) {
+  const extensionDefaults = specialty
+    ? deps.specialtyDefaults?.(specialty)
+    : undefined;
+  if (!specialty || (!manifest && !extensionDefaults)) {
     return { ok: false, errorCode: "invalid_type" };
   }
 
@@ -940,10 +946,14 @@ export async function createAgent(
       // handling below, and the manifest's members/repos arrays are empty
       // for every specialty that exists today.
       try {
-        for (const pattern of manifest.tools) {
+        for (const pattern of extensionDefaults?.tools ??
+          manifest?.tools ??
+          []) {
           await deps.agentToolService.add(agent.id, pattern, tx);
         }
-        for (const pluginName of manifest.plugins) {
+        for (const pluginName of extensionDefaults?.plugins ??
+          manifest?.plugins ??
+          []) {
           await deps.agentPluginService.add(
             agent.id,
             pluginName,
