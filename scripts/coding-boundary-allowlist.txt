@@ -4,7 +4,6 @@
 #
 # Permanent exception (deliberately NOT listed, never scanned): coding.prisma
 # and the CODING-OWNED Agent columns in schema.prisma (PCD-6.1).
-coding-literal admin/src/admin-ui-pages.ts 1
 coding-module admin/src/coding-task-store-provisioning-client.ts 2
 coding-literal admin/src/openapi-schemas.ts 4
 coding-literal admin/src/specialty-manifest-loader.ts 1
