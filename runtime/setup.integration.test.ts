@@ -894,6 +894,19 @@ describe("findStalePluginSpecs", () => {
 // these tests depend on ambient sandbox/image state.
 const NO_EXTRA_MARKETPLACES: string[] = [];
 
+const SHIPWRIGHT_ROW: AgentPlugin = {
+  plugin: "shipwright",
+  marketplace: "shipwright",
+};
+
+// A repo root carrying a local marketplace (coding image); platform images ship none.
+const repoRoot = (): string => {
+  const root = join(testHome, "repo-root");
+  mkdirSync(join(root, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(root, ".claude-plugin", "marketplace.json"), "{}");
+  return root;
+};
+
 describe("installPlugins", () => {
   it("registers local marketplace then installs shipwright@shipwright using the shipwright marketplace", async () => {
     const calls: Array<{ cmd: string; args: string[] }> = [];
@@ -909,20 +922,15 @@ describe("installPlugins", () => {
     await installPlugins(
       mockExec,
       testHome,
-      [],
-      "/repo/root",
+      [SHIPWRIGHT_ROW],
+      repoRoot(),
       join(testHome, "nonexistent.json"),
       NO_EXTRA_MARKETPLACES,
     );
 
     // marketplace add + 1 install + 1 update = 3 calls (no stale paths)
     expect(calls).toHaveLength(3);
-    expect(calls[0].args).toEqual([
-      "plugin",
-      "marketplace",
-      "add",
-      "/repo/root",
-    ]);
+    expect(calls[0].args).toEqual(["plugin", "marketplace", "add", repoRoot()]);
     expect(calls[1].args).toEqual([
       "plugin",
       "install",
@@ -935,7 +943,7 @@ describe("installPlugins", () => {
     ]);
   });
 
-  it("installs agent-specific plugins after default plugins", async () => {
+  it("installs row plugins in row order", async () => {
     const calls: Array<{ cmd: string; args: string[] }> = [];
     const mockExec = async (
       cmd: string,
@@ -947,6 +955,7 @@ describe("installPlugins", () => {
     };
 
     const agentPlugins: AgentPlugin[] = [
+      SHIPWRIGHT_ROW,
       { marketplace: "my-marketplace", plugin: "custom-plugin" },
       { marketplace: "other-market", plugin: "another-plugin" },
     ];
@@ -955,7 +964,7 @@ describe("installPlugins", () => {
       mockExec,
       testHome,
       agentPlugins,
-      "/repo/root",
+      repoRoot(),
       join(testHome, "nonexistent.json"),
       NO_EXTRA_MARKETPLACES,
     );
@@ -963,14 +972,9 @@ describe("installPlugins", () => {
     // 1 marketplace add + 3 installs + 3 updates = 7 calls
     expect(calls).toHaveLength(7);
 
-    expect(calls[0].args).toEqual([
-      "plugin",
-      "marketplace",
-      "add",
-      "/repo/root",
-    ]);
+    expect(calls[0].args).toEqual(["plugin", "marketplace", "add", repoRoot()]);
 
-    // installs: default first, then agent-specific
+    // installs in row order
     expect(calls[1].args).toEqual([
       "plugin",
       "install",
@@ -987,7 +991,7 @@ describe("installPlugins", () => {
       "another-plugin@other-market",
     ]);
 
-    // updates: default first, then agent-specific
+    // updates in row order
     expect(calls[4].args).toEqual([
       "plugin",
       "update",
@@ -1005,7 +1009,7 @@ describe("installPlugins", () => {
     ]);
   });
 
-  it("empty agentPlugins installs only default plugins", async () => {
+  it("no plugin rows installs nothing (platform agents)", async () => {
     const calls: Array<{ args: string[] }> = [];
     const mockExec = async (
       _cmd: string,
@@ -1020,15 +1024,12 @@ describe("installPlugins", () => {
       mockExec,
       testHome,
       [],
-      "/repo/root",
+      "/repo/root-without-marketplace",
       join(testHome, "nonexistent.json"),
       NO_EXTRA_MARKETPLACES,
     );
 
-    // marketplace add + 1 install + 1 update = 3 calls
-    expect(calls).toHaveLength(3);
-    expect(calls[1].args).toContain("shipwright@shipwright");
-    expect(calls[2].args).toContain("shipwright@shipwright");
+    expect(calls).toEqual([]);
   });
 
   it("is non-fatal when the claude binary isn't available", async () => {
@@ -1040,8 +1041,8 @@ describe("installPlugins", () => {
       installPlugins(
         throwingExec,
         testHome,
-        [],
-        "/repo/root",
+        [SHIPWRIGHT_ROW],
+        repoRoot(),
         join(testHome, "nonexistent.json"),
         NO_EXTRA_MARKETPLACES,
       ),
@@ -1067,8 +1068,8 @@ describe("installPlugins", () => {
       installPlugins(
         mockExec,
         testHome,
-        [],
-        "/repo/root",
+        [SHIPWRIGHT_ROW],
+        repoRoot(),
         join(testHome, "nonexistent.json"),
         NO_EXTRA_MARKETPLACES,
       ),
@@ -1097,8 +1098,8 @@ describe("installPlugins", () => {
       installPlugins(
         mockExec,
         testHome,
-        [],
-        "/repo/root",
+        [SHIPWRIGHT_ROW],
+        repoRoot(),
         join(testHome, "nonexistent.json"),
         NO_EXTRA_MARKETPLACES,
       ),
@@ -1123,8 +1124,8 @@ describe("installPlugins", () => {
       installPlugins(
         mockExec,
         testHome,
-        [],
-        "/repo/root",
+        [SHIPWRIGHT_ROW],
+        repoRoot(),
         join(testHome, "nonexistent.json"),
         NO_EXTRA_MARKETPLACES,
       ),
@@ -1163,8 +1164,8 @@ describe("installPlugins", () => {
     await installPlugins(
       mockExec,
       testHome,
-      [],
-      "/repo/root",
+      [SHIPWRIGHT_ROW],
+      repoRoot(),
       manifestPath,
       NO_EXTRA_MARKETPLACES,
     );
@@ -1224,20 +1225,15 @@ describe("installPlugins", () => {
     await installPlugins(
       mockExec,
       testHome,
-      [],
-      "/repo/root",
+      [SHIPWRIGHT_ROW],
+      repoRoot(),
       manifestPath,
       NO_EXTRA_MARKETPLACES,
     );
 
     // marketplace add + uninstall (failed) = 2 calls; install and update are skipped
     expect(calls).toHaveLength(2);
-    expect(calls[0].args).toEqual([
-      "plugin",
-      "marketplace",
-      "add",
-      "/repo/root",
-    ]);
+    expect(calls[0].args).toEqual(["plugin", "marketplace", "add", repoRoot()]);
     expect(calls[1].args).toEqual([
       "plugin",
       "uninstall",
@@ -1277,8 +1273,8 @@ describe("installPlugins", () => {
     await installPlugins(
       mockExec,
       testHome,
-      [],
-      "/repo/root",
+      [SHIPWRIGHT_ROW],
+      repoRoot(),
       manifestPath,
       NO_EXTRA_MARKETPLACES,
     );
@@ -1392,8 +1388,8 @@ describe("installPlugins — extra marketplace discovery", () => {
     await installPlugins(
       mockExec,
       testHome,
-      [],
-      "/repo/root",
+      [SHIPWRIGHT_ROW],
+      repoRoot(),
       join(testHome, "nonexistent.json"),
       undefined, // use default discovery — pass conventionRoot via extraMarketplacesRoot
       conventionRoot,
@@ -1403,7 +1399,7 @@ describe("installPlugins — extra marketplace discovery", () => {
     const addCalls = calls.filter((c) => c.args[1] === "marketplace");
     expect(addCalls.length).toBeGreaterThanOrEqual(2);
     expect(addCalls[0].args[3]).toBe(extraMarketDir);
-    expect(addCalls[1].args[3]).toBe("/repo/root");
+    expect(addCalls[1].args[3]).toBe(repoRoot());
 
     // All install calls must come after all marketplace add calls
     const installIdx = calls.findIndex((c) => c.args[1] === "install");
@@ -1444,8 +1440,8 @@ describe("installPlugins — extra marketplace discovery", () => {
     await installPlugins(
       mockExec,
       testHome,
-      [],
-      "/repo/root",
+      [SHIPWRIGHT_ROW],
+      repoRoot(),
       join(testHome, "nonexistent.json"),
       undefined,
       conventionRoot,
@@ -1457,7 +1453,7 @@ describe("installPlugins — extra marketplace discovery", () => {
     const addDirs = addCalls.map((c) => c.args[3]);
     expect(addDirs).toContain(validDir);
     expect(addDirs).not.toContain(invalidDir);
-    expect(addDirs).toContain("/repo/root");
+    expect(addDirs).toContain(repoRoot());
   });
 
   it("is backward compatible when no extra marketplace dirs exist", async () => {
@@ -1478,8 +1474,8 @@ describe("installPlugins — extra marketplace discovery", () => {
     await installPlugins(
       mockExec,
       testHome,
-      [],
-      "/repo/root",
+      [SHIPWRIGHT_ROW],
+      repoRoot(),
       join(testHome, "nonexistent.json"),
       undefined,
       conventionRoot,
@@ -1488,7 +1484,7 @@ describe("installPlugins — extra marketplace discovery", () => {
     // Only the /repo/root marketplace add — same as before this feature
     const addCalls = calls.filter((c) => c.args[1] === "marketplace");
     expect(addCalls).toHaveLength(1);
-    expect(addCalls[0].args[3]).toBe("/repo/root");
+    expect(addCalls[0].args[3]).toBe(repoRoot());
     // marketplace add + install + update = 3 calls total
     expect(calls).toHaveLength(3);
   });

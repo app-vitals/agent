@@ -4,7 +4,7 @@
  * Pure logic tests: no I/O, no real binaries, injected exec doubles only.
  */
 
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,56 +22,64 @@ import {
 // these tests depend on ambient sandbox/image state.
 const NO_EXTRA_MARKETPLACES: string[] = [];
 
-describe("installPlugins — local marketplace", () => {
-  it("registers the marketplace before installing plugins", async () => {
-    const calls: Array<{ cmd: string; args: string[] }> = [];
-    const mockExec = async (
-      cmd: string,
-      args: string[],
-      _opts: { cwd: string },
-    ) => {
-      calls.push({ cmd, args });
-      return { stdout: "", exitCode: 0 };
-    };
+const SHIPWRIGHT_ROW = { plugin: "shipwright", marketplace: "shipwright" };
 
-    await installPlugins(
-      mockExec,
+// A repo root that carries a local marketplace (a coding image); the platform
+// image has none.
+const makeMarketplaceRoot = (): string => {
+  const root = mkdtempSync(join(tmpdir(), "mkt-root-"));
+  mkdirSync(join(root, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(root, ".claude-plugin", "marketplace.json"), "{}");
+  return root;
+};
+
+const recordCalls = () => {
+  const calls: Array<{ cmd: string; args: string[] }> = [];
+  const exec = async (cmd: string, args: string[], _opts: { cwd: string }) => {
+    calls.push({ cmd, args });
+    return { stdout: "", exitCode: 0 };
+  };
+  return { calls, exec };
+};
+
+describe("installPlugins — local marketplace", () => {
+  let root: string;
+  beforeEach(() => {
+    root = makeMarketplaceRoot();
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  const run = (
+    exec: ReturnType<typeof recordCalls>["exec"],
+    plugins: Array<{ plugin: string; marketplace: string }>,
+    repoRoot = root,
+    extra: string[] = NO_EXTRA_MARKETPLACES,
+  ) =>
+    installPlugins(
+      exec,
       "/tmp/cwd",
-      [],
-      "/repo/root",
+      plugins,
+      repoRoot,
       "/tmp/nonexistent-manifest.json",
-      NO_EXTRA_MARKETPLACES,
+      extra,
     );
 
-    // First call must be marketplace add
-    expect(calls[0].args).toEqual([
-      "plugin",
-      "marketplace",
-      "add",
-      "/repo/root",
-    ]);
+  it("registers the marketplace before installing plugins", async () => {
+    const { calls, exec } = recordCalls();
+    await run(exec, [SHIPWRIGHT_ROW]);
+    expect(calls[0].args).toEqual(["plugin", "marketplace", "add", root]);
   });
 
-  it("installs and updates shipwright@shipwright using the shipwright marketplace name", async () => {
-    const calls: Array<{ cmd: string; args: string[] }> = [];
-    const mockExec = async (
-      cmd: string,
-      args: string[],
-      _opts: { cwd: string },
-    ) => {
-      calls.push({ cmd, args });
-      return { stdout: "", exitCode: 0 };
-    };
+  it("installs nothing when the agent has no plugin rows", async () => {
+    const { calls, exec } = recordCalls();
+    await run(exec, []);
+    expect(calls.filter((c) => c.args[1] === "install")).toEqual([]);
+    expect(calls.filter((c) => c.args[1] === "update")).toEqual([]);
+  });
 
-    await installPlugins(
-      mockExec,
-      "/tmp/cwd",
-      [],
-      "/repo/root",
-      "/tmp/nonexistent-manifest.json",
-      NO_EXTRA_MARKETPLACES,
-    );
-
+  it("installs and updates shipwright@shipwright for a coding agent's shipwright row", async () => {
+    const { calls, exec } = recordCalls();
+    await run(exec, [SHIPWRIGHT_ROW]);
     // marketplace add + install + update = 3 calls
     expect(calls).toHaveLength(3);
     expect(calls[1].args).toEqual([
@@ -87,29 +95,14 @@ describe("installPlugins — local marketplace", () => {
   });
 
   it("agent plugins use their own marketplace, not the local one", async () => {
-    const calls: Array<{ cmd: string; args: string[] }> = [];
-    const mockExec = async (
-      cmd: string,
-      args: string[],
-      _opts: { cwd: string },
-    ) => {
-      calls.push({ cmd, args });
-      return { stdout: "", exitCode: 0 };
-    };
-
-    await installPlugins(
-      mockExec,
-      "/tmp/cwd",
-      [{ plugin: "my-plugin", marketplace: "org/my-marketplace" }],
-      "/repo/root",
-      "/tmp/nonexistent-manifest.json",
-      NO_EXTRA_MARKETPLACES,
-    );
-
+    const { calls, exec } = recordCalls();
+    await run(exec, [
+      SHIPWRIGHT_ROW,
+      { plugin: "my-plugin", marketplace: "org/my-marketplace" },
+    ]);
     // marketplace add + 2 installs + 2 updates = 5 calls
     expect(calls).toHaveLength(5);
-    const specs = calls.slice(1).map((c) => c.args[2]);
-    expect(specs).toEqual([
+    expect(calls.slice(1).map((c) => c.args[2])).toEqual([
       "shipwright@shipwright",
       "my-plugin@org/my-marketplace",
       "shipwright@shipwright",
@@ -117,128 +110,30 @@ describe("installPlugins — local marketplace", () => {
     ]);
   });
 
-  it("passes the repoRoot to marketplace add", async () => {
-    const calls: Array<{ cmd: string; args: string[] }> = [];
-    const mockExec = async (
-      cmd: string,
-      args: string[],
-      _opts: { cwd: string },
-    ) => {
-      calls.push({ cmd, args });
-      return { stdout: "", exitCode: 0 };
-    };
-
-    await installPlugins(
-      mockExec,
-      "/tmp/cwd",
-      [],
-      "/custom/repo/root",
-      "/tmp/nonexistent-manifest.json",
-      NO_EXTRA_MARKETPLACES,
-    );
-
-    expect(calls[0].args).toEqual([
-      "plugin",
-      "marketplace",
-      "add",
-      "/custom/repo/root",
-    ]);
+  it("skips the local marketplace add when the repo root has no marketplace", async () => {
+    const { calls, exec } = recordCalls();
+    await run(exec, [], "/repo/root");
+    expect(calls).toEqual([]);
   });
 
-  it("registers extra marketplaces before the /app marketplace", async () => {
-    const calls: Array<{ cmd: string; args: string[] }> = [];
-    const mockExec = async (
-      cmd: string,
-      args: string[],
-      _opts: { cwd: string },
-    ) => {
-      calls.push({ cmd, args });
-      return { stdout: "", exitCode: 0 };
-    };
-
-    // Pass a non-existent root so discoverBakedMarketplaces can't find dirs —
-    // we inject via extraMarketplaceDirs directly instead.
-    await installPlugins(
-      mockExec,
-      "/tmp/cwd",
-      [],
-      "/repo/root",
-      "/tmp/nonexistent-manifest.json",
-      ["/opt/shipwright/marketplaces/my-marketplace"],
-    );
-
-    // Extra marketplace add must come BEFORE the /repo/root marketplace add
+  it("registers extra marketplaces before the local marketplace", async () => {
+    const { calls, exec } = recordCalls();
+    await run(exec, [], root, ["/opt/shipwright/marketplaces/my-marketplace"]);
     const addCalls = calls.filter((c) => c.args[1] === "marketplace");
     expect(addCalls[0].args[3]).toBe(
       "/opt/shipwright/marketplaces/my-marketplace",
     );
-    expect(addCalls[1].args[3]).toBe("/repo/root");
-  });
-
-  it("is a no-op when no extra marketplace dirs exist", async () => {
-    const calls: Array<{ cmd: string; args: string[] }> = [];
-    const mockExec = async (
-      cmd: string,
-      args: string[],
-      _opts: { cwd: string },
-    ) => {
-      calls.push({ cmd, args });
-      return { stdout: "", exitCode: 0 };
-    };
-
-    await installPlugins(
-      mockExec,
-      "/tmp/cwd",
-      [],
-      "/repo/root",
-      "/tmp/nonexistent-manifest.json",
-      NO_EXTRA_MARKETPLACES,
-    );
-
-    // Only the /repo/root marketplace add — no extra adds
-    const addCalls = calls.filter((c) => c.args[1] === "marketplace");
-    expect(addCalls).toHaveLength(1);
-    expect(addCalls[0].args[3]).toBe("/repo/root");
+    expect(addCalls[1].args[3]).toBe(root);
   });
 
   it("never reads the real BAKED_MARKETPLACES_ROOT when extraMarketplaceDirs is injected (isolation regression)", async () => {
-    // Regression test for T-002: previously, tests that omitted the
-    // extraMarketplaceDirs arg silently fell through to
-    // discoverBakedMarketplaces(BAKED_MARKETPLACES_ROOT), which performs a
-    // real existsSync/readdirSync against /opt/shipwright/marketplaces. On any
-    // image/sandbox that bakes a marketplace there (this sandbox does), that
-    // extra ambient `marketplace add` call would silently appear before the
-    // expected calls and break exact-match assertions below.
-    //
-    // This test asserts the injected empty array wins deterministically,
-    // regardless of what (if anything) actually exists on disk at
-    // /opt/shipwright/marketplaces in the environment running the suite.
-    const calls: Array<{ cmd: string; args: string[] }> = [];
-    const mockExec = async (
-      cmd: string,
-      args: string[],
-      _opts: { cwd: string },
-    ) => {
-      calls.push({ cmd, args });
-      return { stdout: "", exitCode: 0 };
-    };
-
-    await installPlugins(
-      mockExec,
-      "/tmp/cwd",
-      [],
-      "/repo/root",
-      "/tmp/nonexistent-manifest.json",
-      NO_EXTRA_MARKETPLACES,
-    );
-
-    // Exactly one marketplace add (the built-in shipwright one) — no extra
-    // marketplace add sneaks in from real fs discovery, no matter what's
-    // actually present on disk at BAKED_MARKETPLACES_ROOT in this environment.
+    // The injected empty array must win over real fs discovery of
+    // /opt/shipwright/marketplaces, whatever the sandbox has baked there.
+    const { calls, exec } = recordCalls();
+    await run(exec, [SHIPWRIGHT_ROW]);
     const addCalls = calls.filter((c) => c.args[1] === "marketplace");
     expect(addCalls).toHaveLength(1);
-    expect(addCalls[0].args[3]).toBe("/repo/root");
-    // Full call count is deterministic: marketplace add + install + update = 3.
+    expect(addCalls[0].args[3]).toBe(root);
     expect(calls).toHaveLength(3);
   });
 });
@@ -368,19 +263,24 @@ describe("SHIPWRIGHT_REPO_ROOT override (PCB-1.1)", () => {
       "/tmp/nonexistent-baked-root",
       env,
     );
-    return calls[0][3];
+    return calls[0]?.[3];
   };
 
   it("installPlugins registers the marketplace from SHIPWRIGHT_REPO_ROOT when set", async () => {
-    expect(await registerRoot({ SHIPWRIGHT_REPO_ROOT: "/opt/custom" })).toBe(
-      "/opt/custom",
-    );
+    const custom = makeMarketplaceRoot();
+    try {
+      expect(await registerRoot({ SHIPWRIGHT_REPO_ROOT: custom })).toBe(custom);
+    } finally {
+      rmSync(custom, { recursive: true, force: true });
+    }
   });
 
   it("installPlugins keeps the computed default when unset or empty", async () => {
     const unset = await registerRoot({});
-    expect(unset).toBe(resolveShipwrightRepoRoot({}));
-    expect(unset).not.toBe("/opt/custom");
+    // Only registered when the computed default root carries a marketplace.
+    expect(unset === undefined || unset === resolveShipwrightRepoRoot({})).toBe(
+      true,
+    );
     expect(await registerRoot({ SHIPWRIGHT_REPO_ROOT: "" })).toBe(unset);
   });
 
