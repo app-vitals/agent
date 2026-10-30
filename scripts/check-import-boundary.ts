@@ -59,7 +59,7 @@ export function extractSpecifiers(source: string): string[] {
   return [...found];
 }
 
-function walk(dir: string, out: string[]): void {
+export function walk(dir: string, out: string[]): void {
   if (!existsSync(dir)) return;
   for (const name of readdirSync(dir)) {
     if (SKIP_DIRS.has(name)) continue;

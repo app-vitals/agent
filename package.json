@@ -16,7 +16,7 @@
     "format": "bunx biome format --write .",
     "typecheck": "tsc --noEmit",
     "generate:chat-spec": "bun scripts/generate-chat-spec.ts",
-    "check:boundary": "bun scripts/check-import-boundary.ts",
+    "check:boundary": "bun scripts/check-import-boundary.ts && bun scripts/check-coding-boundary.ts",
     "check:config-docs": "bun scripts/check-config-docs.ts",
     "check:deps": "bun scripts/check-deps.ts"
   },
