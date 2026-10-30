@@ -91,6 +91,51 @@ describe("fixture specialty templates", () => {
   });
 });
 
+describe("coding is not special-cased (PCD-2.2)", () => {
+  const writeCodingManifest = (templatesDir: string) => {
+    const specialties = join(root, "specialties");
+    mkdirSync(join(specialties, "coding"), { recursive: true });
+    writeFileSync(
+      join(specialties, "coding", "manifest.yaml"),
+      `identity:\n  templatesDir: ${templatesDir}\n`,
+    );
+    return specialties;
+  };
+
+  it("resolves coding through its manifest identity.templatesDir", () => {
+    const tpl = join(root, "coding-tpl");
+    mkdirSync(tpl, { recursive: true });
+    for (const f of [
+      "CLAUDE.md.template",
+      "SOUL.md.template",
+      "IDENTITY.md.template",
+    ])
+      writeFileSync(join(tpl, f), "x");
+    const warnings: string[] = [];
+    const dir = resolveTemplatesDir(
+      "coding",
+      root,
+      (m) => warnings.push(m),
+      { SHIPWRIGHT_SPECIALTIES_DIR: writeCodingManifest(tpl) },
+    );
+    expect(dir).toBe(tpl);
+    expect(warnings).toEqual([]);
+  });
+
+  it("falls back to the built-in dir with a warning when coding is unresolvable", () => {
+    const warnings: string[] = [];
+    const dir = resolveTemplatesDir(
+      "coding",
+      root,
+      (m) => warnings.push(m),
+      { SHIPWRIGHT_SPECIALTIES_DIR: join(root, "no-specialties") },
+    );
+    expect(dir).toMatch(/workspace$/);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('"coding"');
+  });
+});
+
 describe("no default specialty configured", () => {
   it("names the env vars when the default specialty's templates cannot be found", () => {
     const emptyDir = join(root, "empty-templates");
