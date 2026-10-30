@@ -94,7 +94,7 @@ A derived Docker image can ship extra Claude Code plugin marketplaces that the a
 
 **Convention root:** `/opt/shipwright/marketplaces/` (`BAKED_MARKETPLACES_ROOT` in `runtime/setup.ts`).
 
-Put one subdirectory per marketplace under it. Each must contain `.claude-plugin/marketplace.json` (the standard marketplace manifest). `installPlugins()` runs `claude plugin marketplace add <dir>` for every discovered directory **before** it registers the built-in marketplace, so plugins from a derived image resolve first.
+Put one subdirectory per marketplace under it. Each must contain `.claude-plugin/marketplace.json` (the standard marketplace manifest). `installPlugins()` runs `claude plugin marketplace add <dir>` for every discovered directory **before** it registers the built-in marketplace (only when `shipwrightRepoRoot/.claude-plugin/marketplace.json` exists), so plugins from a derived image resolve first.
 
 ```
 /opt/shipwright/marketplaces/

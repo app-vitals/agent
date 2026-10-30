@@ -57,12 +57,6 @@ export function resolveShipwrightRepoRoot(
   return env.SHIPWRIGHT_REPO_ROOT || DEFAULT_SHIPWRIGHT_REPO_ROOT;
 }
 
-// Local marketplace name — matches the `name` field in .claude-plugin/marketplace.json.
-const SHIPWRIGHT_MARKETPLACE = "shipwright";
-
-// Default plugin installed on all Shipwright agents.
-const DEFAULT_PLUGINS: readonly string[] = ["shipwright"];
-
 // The persona templates a type's templatesDir must provide or it is not usable.
 // Everything else (VOICE, mise, requirements, BOOTSTRAP) falls back per file to
 // the built-in workspace/ dir, and SPECIALTY.md.template is optional (ARD-6.2).
@@ -399,15 +393,15 @@ export function findStalePluginSpecs(
 }
 
 /**
- * Installs the shipwright default plugins plus any agent-specific plugins
- * from the config bundle. All commands are idempotent (exit 0 when already
+ * Installs the plugins in the agent's own AgentPlugin rows (seeded from the
+ * specialty manifest at create time). No plugin is installed by default. All commands are idempotent (exit 0 when already
  * present / already at latest), so reboots are a silent no-op.
  *
  * Non-fatal — a missing `claude` binary or network blip logs and returns
  * without throwing, so startup is never blocked.
  *
- * Install order: defaults first, then agent-specific plugins.
- * Update order: same.
+ * The built-in marketplace is only registered when `shipwrightRepoRoot` has a
+ * `.claude-plugin/marketplace.json` (the platform image ships none).
  *
  * Marketplace registration order:
  *   1. Extra baked marketplaces (discovered from `extraMarketplacesRoot` or
@@ -463,24 +457,22 @@ export async function installPlugins(
 
     // Register the local (built-in) shipwright marketplace so `claude plugin install`
     // can resolve plugins by name. Idempotent — safe to call on every startup.
-    const add = await execFn(
-      "claude",
-      ["plugin", "marketplace", "add", shipwrightRepoRoot],
-      { cwd },
-    );
-    if (add.exitCode !== 0) {
-      console.warn(
-        `[agent] claude plugin marketplace add exited ${add.exitCode}: ${add.stdout}`,
+    if (
+      existsSync(join(shipwrightRepoRoot, ".claude-plugin", "marketplace.json"))
+    ) {
+      const add = await execFn(
+        "claude",
+        ["plugin", "marketplace", "add", shipwrightRepoRoot],
+        { cwd },
       );
+      if (add.exitCode !== 0) {
+        console.warn(
+          `[agent] claude plugin marketplace add exited ${add.exitCode}: ${add.stdout}`,
+        );
+      }
     }
 
-    const defaultPluginSpecs = DEFAULT_PLUGINS.map(
-      (name) => `${name}@${SHIPWRIGHT_MARKETPLACE}`,
-    );
-    const agentPluginSpecs = agentPlugins.map(
-      (p) => `${p.plugin}@${p.marketplace}`,
-    );
-    const allSpecs = [...defaultPluginSpecs, ...agentPluginSpecs];
+    const allSpecs = agentPlugins.map((p) => `${p.plugin}@${p.marketplace}`);
 
     // Uninstall any plugin whose recorded installPath no longer exists. This
     // clears stale manifest entries left over from a different-HOME container
@@ -502,7 +494,7 @@ export async function installPlugins(
       }
     }
 
-    // Install all plugins (defaults then agent-specific).
+    // Install all plugins .
     // Skip any stale spec whose uninstall failed — install is idempotent and
     // would silently succeed without fixing the stale path, hiding the breakage.
     for (const spec of allSpecs) {
@@ -517,7 +509,7 @@ export async function installPlugins(
       }
     }
 
-    // Update all plugins (defaults then agent-specific).
+    // Update all plugins .
     // Skip specs whose uninstall failed for the same reason as the install loop.
     for (const spec of allSpecs) {
       if (failedUninstalls.has(spec)) continue;

@@ -9,4 +9,3 @@ coding-literal admin/src/openapi-schemas.ts 4
 coding-module lib/claim-ttl.ts 1
 coding-module lib/default-account.ts 1
 coding-module lib/task-store-types.ts 1
-default-plugins runtime/setup.ts 2
