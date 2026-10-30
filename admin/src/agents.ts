@@ -33,7 +33,7 @@ interface CreateAgentInput {
   name: string;
   slackId?: string | null;
   selfHosted?: boolean;
-  /** Specialty name. Omitted means Prisma's column default ("coding") applies. */
+  /** Specialty name. Omitted means Prisma's column default ("specialist") applies. */
   specialty?: string;
   /** Initial repos[] — the manifest repos merged with any request-supplied repos. */
   repos?: string[];
