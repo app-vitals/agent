@@ -31,6 +31,7 @@
     "./secret-env-vars": "./secret-env-vars.ts",
     "./default-account": "./default-account.ts",
     "./default-agent-env": "./default-agent-env.ts",
+    "./default-specialty": "./default-specialty.ts",
     "./sentry": "./sentry.ts",
     "./task-store-types": "./task-store-types.ts",
     "./web/*": "./web/*"

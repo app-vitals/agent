@@ -14,7 +14,7 @@ import { resolveDefaultSpecialtyName } from "./specialty-manifest-loader.ts";
 /**
  * The only specialty account users may create: SHIPWRIGHT_SELF_SERVE_AGENT_TYPE
  * when set, else the platform's default specialty (SHIPWRIGHT_DEFAULT_AGENT_TYPE,
- * "coding" when unset).
+ * "specialist" when unset).
  */
 export function getSelfServeSpecialty(
   env: Record<string, string | undefined> = process.env,

@@ -12,8 +12,8 @@ import { describe, expect, test } from "bun:test";
 import type { AgentCronJob, PrismaClient } from "../prisma/client/client.ts";
 import { AgentCronJobService, isValidCron } from "./agent-cron-jobs.ts";
 import {
-  type SpecialtyManifestResolver,
   resolveDefaultSpecialtyName,
+  type SpecialtyManifestResolver,
 } from "./specialty-manifest-loader.ts";
 import type { SpecialtyManifest } from "./specialty-registry.ts";
 
@@ -374,36 +374,29 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
     expect(String(errors[0]?.[0])).toContain("agent-1");
   });
 
-  test("the default manifest that cannot load still throws", async () => {
+  test("the default type with no loadable manifest logs an error and changes nothing", async () => {
     const registry = fakeRegistry({});
-    const { prisma } = makeFakePrisma({
-      specialty: resolveDefaultSpecialtyName(),
+    const { prisma, rows } = makeFakePrisma({
+      specialty: "specialist",
+      existing: [{ id: "sys-1", name: "old-system", system: true }],
     });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
       undefined,
       registry,
     );
-
-    await expect(service.reconcileSystemCrons("agent-1")).rejects.toThrow(
-      resolveDefaultSpecialtyName(),
-    );
-  });
-
-  test("the default-manifest failure names the env vars that configure it", async () => {
-    const registry = fakeRegistry({});
-    const { prisma } = makeFakePrisma({
-      specialty: resolveDefaultSpecialtyName(),
-    });
-    const service = new AgentCronJobService(
-      prisma as unknown as PrismaClient,
-      undefined,
-      registry,
-    );
-
-    await expect(service.reconcileSystemCrons("agent-1")).rejects.toThrow(
-      /SHIPWRIGHT_SPECIALTIES_DIR.*SHIPWRIGHT_DEFAULT_AGENT_TYPE/s,
-    );
+    const original = console.error;
+    console.error = () => {};
+    try {
+      expect(await service.reconcileSystemCrons("agent-1")).toEqual({
+        created: 0,
+        updated: 0,
+        deleted: 0,
+      });
+    } finally {
+      console.error = original;
+    }
+    expect(Array.from(rows.keys())).toEqual(["sys-1"]);
   });
 
   test("a valid non-coding manifest reconciles normally", async () => {

@@ -4289,7 +4289,9 @@ describe("renderNewLocalAgentPage — self-serve account user (SSP-4.2)", () => 
       const html = renderNewLocalAgentPage(USER_NAME, [CODING_TYPE], {
         selfServe,
       });
-      expect(html).toContain('<input type="hidden" name="type" value="coding"');
+      expect(html).toContain(
+        '<input type="hidden" name="type" value="specialist"',
+      );
     });
   });
 

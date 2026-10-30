@@ -50,13 +50,17 @@ describe("SpecialtyRegistry with the fixture specialty", () => {
     expect(fixtureRegistry().tryGetManifest("renamed-type")).toBeUndefined();
   });
 
-  it("fails with an actionable error when the default specialty is not on disk", () => {
+  it("warns and returns an empty-crons manifest when the default specialty is not on disk", () => {
+    const warnings: string[] = [];
     const registry = new SpecialtyRegistry({
       typesDir: FIXTURE_SPECIALTIES_DIR,
       defaultTypeName: "not-there",
-      warn: () => {},
+      warn: (m) => warnings.push(m),
     });
-    expect(() => registry.getManifest("fixture-or-anything")).toThrow(
+    const manifest = registry.getManifest("fixture-or-anything");
+    expect(manifest.crons).toEqual([]);
+    expect(manifest.plugins).toEqual([]);
+    expect(warnings.join("\n")).toMatch(
       /SHIPWRIGHT_SPECIALTIES_DIR.*SHIPWRIGHT_DEFAULT_AGENT_TYPE/s,
     );
   });

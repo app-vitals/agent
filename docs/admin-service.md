@@ -66,7 +66,7 @@ Anthropic credential guard), `agent-cron-jobs.ts`, `agent-tools.ts`,
 `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` must not reach federated agents),
 `specialty-registry.ts` (Specialty manifest schema) and
 `specialty-manifest-loader.ts` (`SpecialtyRegistry`, loads
-`specialties/{specialty}/manifest.yaml`, dir overridable with `SHIPWRIGHT_SPECIALTIES_DIR`).
+`{specialtiesDir}/{specialty}/manifest.yaml`; the dir defaults to the shipped `agent-types/` and is overridable with `SHIPWRIGHT_SPECIALTIES_DIR`; the default type is `specialist`, resolved by `lib/default-specialty.ts`).
 
 ### Provisioning and deletion
 

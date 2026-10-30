@@ -22,6 +22,10 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { AgentPlugin } from "@app-vitals/agent-admin";
+import {
+  resolveDefaultSpecialtyName,
+  resolveSpecialtiesDir,
+} from "@app-vitals/agent-lib/default-specialty";
 
 // ---------------------------------------------------------------------------
 // Template loading
@@ -59,10 +63,6 @@ const SHIPWRIGHT_MARKETPLACE = "shipwright";
 // Default plugin installed on all Shipwright agents.
 const DEFAULT_PLUGINS: readonly string[] = ["shipwright"];
 
-// The universal fallback type — mirrors admin's DEFAULT_SPECIALTY_NAME. It
-// resolves through its manifest's identity.templatesDir like any other type.
-const DEFAULT_SPECIALTY_NAME = "coding";
-
 // The persona templates a type's templatesDir must provide or it is not usable.
 // Everything else (VOICE, mise, requirements, BOOTSTRAP) falls back per file to
 // the built-in workspace/ dir, and SPECIALTY.md.template is optional (ARD-6.2).
@@ -75,13 +75,17 @@ const REQUIRED_TEMPLATES: readonly string[] = [
 /**
  * Resolves the workspace template directory for a specialty (ARD-6.1).
  *
- * Reads `identity.templatesDir` from `<repoRoot>/specialties/<specialty>/manifest.yaml`
- * (relative paths resolve against the repo root, matching how the manifests
- * spell them). An absent type resolves as the default type. Returns the built-in
+ * Reads `identity.templatesDir` from `<specialtiesDir>/<specialty>/manifest.yaml`,
+ * where specialtiesDir is SHIPWRIGHT_SPECIALTIES_DIR or the shipped
+ * `agent-types/` (shared helper: @app-vitals/agent-lib/default-specialty). A
+ * relative templatesDir resolves against the repo root, then the specialties
+ * dir's parent (how the shipped manifests spell it: `agent-types/<t>/templates/`),
+ * then the manifest's own directory. An absent type resolves as the default
+ * type (`specialist`, or SHIPWRIGHT_DEFAULT_AGENT_TYPE). Returns the built-in
  * (generic) workspace/ dir for any type that does not resolve (no manifest,
  * unparseable, or the directory is missing or lacks a required template),
- * logging a warning. No type is special-cased, `coding` included. Never throws:
- * a template lookup must not fail boot.
+ * logging a warning. An unknown requested type first falls back to the default
+ * type's templates (with a warning) before the built-in dir. Never throws: a template lookup must not fail boot.
  */
 export function resolveTemplatesDir(
   requestedType: string | undefined,
@@ -90,16 +94,12 @@ export function resolveTemplatesDir(
   env: Record<string, string | undefined> = process.env,
 ): string {
   const repoRoot = repoRootOverride ?? resolveShipwrightRepoRoot(env);
-  const specialty =
-    requestedType ||
-    env.SHIPWRIGHT_DEFAULT_AGENT_TYPE ||
-    DEFAULT_SPECIALTY_NAME;
-  try {
-    const manifestPath = join(
-      env.SHIPWRIGHT_SPECIALTIES_DIR || join(repoRoot, "specialties"),
-      specialty,
-      "manifest.yaml",
-    );
+  const defaultSpecialty = resolveDefaultSpecialtyName(env);
+  const specialty = requestedType || defaultSpecialty;
+  const specialtiesDir = resolveSpecialtiesDir(env);
+
+  const lookup = (name: string): string => {
+    const manifestPath = join(specialtiesDir, name, "manifest.yaml");
     const manifest = Bun.YAML.parse(readFileSync(manifestPath, "utf8")) as {
       identity?: { templatesDir?: unknown };
     };
@@ -107,27 +107,49 @@ export function resolveTemplatesDir(
     if (typeof templatesDir !== "string" || templatesDir === "") {
       throw new Error("manifest has no identity.templatesDir");
     }
-    // Manifests written for the monorepo spell templatesDir relative to the
-    // repo root; a self-contained specialty (e.g. the platform test fixture)
-    // spells it relative to its own directory.
-    const fromRepoRoot = resolve(repoRoot, templatesDir);
-    const dir = existsSync(fromRepoRoot)
-      ? fromRepoRoot
-      : resolve(dirname(manifestPath), templatesDir);
+    // Manifests spell templatesDir relative to the repo root, or (shipped
+    // agent-types/, where the repo root may not be the image root) relative to
+    // the specialties dir's parent; a self-contained specialty (e.g. the
+    // platform test fixture) spells it relative to its own directory.
+    const dir =
+      [
+        resolve(repoRoot, templatesDir),
+        resolve(dirname(specialtiesDir), templatesDir),
+      ].find((candidate) => existsSync(candidate)) ??
+      resolve(dirname(manifestPath), templatesDir);
     if (!statSync(dir).isDirectory()) {
       throw new Error(`${dir} is not a directory`);
     }
     const missing = REQUIRED_TEMPLATES.filter(
-      (name) => !existsSync(join(dir, name)),
+      (file) => !existsSync(join(dir, file)),
     );
     if (missing.length > 0) {
       throw new Error(`${dir} is missing templates: ${missing.join(", ")}`);
     }
     return dir;
+  };
+
+  try {
+    return lookup(specialty);
   } catch (err) {
+    if (specialty !== defaultSpecialty) {
+      warn(
+        `[setup] could not resolve workspace templates for specialty "${specialty}" ` +
+          `(${(err as Error).message}) — falling back to the default type "${defaultSpecialty}"`,
+      );
+      try {
+        return lookup(defaultSpecialty);
+      } catch (defaultErr) {
+        warn(
+          `[setup] could not resolve workspace templates for default specialty "${defaultSpecialty}" ` +
+            `(${(defaultErr as Error).message}) — falling back to the built-in workspace templates`,
+        );
+        return WORKSPACE_TEMPLATE_DIR;
+      }
+    }
     warn(
       `[setup] could not resolve workspace templates for specialty "${specialty}" ` +
-        `(${(err as Error).message}) — falling back to "${DEFAULT_SPECIALTY_NAME}" templates`,
+        `(${(err as Error).message}) — falling back to the built-in workspace templates`,
     );
     return WORKSPACE_TEMPLATE_DIR;
   }

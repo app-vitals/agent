@@ -80,7 +80,7 @@ export interface AgentDetail {
    * Rendered as a checkbox on both the create and edit forms.
    */
   restrictSlackToMembers: boolean;
-  /** The agent's type name (e.g. "coding"), resolved at creation time. */
+  /** The agent's type name (e.g. "specialist"), resolved at creation time. */
   specialty: string;
   /**
    * Required env keys declared by the agent's type manifest with no
@@ -488,7 +488,7 @@ export function renderNewLocalAgentPage(
     /**
      * Set for self-serve account users (SSP-4.2): shows the account's
      * remaining agent quota and the prerequisites, and pins the type to
-     * "coding" (the server forces it regardless).
+     * the self-serve specialty (the server forces it regardless).
      */
     selfServe?: { remaining: number; max: number; contactEmail: string };
   },

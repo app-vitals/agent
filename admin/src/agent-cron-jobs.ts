@@ -8,20 +8,17 @@
  */
 
 import type { AgentCronJob, PrismaClient } from "../prisma/client/client.ts";
-import {
-  type SpecialtyManifestResolver,
-  SpecialtyRegistry,
-  missingDefaultSpecialtyError,
-  resolveDefaultSpecialtyName,
-  resolveSpecialtiesDir,
-} from "./specialty-manifest-loader.ts";
+import { type Clock, SystemClock } from "./clock.ts";
+import { NotFoundError, UnprocessableEntityError } from "./errors.ts";
 import type {
   SpecialtyDefaultCron,
   SpecialtyDefaultsResolver,
 } from "./specialty-defaults.ts";
+import {
+  type SpecialtyManifestResolver,
+  SpecialtyRegistry,
+} from "./specialty-manifest-loader.ts";
 import type { SpecialtyManifest } from "./specialty-registry.ts";
-import { type Clock, SystemClock } from "./clock.ts";
-import { NotFoundError, UnprocessableEntityError } from "./errors.ts";
 
 /**
  * The shape of a single cron template resolved from a specialty's manifest.
@@ -448,11 +445,10 @@ export class AgentCronJobService {
    * The cron list is resolved from the agent's type manifest — the agent's
    * stored `specialty` is looked up via the injected SpecialtyRegistry's
    * `tryGetManifest()` (the parsed `specialties/{specialty}/manifest.yaml`),
-   * deliberately WITHOUT the "coding" fallback: a non-default type with no
-   * loadable manifest logs an error and reconciles nothing (no seeding of
-   * coding crons, no deletion of existing system crons), while a "coding"
-   * manifest that cannot load throws — the universal fallback failing is a
-   * startup bug. This replaced the former hardcoded
+   * deliberately WITHOUT the default-type fallback: any type (the default
+   * included) with no loadable manifest logs an error and reconciles nothing
+   * (no seeding of another type's crons, no deletion of existing system
+   * crons). This replaced the former hardcoded
    * SYSTEM_CRONS array as the source of truth (ATS-3.2).
    *
    * Two passes so parent/child links resolve regardless of the manifest's
@@ -488,9 +484,9 @@ export class AgentCronJobService {
   async reconcileSystemCrons(
     agentId: string,
   ): Promise<{ created: number; updated: number; deleted: number }> {
-    // Resolve the agent's type manifest → its declared cron list. No "coding"
-    // fallback: seeding enabled coding crons on a non-coding agent is worse
-    // than leaving its crons untouched.
+    // Resolve the agent's type manifest → its declared cron list. No default-type
+    // fallback: seeding another type's crons on an agent is worse than
+    // leaving its crons untouched.
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
       select: { specialty: true },
@@ -505,14 +501,6 @@ export class AgentCronJobService {
       ? undefined
       : this.specialtyRegistry.tryGetManifest(specialty);
     if (!extensionCrons && !manifest) {
-      const defaultName = resolveDefaultSpecialtyName();
-      if (specialty === defaultName) {
-        throw missingDefaultSpecialtyError(
-          defaultName,
-          resolveSpecialtiesDir(),
-          new Error(`reconcileSystemCrons for agent ${agentId}`),
-        );
-      }
       console.error(
         `reconcileSystemCrons: no loadable manifest for specialty "${specialty}" (agent ${agentId}) — leaving crons untouched`,
       );

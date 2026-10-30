@@ -281,17 +281,49 @@ describe("resolveTemplatesDir option resolution (AEP-1.2)", () => {
     expect(warnings).toEqual([]);
   });
 
-  it("resolves an absent type as coding and falls back to the built-in templates with a warning when no env is set", async () => {
+  it("resolves an absent type as the shipped specialist type with no env and no warning", async () => {
     const { resolveTemplatesDir } = await import("./setup.ts");
     const warnings: string[] = [];
     const dir = resolveTemplatesDir(
       undefined,
-      "/nonexistent",
+      join(import.meta.dir, ".."),
+      (m) => warnings.push(m),
+      {},
+    );
+    expect(warnings).toEqual([]);
+    expect(dir).toBe(
+      join(import.meta.dir, "..", "agent-types", "specialist", "templates"),
+    );
+  });
+
+  it("warns and falls back to the default type's templates for an unknown requested type", async () => {
+    const { resolveTemplatesDir } = await import("./setup.ts");
+    const warnings: string[] = [];
+    const dir = resolveTemplatesDir(
+      "renamed-type",
+      join(import.meta.dir, ".."),
       (m) => warnings.push(m),
       {},
     );
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('"coding"');
+    expect(warnings[0]).toContain('"renamed-type"');
+    expect(warnings[0]).toContain('"specialist"');
+    expect(dir).toBe(
+      join(import.meta.dir, "..", "agent-types", "specialist", "templates"),
+    );
+  });
+
+  it("falls back to the built-in templates when the default type cannot load either", async () => {
+    const { resolveTemplatesDir } = await import("./setup.ts");
+    const warnings: string[] = [];
+    const dir = resolveTemplatesDir(
+      "renamed-type",
+      "/nonexistent",
+      (m) => warnings.push(m),
+      { SHIPWRIGHT_SPECIALTIES_DIR: "/nonexistent/types" },
+    );
+    expect(warnings).toHaveLength(2);
+    expect(warnings[1]).toContain("built-in");
     expect(dir).toMatch(/workspace$/);
   });
 
@@ -355,9 +387,12 @@ describe("SHIPWRIGHT_REPO_ROOT override (PCB-1.1)", () => {
   describe("resolveTemplatesDir", () => {
     const makeRoot = () => {
       const root = mkdtempSync(join(tmpdir(), "repo-root-"));
-      const dir = join(root, "specialties", "foo");
+      const dir = join(root, "types", "foo");
       mkdirSync(join(dir, "tpl"), { recursive: true });
-      writeFileSync(join(dir, "manifest.yaml"), "identity:\n  templatesDir: tpl\n");
+      writeFileSync(
+        join(dir, "manifest.yaml"),
+        "identity:\n  templatesDir: tpl\n",
+      );
       for (const f of [
         "CLAUDE.md.template",
         "SOUL.md.template",
@@ -368,7 +403,7 @@ describe("SHIPWRIGHT_REPO_ROOT override (PCB-1.1)", () => {
       return { root, tpl: join(dir, "tpl") };
     };
 
-    it("looks up specialties under SHIPWRIGHT_REPO_ROOT when set", () => {
+    it("resolves templatesDir against SHIPWRIGHT_REPO_ROOT when set", () => {
       const { root, tpl } = makeRoot();
       try {
         const warnings: string[] = [];
@@ -376,7 +411,10 @@ describe("SHIPWRIGHT_REPO_ROOT override (PCB-1.1)", () => {
           "foo",
           undefined,
           (m) => warnings.push(m),
-          { SHIPWRIGHT_REPO_ROOT: root },
+          {
+            SHIPWRIGHT_REPO_ROOT: root,
+            SHIPWRIGHT_SPECIALTIES_DIR: join(root, "types"),
+          },
         );
         expect(warnings).toEqual([]);
         expect(dir).toBe(tpl);
