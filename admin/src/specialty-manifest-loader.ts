@@ -121,7 +121,9 @@ export interface SpecialtyManifestResolver {
   getManifest(specialty: string): SpecialtyManifest;
   /**
    * Resolve `specialty` to its parsed manifest WITHOUT falling back to
-   * the default type — returns undefined for an unknown type instead. No warning is
+   * the default type — returns undefined for an unknown type instead (the one exception
+   * is the built-in default type when no specialty is discoverable, matching the
+   * picker's fallback option). No warning is
    * logged (an unknown type here is an expected, callers-handle-it outcome,
    * not a degraded-boot condition). Used by POST /admin/agents to reject an
    * unknown requested `type` with 400 rather than silently seeding a
@@ -134,9 +136,17 @@ export interface SpecialtyManifestResolver {
    * type picker. A directory whose manifest fails to load or parse is
    * skipped (not thrown) — the picker still renders every other valid type
    * rather than 500ing the whole /admin/agents/new page over one bad
-   * manifest. Order matches the underlying `list` fn's order.
+   * manifest. Order matches the underlying `list` fn's order. Never throws:
+   * a missing type dir is treated as empty (with a warning), and when no type
+   * is discoverable the built-in default option is returned.
    */
   listTypes(): SpecialtyOption[];
+  /**
+   * True when an AdminExtension declares `specialty` via agentTypes() — a type
+   * with no manifest that POST /admin/agents must still accept. Optional: the
+   * disk-backed registry has none.
+   */
+  hasExtensionType?(specialty: string): boolean;
 }
 
 export class SpecialtyRegistry implements SpecialtyManifestResolver {
@@ -198,11 +208,41 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
    * internally by getManifest().
    */
   tryGetManifest(specialty: string): SpecialtyManifest | undefined {
-    return this.tryLoad(specialty);
+    const manifest = this.tryLoad(specialty);
+    if (manifest || specialty !== DEFAULT_SPECIALTY_NAME) return manifest;
+    // The picker offers the built-in default when nothing is discoverable, so
+    // creating an agent with it must resolve too.
+    return this.discoverOptions().length === 0
+      ? parseSpecialtyManifest(BUILT_IN_FALLBACK_MANIFEST_YAML)
+      : undefined;
   }
 
   listTypes(): SpecialtyOption[] {
-    const specialties = this.list();
+    const options = this.discoverOptions();
+    if (options.length > 0) return options;
+    // Nothing discoverable: offer the built-in default so the picker is never empty.
+    const fallback = parseSpecialtyManifest(BUILT_IN_FALLBACK_MANIFEST_YAML);
+    return [
+      {
+        name: fallback.metadata.name,
+        displayName: fallback.metadata.displayName,
+      },
+    ];
+  }
+
+  /** Every loadable specialty found on disk; empty when the dir is missing or has none. */
+  private discoverOptions(): SpecialtyOption[] {
+    let specialties: string[];
+    try {
+      specialties = this.list();
+    } catch (err) {
+      // Missing dir (e.g. npm consumers, where agent-types/ is not shipped).
+      this.warn(
+        `SpecialtyRegistry: could not list specialties under "${this.typesDir}" — ` +
+          `treating as empty (${err instanceof Error ? err.message : String(err)})`,
+      );
+      specialties = [];
+    }
     const options: SpecialtyOption[] = [];
     for (const specialty of specialties) {
       const manifest = this.tryLoad(specialty);

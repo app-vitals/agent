@@ -69,6 +69,7 @@ import {
   mountRouteContributions,
   resolveAdminExtensions,
   startBackgroundPasses,
+  withExtensionAgentTypes,
 } from "./admin-extension.ts";
 import { createAdminUIApp } from "./admin-ui.ts";
 import { AgentAskService } from "./agent-ask.ts";
@@ -182,6 +183,10 @@ export async function startAdmin(
   // Extension-supplied specialty defaults (crons/tools/plugins), consulted by
   // the cron reconcile and create-time seeding before the manifest.
   const specialtyDefaults = collectSpecialtyDefaults(extensions);
+  const specialtyRegistry = withExtensionAgentTypes(
+    new SpecialtyRegistry(),
+    extensions,
+  );
   const agentCronJobService = new AgentCronJobService(
     prisma,
     undefined,
@@ -458,7 +463,7 @@ export async function startAdmin(
     agentPluginService,
     agentMemberService,
     callerScopeResolver,
-    specialtyRegistry: new SpecialtyRegistry(),
+    specialtyRegistry,
     specialtyDefaults,
     agentChatTokenService,
     agentGitHubInstallationsService,
@@ -551,6 +556,7 @@ export async function startAdmin(
     agentService,
     provisioner,
     anthropicFederationEnabled,
+    specialtyRegistry,
     specialtyDefaults,
     serviceIntegrations,
     chatService: deletionChatService,

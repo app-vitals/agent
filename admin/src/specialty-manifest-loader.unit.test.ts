@@ -160,6 +160,38 @@ describe("SpecialtyRegistry", () => {
     expect(warnings).toHaveLength(0);
   });
 
+  it("tryGetManifest resolves the built-in default type when no specialty is discoverable", () => {
+    const registry = new SpecialtyRegistry({
+      defaultTypeName: DEFAULT_SPECIALTY_NAME,
+      list: () => {
+        throw new Error("ENOENT: no such file or directory");
+      },
+      read: (t) => {
+        throw new Error(`ENOENT: no manifest for ${t}`);
+      },
+      warn: () => {},
+    });
+
+    expect(registry.tryGetManifest(DEFAULT_SPECIALTY_NAME)?.metadata.name).toBe(
+      DEFAULT_SPECIALTY_NAME,
+    );
+    expect(registry.tryGetManifest("nonexistent-type")).toBeUndefined();
+  });
+
+  it("tryGetManifest does not synthesize the default type when other specialties are discoverable", () => {
+    const registry = new SpecialtyRegistry({
+      defaultTypeName: DEFAULT_SPECIALTY_NAME,
+      list: () => ["coding"],
+      read: (t) => {
+        if (t === "coding") return manifestYaml("coding");
+        throw new Error(`ENOENT: no manifest for ${t}`);
+      },
+      warn: () => {},
+    });
+
+    expect(registry.tryGetManifest(DEFAULT_SPECIALTY_NAME)).toBeUndefined();
+  });
+
   it("tryGetManifest shares the cache with getManifest — reader called once per type", () => {
     let reads = 0;
     const registry = new SpecialtyRegistry({
@@ -259,14 +291,47 @@ voice: true
     expect(types).toEqual([{ name: "coding", displayName: "coding" }]);
   });
 
-  it("listTypes returns an empty array when no type directories are discovered", () => {
+  it("listTypes falls back to the built-in default option when no type directories are discovered", () => {
     const registry = new SpecialtyRegistry({
       defaultTypeName: DEFAULT_SPECIALTY_NAME,
       list: () => [],
       read: (t) => manifestYaml(t),
     });
 
-    expect(registry.listTypes()).toEqual([]);
+    expect(registry.listTypes()).toEqual([
+      { name: DEFAULT_SPECIALTY_NAME, displayName: "Specialist Agent" },
+    ]);
+  });
+
+  it("listTypes warns and returns the built-in default when the list fn throws (missing dir)", () => {
+    const warnings: string[] = [];
+    const registry = new SpecialtyRegistry({
+      defaultTypeName: DEFAULT_SPECIALTY_NAME,
+      warn: (m) => warnings.push(m),
+      list: () => {
+        throw new Error("ENOENT: no such file or directory");
+      },
+      read: (t) => manifestYaml(t),
+    });
+
+    expect(registry.listTypes()).toEqual([
+      { name: DEFAULT_SPECIALTY_NAME, displayName: "Specialist Agent" },
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("ENOENT");
+  });
+
+  it("listTypes does not throw on a nonexistent typesDir with the real lister", () => {
+    const warnings: string[] = [];
+    const registry = new SpecialtyRegistry({
+      typesDir: "/nonexistent/agent-types",
+      warn: (m) => warnings.push(m),
+    });
+
+    expect(registry.listTypes()).toEqual([
+      { name: DEFAULT_SPECIALTY_NAME, displayName: "Specialist Agent" },
+    ]);
+    expect(warnings.length).toBeGreaterThan(0);
   });
 });
 

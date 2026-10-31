@@ -30,6 +30,11 @@
  *                            reconcile and create-time seeding consult it
  *                            before the specialty manifest, which remains the
  *                            fallback when no extension returns anything
+ *   agentTypes()           — agent types this extension offers in the new-agent
+ *                            picker and accepts in POST /admin/agents, for
+ *                            types with no manifest on disk. Extension entries
+ *                            win over a manifest of the same name; a type's
+ *                            crons still come from specialtyDefaults(name)
  *
  * openApi() is static (no context): scripts/generate-admin-spec.ts calls it to
  * fold extension routes/schemas into admin/openapi.json without booting.
@@ -62,6 +67,10 @@ import type {
   SpecialtyDefaults,
   SpecialtyDefaultsResolver,
 } from "./specialty-defaults.ts";
+import type {
+  SpecialtyManifestResolver,
+  SpecialtyOption,
+} from "./specialty-manifest-loader.ts";
 
 /** The platform services an extension may build on. */
 export interface AdminPlatformServices {
@@ -180,6 +189,8 @@ export interface AdminExtension {
   serviceIntegrations?(env: NodeJS.ProcessEnv): ServiceIntegration[];
   /** See the header: undefined means "no opinion" — the manifest applies. */
   specialtyDefaults?(specialty: string): SpecialtyDefaults | undefined;
+  /** See the header: additive; merged over the manifest-discovered types. */
+  agentTypes?(): SpecialtyOption[];
   services?(ctx: AdminExtensionContext): AdminExtensionServices;
   apiRoutes?(ctx: AdminExtensionContext): AdminRouteContribution[];
   adminUiRoutes?(ctx: AdminExtensionContext): AdminRouteContribution[];
@@ -370,6 +381,40 @@ export function collectSpecialtyDefaults(
       if (defaults) return defaults;
     }
     return undefined;
+  };
+}
+
+/**
+ * Merges every extension's agentTypes() over the manifest-discovered `base`
+ * list. Order is base first, then new extension names; on a name collision the
+ * extension's entry replaces the base entry in place.
+ */
+export function mergeAgentTypes(
+  base: readonly SpecialtyOption[],
+  extensions: readonly AdminExtension[],
+): SpecialtyOption[] {
+  const byName = new Map(base.map((type) => [type.name, type]));
+  for (const ext of extensions) {
+    for (const type of ext.agentTypes?.() ?? []) byName.set(type.name, type);
+  }
+  return [...byName.values()];
+}
+
+/**
+ * Wraps the registry so the new-agent picker lists extension types and
+ * POST /admin/agents accepts them. With no extension declaring agentTypes()
+ * the wrapped registry behaves exactly like `registry`.
+ */
+export function withExtensionAgentTypes(
+  registry: SpecialtyManifestResolver,
+  extensions: readonly AdminExtension[],
+): SpecialtyManifestResolver {
+  return {
+    getManifest: (specialty) => registry.getManifest(specialty),
+    tryGetManifest: (specialty) => registry.tryGetManifest(specialty),
+    listTypes: () => mergeAgentTypes(registry.listTypes(), extensions),
+    hasExtensionType: (specialty) =>
+      mergeAgentTypes([], extensions).some((type) => type.name === specialty),
   };
 }
 

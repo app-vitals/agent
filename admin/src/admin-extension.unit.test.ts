@@ -10,11 +10,13 @@ import {
   collectOpenApiContributions,
   collectServiceIntegrations,
   collectSpecialtyDefaults,
+  mergeAgentTypes,
   mountRouteContributions,
   renderAgentDetailCardSlots,
   renderAgentDetailCards,
   resolveAdminExtensions,
   startBackgroundPasses,
+  withExtensionAgentTypes,
 } from "./admin-extension.ts";
 
 // The seam only hands the context through to hooks, so an opaque stand-in is
@@ -547,5 +549,64 @@ describe("collectSpecialtyDefaults", () => {
     ]);
     expect(resolve("a")).toEqual({ tools: ["A"] });
     expect(resolve("b")).toEqual({ tools: ["B"] });
+  });
+});
+
+describe("mergeAgentTypes", () => {
+  const base = [
+    { name: "specialist", displayName: "Specialist" },
+    { name: "coding", displayName: "Manifest Coding" },
+  ];
+
+  it("returns the base list unchanged with no or hookless extensions", () => {
+    expect(mergeAgentTypes(base, [])).toEqual(base);
+    expect(mergeAgentTypes(base, [{ name: "bare" }])).toEqual(base);
+    expect(mergeAgentTypes([], [])).toEqual([]);
+  });
+
+  it("appends extension types, across multiple extensions", () => {
+    const merged = mergeAgentTypes(base, [
+      { agentTypes: () => [{ name: "a", displayName: "A" }] },
+      { agentTypes: () => [{ name: "b", displayName: "B" }] },
+    ]);
+    expect(merged.map((t) => t.name)).toEqual([
+      "specialist",
+      "coding",
+      "a",
+      "b",
+    ]);
+  });
+
+  it("lets the extension win on a name collision, keeping position", () => {
+    const merged = mergeAgentTypes(base, [
+      { agentTypes: () => [{ name: "coding", displayName: "Coding Agent" }] },
+      { agentTypes: () => [{ name: "coding", displayName: "Later Wins" }] },
+    ]);
+    expect(merged).toEqual([
+      { name: "specialist", displayName: "Specialist" },
+      { name: "coding", displayName: "Later Wins" },
+    ]);
+  });
+});
+
+describe("withExtensionAgentTypes", () => {
+  const registry = {
+    getManifest: () => {
+      throw new Error("unused");
+    },
+    tryGetManifest: () => undefined,
+    listTypes: () => [{ name: "specialist", displayName: "Specialist" }],
+  };
+
+  it("merges listTypes and reports extension-only types", () => {
+    const wrapped = withExtensionAgentTypes(registry, [
+      { agentTypes: () => [{ name: "coding", displayName: "Coding Agent" }] },
+    ]);
+    expect(wrapped.listTypes().map((t) => t.name)).toEqual([
+      "specialist",
+      "coding",
+    ]);
+    expect(wrapped.hasExtensionType?.("coding")).toBe(true);
+    expect(wrapped.hasExtensionType?.("specialist")).toBe(false);
   });
 });

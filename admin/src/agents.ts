@@ -784,7 +784,10 @@ export interface CreateAgentDeps {
   agentEnvService: Pick<AgentEnvService, "patch">;
   agentCronJobService: Pick<AgentCronJobService, "reconcileSystemCrons">;
   provisioner: Pick<AgentProvisioner, "canProvision" | "provision">;
-  specialtyRegistry: Pick<SpecialtyManifestResolver, "tryGetManifest">;
+  specialtyRegistry: Pick<
+    SpecialtyManifestResolver,
+    "tryGetManifest" | "hasExtensionType"
+  >;
   /** Extension-supplied tools/plugins, consulted before the manifest's. */
   specialtyDefaults?: SpecialtyDefaultsResolver;
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
@@ -884,7 +887,12 @@ export async function createAgent(
   const extensionDefaults = specialty
     ? deps.specialtyDefaults?.(specialty)
     : undefined;
-  if (!specialty || (!manifest && !extensionDefaults)) {
+  if (
+    !specialty ||
+    (!manifest &&
+      !extensionDefaults &&
+      !deps.specialtyRegistry.hasExtensionType?.(specialty))
+  ) {
     return { ok: false, errorCode: "invalid_type" };
   }
 
