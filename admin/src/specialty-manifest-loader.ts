@@ -121,7 +121,9 @@ export interface SpecialtyManifestResolver {
   getManifest(specialty: string): SpecialtyManifest;
   /**
    * Resolve `specialty` to its parsed manifest WITHOUT falling back to
-   * the default type — returns undefined for an unknown type instead. No warning is
+   * the default type — returns undefined for an unknown type instead (the one exception
+   * is the built-in default type when no specialty is discoverable, matching the
+   * picker's fallback option). No warning is
    * logged (an unknown type here is an expected, callers-handle-it outcome,
    * not a degraded-boot condition). Used by POST /admin/agents to reject an
    * unknown requested `type` with 400 rather than silently seeding a
@@ -206,10 +208,30 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
    * internally by getManifest().
    */
   tryGetManifest(specialty: string): SpecialtyManifest | undefined {
-    return this.tryLoad(specialty);
+    const manifest = this.tryLoad(specialty);
+    if (manifest || specialty !== DEFAULT_SPECIALTY_NAME) return manifest;
+    // The picker offers the built-in default when nothing is discoverable, so
+    // creating an agent with it must resolve too.
+    return this.discoverOptions().length === 0
+      ? parseSpecialtyManifest(BUILT_IN_FALLBACK_MANIFEST_YAML)
+      : undefined;
   }
 
   listTypes(): SpecialtyOption[] {
+    const options = this.discoverOptions();
+    if (options.length > 0) return options;
+    // Nothing discoverable: offer the built-in default so the picker is never empty.
+    const fallback = parseSpecialtyManifest(BUILT_IN_FALLBACK_MANIFEST_YAML);
+    return [
+      {
+        name: fallback.metadata.name,
+        displayName: fallback.metadata.displayName,
+      },
+    ];
+  }
+
+  /** Every loadable specialty found on disk; empty when the dir is missing or has none. */
+  private discoverOptions(): SpecialtyOption[] {
     let specialties: string[];
     try {
       specialties = this.list();
@@ -230,15 +252,7 @@ export class SpecialtyRegistry implements SpecialtyManifestResolver {
         displayName: manifest.metadata.displayName,
       });
     }
-    if (options.length > 0) return options;
-    // Nothing discoverable: offer the built-in default so the picker is never empty.
-    const fallback = parseSpecialtyManifest(BUILT_IN_FALLBACK_MANIFEST_YAML);
-    return [
-      {
-        name: fallback.metadata.name,
-        displayName: fallback.metadata.displayName,
-      },
-    ];
+    return options;
   }
 
   /** tryLoad, but an invalid (unparseable) manifest also yields undefined. */

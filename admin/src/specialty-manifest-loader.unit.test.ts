@@ -160,6 +160,38 @@ describe("SpecialtyRegistry", () => {
     expect(warnings).toHaveLength(0);
   });
 
+  it("tryGetManifest resolves the built-in default type when no specialty is discoverable", () => {
+    const registry = new SpecialtyRegistry({
+      defaultTypeName: DEFAULT_SPECIALTY_NAME,
+      list: () => {
+        throw new Error("ENOENT: no such file or directory");
+      },
+      read: (t) => {
+        throw new Error(`ENOENT: no manifest for ${t}`);
+      },
+      warn: () => {},
+    });
+
+    expect(registry.tryGetManifest(DEFAULT_SPECIALTY_NAME)?.metadata.name).toBe(
+      DEFAULT_SPECIALTY_NAME,
+    );
+    expect(registry.tryGetManifest("nonexistent-type")).toBeUndefined();
+  });
+
+  it("tryGetManifest does not synthesize the default type when other specialties are discoverable", () => {
+    const registry = new SpecialtyRegistry({
+      defaultTypeName: DEFAULT_SPECIALTY_NAME,
+      list: () => ["coding"],
+      read: (t) => {
+        if (t === "coding") return manifestYaml("coding");
+        throw new Error(`ENOENT: no manifest for ${t}`);
+      },
+      warn: () => {},
+    });
+
+    expect(registry.tryGetManifest(DEFAULT_SPECIALTY_NAME)).toBeUndefined();
+  });
+
   it("tryGetManifest shares the cache with getManifest — reader called once per type", () => {
     let reads = 0;
     const registry = new SpecialtyRegistry({
