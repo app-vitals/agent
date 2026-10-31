@@ -128,6 +128,7 @@ See [shared-lib.md](./shared-lib.md) for the full module list; the files below a
 | File | Purpose |
 |---|---|
 | `lib/pricing.ts` | Per-model token rates and context windows shared by the runtime and admin: `RATES` (per-million-token input/output rates per model key, including the 5.x ids), `CONTEXT_WINDOW` (input-token window per rate key), `calculateCost(usage, model)` and `normalizeModelToRateKey(model)` (5.x ids map to themselves; bare `sonnet` / `opus` / `haiku` aliases map to their 5.5 keys). |
+| `lib/default-specialty.ts` | Single source of truth for the default agent type and specialties directory: `DEFAULT_SPECIALTY_NAME` (`specialist`), `SHIPPED_AGENT_TYPES_DIR` (the repo's `agent-types/`), `resolveDefaultSpecialtyName()` (`SHIPWRIGHT_DEFAULT_AGENT_TYPE` override) and `resolveSpecialtiesDir()` (`SHIPWRIGHT_SPECIALTIES_DIR` override). Shared by the admin loader, `account-agent-create.ts` and the runtime's `resolveTemplatesDir()`. |
 | `lib/cli-flags.ts` | Shared argv parser `parseFlags(argv, flagSpecs, kinds?)`. Pure, no env fallback; unknown flags are ignored. Plain `--flag value` / `--flag=value` string flags (`undefined` when absent), plus optional `kinds.booleans` (presence flags, `false` when absent) and `kinds.multi` (repeatable flags collected in order, `[]` when absent). |
 
 ## Database
