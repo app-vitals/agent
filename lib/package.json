@@ -14,7 +14,6 @@
   "exports": {
     "./admin-types": "./admin-types.ts",
     "./chat-notify": "./chat-notify.ts",
-    "./claim-ttl": "./claim-ttl.ts",
     "./claude-timeout": "./claude-timeout.ts",
     "./cli-flags": "./cli-flags.ts",
     "./clone-plan": "./clone-plan.ts",
@@ -29,11 +28,9 @@
     "./redact": "./redact.ts",
     "./request-context": "./request-context.ts",
     "./secret-env-vars": "./secret-env-vars.ts",
-    "./default-account": "./default-account.ts",
     "./default-agent-env": "./default-agent-env.ts",
     "./default-specialty": "./default-specialty.ts",
     "./sentry": "./sentry.ts",
-    "./task-store-types": "./task-store-types.ts",
     "./web/*": "./web/*"
   },
   "dependencies": {

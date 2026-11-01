@@ -6,7 +6,7 @@
  * Drives the client through an INJECTED fetchFn that replays canned Responses
  * from a cassette keyed by scenario — no live API server, no global.fetch
  * override, no mock.module(). Mirrors the pattern in
- * task-store-provisioning-client.integration.test.ts.
+ * the other provisioning-client integration tests.
  */
 
 import { describe, expect, it } from "bun:test";

@@ -102,7 +102,6 @@ account). Expiry disables crons only; nothing is deprovisioned.
 | `slack-provisioning-client.ts` | Slack app creation and deletion |
 | `chat-service-provisioning-client.ts` | Per-agent chat-service tokens and thread cleanup (`Http*` or `Noop*`) |
 | `http-chat-client.ts` | Thread/message client behind `/admin/chat` |
-| `coding-task-store-provisioning-client.ts` | Per-agent task-store tokens (coding extension) |
 | `google-auth-client.ts`, `okta-auth-client.ts` | Admin UI login (OAuth/OIDC) |
 
 ### Web Push

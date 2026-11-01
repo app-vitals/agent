@@ -2351,7 +2351,7 @@ const STALL_INDICATOR_CLASS = "chat-stall-indicator";
  * hard stop.
  */
 export const STALL_WARN_AFTER_MS = 120_000;
-// 65min — mirrors lib/claim-ttl.ts's DEFAULT_CLAIM_TTL_MS
+// 65min — mirrors DEFAULT_CLAIM_TTL_MS (Shipwright claim-ttl)
 // (DEFAULT_CLAUDE_TIMEOUT_MS 1hr + CLAIM_TTL_BUFFER_MS 5min). Inline JS can't
 // import the lib file, so the value is hardcoded here with this reference.
 export const ABSOLUTE_MAX_MS = 3_900_000;
@@ -2886,7 +2886,7 @@ export function renderChatThreadPage(
 
   // Stall-warning threshold — 120s in prod; e2e overrides to a tiny value.
   var STALL_WARN_AFTER_MS = ${stallWarnAfterMs};
-  // Hard ceiling: 65min, mirrors lib/claim-ttl.ts DEFAULT_CLAIM_TTL_MS
+  // Hard ceiling: 65min, mirrors Shipwright's DEFAULT_CLAIM_TTL_MS
   // (1hr DEFAULT_CLAUDE_TIMEOUT_MS + 5min CLAIM_TTL_BUFFER_MS). Only hard stop.
   var ABSOLUTE_MAX_MS = ${ABSOLUTE_MAX_MS};
 
