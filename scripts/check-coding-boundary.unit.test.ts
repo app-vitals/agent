@@ -33,7 +33,8 @@ describe("scanCodingLeaks", () => {
     write(
       "runtime/boot.ts",
       [
-        'import { x } from "@app-vitals/agent-lib/claim-ttl";',
+        // split so the import-boundary scan doesn't resolve this fixture string
+        'import { x } from "@app-vitals/agent-lib/' + 'claim-ttl";',
         'const type = "coding";',
         'const DEFAULT_PLUGINS = ["shipwright"];',
         "use(DEFAULT_PLUGINS);",
