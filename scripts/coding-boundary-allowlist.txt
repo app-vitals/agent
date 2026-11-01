@@ -1,10 +1,6 @@
 # Coding-vs-platform boundary allowlist (see scripts/check-coding-boundary.ts).
 # Format: <rule> <file> <count>. Known leaks as of PCD-1.2; this list may only
-# shrink: a stale or reduced entry fails CI, and so does any leak not listed.
+# shrink (empty after PCD-2.1): a stale or reduced entry fails CI, and so does any leak not listed.
 #
 # Permanent exception (deliberately NOT listed, never scanned): coding.prisma
 # and the CODING-OWNED Agent columns in schema.prisma (PCD-6.1).
-coding-module admin/src/coding-task-store-provisioning-client.ts 2
-coding-module lib/claim-ttl.ts 1
-coding-module lib/default-account.ts 1
-coding-module lib/task-store-types.ts 1
