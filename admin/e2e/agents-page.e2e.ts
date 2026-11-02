@@ -239,7 +239,7 @@ test.describe("GET /admin/agents/:id — authenticated", () => {
     context,
   }) => {
     await loadAgentDetailPage(page, context);
-    await expect(page.locator("body")).toContainText("coding");
+    await expect(page.locator("body")).toContainText("specialist");
   });
 
   // CFB-3.1: .data-table .btn must stay at its current ~36px height at mobile
@@ -304,16 +304,16 @@ test.describe("GET /admin/agents/new — type picker", () => {
     await expect(typeSelect).toHaveAttribute("required", "");
   });
 
-  test('the select lists the configured default type "coding"', async ({
+  test('the select lists the configured default type "specialist"', async ({
     page,
     context,
   }) => {
     await loadNewAgentPage(page, context);
-    const codingOption = page.locator(
-      'select[name="type"] option[value="coding"]',
+    const specialistOption = page.locator(
+      'select[name="type"] option[value="specialist"]',
     );
-    await expect(codingOption).toBeAttached();
-    await expect(codingOption).toHaveText("coding");
+    await expect(specialistOption).toBeAttached();
+    await expect(specialistOption).toHaveText("Specialist Agent");
   });
 });
 
@@ -324,8 +324,8 @@ test.describe("POST /admin/agents — create-with-type journey", () => {
   }) => {
     await loadNewAgentPage(page, context);
 
-    await page.fill('input[name="name"]', "My New Coding Agent");
-    await page.selectOption('select[name="type"]', "coding");
+    await page.fill('input[name="name"]', "My New Specialist Agent");
+    await page.selectOption('select[name="type"]', "specialist");
     // Scoped to the new-agent form specifically — the page also has a
     // "Sign out" button[type="submit"] in the toolbar, and an unscoped
     // selector matches that one first (it's earlier in the DOM), which
@@ -333,6 +333,6 @@ test.describe("POST /admin/agents — create-with-type journey", () => {
     await page.click('form[action="/admin/agents"] button[type="submit"]');
 
     await page.waitForURL(/\/admin\/agents\/[^/]+$/);
-    await expect(page.locator("body")).toContainText("coding");
+    await expect(page.locator("body")).toContainText("specialist");
   });
 });
