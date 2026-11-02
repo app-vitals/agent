@@ -1,0 +1,99 @@
+name: Consumer compat
+
+# ADVISORY, not a required check: keep "shipwright consumer compat" out of
+# branch protection (and out of release.yml's wait list) until it has soaked
+# (XPF-2.2). A red run is still a visible PR check; it just does not block
+# the merge.
+#
+# Packs this PR's @app-vitals/agent-lib, -runtime and -admin, installs them
+# into a checkout of shipwright (the consumer), and runs shipwright's fast
+# checks (typecheck, admin-gen drift, seed-dev-agent, migration-guard) so a
+# removed/renamed export breaks this PR instead of shipwright's post-publish
+# bump PR. Not the full shipwright suite. See scripts/consumer-compat.ts.
+#
+# Fork/secrets safety: triggered by pull_request (never pull_request_target),
+# so fork PRs run with a read-only GITHUB_TOKEN and no secrets. No secret is
+# referenced at all: app-vitals/shipwright is public, so the checkout needs no
+# extra token. If shipwright ever goes private, add a read-only
+# SHIPWRIGHT_READ_TOKEN secret as `token:` on the shipwright checkout step
+# ONLY (never on a step that runs PR code) and gate the job on
+# github.event.pull_request.head.repo.full_name == github.repository.
+# The Postgres below is a throwaway service container with fixed credentials.
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      shipwright_repo:
+        description: Consumer repository to check against
+        type: string
+        default: app-vitals/shipwright
+      shipwright_ref:
+        description: Consumer ref (branch, tag or SHA)
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: consumer-compat-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consumer-compat:
+    name: shipwright consumer compat
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: compat
+          POSTGRES_PASSWORD: compat
+          POSTGRES_DB: shipwright_admin_compat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      SHIPWRIGHT_REPO: ${{ inputs.shipwright_repo || 'app-vitals/shipwright' }}
+      SHIPWRIGHT_REF: ${{ inputs.shipwright_ref || 'main' }}
+      # Read by shipwright's admin/prisma.config.ts for the migration-guard check.
+      DATABASE_URL_SHIPWRIGHT_ADMIN: postgres://compat:compat@localhost:5432/shipwright_admin_compat
+    # Side by side, so neither checkout's package.json/bunfig is a parent of the
+    # other's: agent/ (this PR) and shipwright/ (the consumer).
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: agent
+          persist-credentials: false
+
+      - name: Check out the consumer (shipwright)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.SHIPWRIGHT_REPO }}
+          ref: ${{ env.SHIPWRIGHT_REF }}
+          path: shipwright
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.3"
+
+      # Generates admin/prisma/client, which the packed agent-admin ships.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Fails (exit 1) when any shipwright check fails; the step summary names
+      # each check PASS/FAIL/SKIP with the tail of the failing output.
+      - name: Consumer compat against shipwright
+        run: bun scripts/consumer-compat.ts --shipwright-dir ../shipwright
