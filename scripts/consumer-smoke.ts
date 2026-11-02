@@ -51,7 +51,7 @@ import { join, resolve } from "node:path";
 export type Exports = Record<string, string>;
 export type Entry = { specifier: string; mode: "import" | "resolve" };
 
-const PACKAGES = [
+export const PACKAGES = [
   { dir: "lib", name: "@app-vitals/agent-lib" },
   { dir: "runtime", name: "@app-vitals/agent-runtime" },
   { dir: "admin", name: "@app-vitals/agent-admin" },
@@ -337,7 +337,11 @@ function run(cmd: string[], cwd: string, quiet = false) {
 }
 
 /** Pack lib/runtime/admin from COPIES with the version stamped; the repo is untouched. */
-function packLocal(repoRoot: string, version: string, outDir: string): void {
+export function packLocal(
+  repoRoot: string,
+  version: string,
+  outDir: string,
+): void {
   const work = mkdtempSync(join(tmpdir(), "consumer-smoke-pack-"));
   for (const { dir, name } of PACKAGES) {
     const dest = join(work, dir);
@@ -361,7 +365,7 @@ function packLocal(repoRoot: string, version: string, outDir: string): void {
   }
 }
 
-function tarballFor(dir: string, pkgName: string): string {
+export function tarballFor(dir: string, pkgName: string): string {
   const prefix = pkgName.replace("@", "").replace("/", "-");
   const f = readdirSync(dir).find(
     (n) => n.startsWith(`${prefix}-`) && n.endsWith(".tgz"),
