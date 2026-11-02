@@ -1,9 +1,8 @@
 name: Consumer compat
 
-# ADVISORY, not a required check: keep "shipwright consumer compat" out of
-# branch protection (and out of release.yml's wait list) until it has soaked
-# (XPF-2.2). A red run is still a visible PR check; it just does not block
-# the merge.
+# REQUIRED check ("shipwright consumer compat" is in the main ruleset's
+# required status checks, XPF-2.2). Kept out of release.yml's wait list: that
+# list gates pushes to main, and this job only runs on pull_request.
 #
 # Packs this PR's @app-vitals/agent-lib, -runtime and -admin, installs them
 # into a checkout of shipwright (the consumer), and runs shipwright's fast
