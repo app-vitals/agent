@@ -36,7 +36,7 @@ const TARBALLS = {
 
 describe("rewriteManifestToTarballs", () => {
   const manifest = {
-    name: "@shipwright/admin",
+    name: "shipwright-admin",
     dependencies: {
       "@app-vitals/agent-admin": "0.16.2",
       "@app-vitals/agent-lib": "0.16.2",
@@ -113,7 +113,7 @@ function shipwrightFixture(): string {
     dependencies: { "@app-vitals/agent-lib": "0.16.2" },
   });
   write("admin/package.json", {
-    name: "@shipwright/admin",
+    name: "shipwright-admin",
     dependencies: { "@app-vitals/agent-admin": "0.16.2" },
   });
   write("metrics/package.json", { name: "metrics", dependencies: {} });
