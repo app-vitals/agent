@@ -2,7 +2,7 @@
  * agent/src/runtime/entrypoint.integration.test.ts
  *
  * Integration tests for the startup sequence in entrypoint.ts.
- * Uses RecordedShipwrightConfigClient (cassette-backed) — no real HTTP.
+ * Uses RecordedAgentConfigClient (cassette-backed) — no real HTTP.
  * Isolation contract: no mock.module(), no global overrides.
  */
 
@@ -12,8 +12,8 @@ import { join } from "node:path";
 import type { AgentConfigResponse } from "@app-vitals/agent-admin";
 import type { EntrypointDeps } from "./entrypoint.ts";
 import { runEntrypoint } from "./entrypoint.ts";
-import type { ShipwrightConfigClient } from "./shipwright-config-client.ts";
-import { RecordedShipwrightConfigClient } from "./shipwright-config-client.ts";
+import type { AgentConfigClient } from "./agent-config-client.ts";
+import { RecordedAgentConfigClient } from "./agent-config-client.ts";
 
 // ─── Test fixtures ─────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ interface SetupGitHubAuthCall {
 }
 
 function makeDeps(
-  configClient: ShipwrightConfigClient,
+  configClient: AgentConfigClient,
   overrides: Partial<EntrypointDeps> = {},
 ): {
   deps: EntrypointDeps;
@@ -138,7 +138,7 @@ function makeDeps(
 
 describe("runEntrypoint — happy path", () => {
   it("exports the specialty to the server process when the config carries one (ARD-6.1)", async () => {
-    const configClient = new RecordedShipwrightConfigClient({
+    const configClient = new RecordedAgentConfigClient({
       ...SAMPLE_CONFIG,
       specialty: "specialist",
     });
@@ -148,14 +148,14 @@ describe("runEntrypoint — happy path", () => {
   });
 
   it("exports the default specialty from the config bundle (AGR-6.3: specialty is required)", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, appliedEnv } = makeDeps(configClient);
     await runEntrypoint(deps);
     expect(appliedEnv.SHIPWRIGHT_AGENT_TYPE).toBe("coding");
   });
 
   it("fetches config and applies env vars from the bundle", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, appliedEnv } = makeDeps(configClient);
 
     await runEntrypoint(deps);
@@ -165,7 +165,7 @@ describe("runEntrypoint — happy path", () => {
   });
 
   it("symlinks ~/.claude to $AGENT_HOME/dot-claude", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, symlinkCalls } = makeDeps(configClient);
 
     await runEntrypoint(deps);
@@ -175,7 +175,7 @@ describe("runEntrypoint — happy path", () => {
   });
 
   it("calls setupGitHubAuth", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, githubAuthCalled } = makeDeps(configClient);
 
     await runEntrypoint(deps);
@@ -184,7 +184,7 @@ describe("runEntrypoint — happy path", () => {
   });
 
   it("calls runMiseStartup with agentHome", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, miseCalls } = makeDeps(configClient);
 
     await runEntrypoint(deps);
@@ -194,7 +194,7 @@ describe("runEntrypoint — happy path", () => {
   });
 
   it("calls installPlugins with plugins from config", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, pluginCalls } = makeDeps(configClient);
 
     await runEntrypoint(deps);
@@ -203,7 +203,7 @@ describe("runEntrypoint — happy path", () => {
   });
 
   it("spawns the agent server after setup completes", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, spawnCalls } = makeDeps(configClient);
 
     await runEntrypoint(deps);
@@ -213,7 +213,7 @@ describe("runEntrypoint — happy path", () => {
   });
 
   it("does not call exit on success", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, exitCodes } = makeDeps(configClient);
 
     await runEntrypoint(deps);
@@ -224,7 +224,7 @@ describe("runEntrypoint — happy path", () => {
 
 describe("runEntrypoint — missing required vars", () => {
   it("exits non-zero when agentId is missing", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, exitCodes } = makeDeps(configClient, { agentId: undefined });
 
     await runEntrypoint(deps);
@@ -234,7 +234,7 @@ describe("runEntrypoint — missing required vars", () => {
   });
 
   it("exits non-zero when apiUrl is missing", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, exitCodes } = makeDeps(configClient, { apiUrl: undefined });
 
     await runEntrypoint(deps);
@@ -244,7 +244,7 @@ describe("runEntrypoint — missing required vars", () => {
   });
 
   it("exits non-zero when apiKey is missing", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     const { deps, exitCodes } = makeDeps(configClient, { apiKey: undefined });
 
     await runEntrypoint(deps);
@@ -254,9 +254,9 @@ describe("runEntrypoint — missing required vars", () => {
   });
 
   it("does not fetch config when required vars are missing", async () => {
-    const configClient = new RecordedShipwrightConfigClient(SAMPLE_CONFIG);
+    const configClient = new RecordedAgentConfigClient(SAMPLE_CONFIG);
     let fetchCalled = false;
-    const trackingClient: ShipwrightConfigClient = {
+    const trackingClient: AgentConfigClient = {
       getConfig: async (agentId: string) => {
         fetchCalled = true;
         return configClient.getConfig(agentId);
@@ -289,7 +289,7 @@ describe("runEntrypoint — config with empty env", () => {
       cleanupMergedWorktrees: true,
       cleanupAfterDays: 14,
     };
-    const configClient = new RecordedShipwrightConfigClient(emptyConfig);
+    const configClient = new RecordedAgentConfigClient(emptyConfig);
     const { deps, exitCodes, spawnCalls } = makeDeps(configClient);
 
     await runEntrypoint(deps);
@@ -302,7 +302,7 @@ describe("runEntrypoint — config with empty env", () => {
 
 describe("runEntrypoint — startup timeout", () => {
   it("exits non-zero when startup exceeds startupTimeoutMs", async () => {
-    const hangingClient: ShipwrightConfigClient = {
+    const hangingClient: AgentConfigClient = {
       getConfig: () => new Promise(() => {}), // never resolves
     };
     const { deps, exitCodes } = makeDeps(hangingClient, {

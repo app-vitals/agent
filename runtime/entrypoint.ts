@@ -19,7 +19,7 @@
 
 import { join } from "node:path";
 import type { AgentPlugin } from "@app-vitals/agent-admin";
-import type { ShipwrightConfigClient } from "./shipwright-config-client.ts";
+import type { AgentConfigClient } from "./agent-config-client.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ export interface EntrypointDeps {
   apiUrl: string | undefined;
   apiKey: string | undefined;
   agentHome: string;
-  configClient: ShipwrightConfigClient;
+  configClient: AgentConfigClient;
   applyEnv: (env: Record<string, string>) => void;
   symlinkDotClaude: (target: string, linkPath: string) => void;
   setupGitHubAuth: () => Promise<void>;
@@ -98,7 +98,7 @@ export async function runEntrypoint(deps: EntrypointDeps): Promise<void> {
 
   const startup = async () => {
     // Step 2: Fetch config from Shipwright API
-    let config: Awaited<ReturnType<ShipwrightConfigClient["getConfig"]>>;
+    let config: Awaited<ReturnType<AgentConfigClient["getConfig"]>>;
     try {
       config = await configClient.getConfig(agentId as string);
       console.log(
