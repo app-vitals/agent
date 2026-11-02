@@ -20,12 +20,13 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { AgentPlugin } from "@app-vitals/agent-admin";
 import {
   resolveDefaultSpecialtyName,
   resolveSpecialtiesDir,
 } from "@app-vitals/agent-lib/default-specialty";
+import { SPECIALIST_TYPE } from "@app-vitals/agent-lib/specialist-type";
 
 // ---------------------------------------------------------------------------
 // Template loading
@@ -69,17 +70,17 @@ const REQUIRED_TEMPLATES: readonly string[] = [
 /**
  * Resolves the workspace template directory for a specialty (ARD-6.1).
  *
- * Reads `identity.templatesDir` from `<specialtiesDir>/<specialty>/manifest.yaml`,
- * where specialtiesDir is SHIPWRIGHT_SPECIALTIES_DIR or the shipped
- * `agent-types/` (shared helper: @app-vitals/agent-lib/default-specialty). A
- * relative templatesDir resolves against the repo root, then the specialties
- * dir's parent (how the shipped manifests spell it: `agent-types/<t>/templates/`),
- * then the manifest's own directory. An absent type resolves as the default
- * type (`specialist`, or SHIPWRIGHT_DEFAULT_AGENT_TYPE). Returns the built-in
- * (generic) workspace/ dir for any type that does not resolve (no manifest,
- * unparseable, or the directory is missing or lacks a required template),
- * logging a warning. An unknown requested type first falls back to the default
- * type's templates (with a warning) before the built-in dir. Never throws: a template lookup must not fail boot.
+ * A type's templates live at `<specialtiesDir>/<specialty>/templates/`, where
+ * specialtiesDir is SHIPWRIGHT_SPECIALTIES_DIR or the shipped `agent-types/`
+ * (shared helper: @app-vitals/agent-lib/default-specialty). The built-in
+ * specialist type additionally resolves its record's `templatesDir`
+ * (lib/specialist-type.ts) against the repo root. An absent type resolves as
+ * the default type (`specialist`, or SHIPWRIGHT_DEFAULT_AGENT_TYPE). Returns
+ * the built-in (generic) workspace/ dir for any type that does not resolve
+ * (the directory is missing or lacks a required template), logging a warning.
+ * An unknown requested type first falls back to the default type's templates
+ * (with a warning) before the built-in dir. Never throws: a template lookup
+ * must not fail boot.
  */
 export function resolveTemplatesDir(
   requestedType: string | undefined,
@@ -93,24 +94,13 @@ export function resolveTemplatesDir(
   const specialtiesDir = resolveSpecialtiesDir(env);
 
   const lookup = (name: string): string => {
-    const manifestPath = join(specialtiesDir, name, "manifest.yaml");
-    const manifest = Bun.YAML.parse(readFileSync(manifestPath, "utf8")) as {
-      identity?: { templatesDir?: unknown };
-    };
-    const templatesDir = manifest?.identity?.templatesDir;
-    if (typeof templatesDir !== "string" || templatesDir === "") {
-      throw new Error("manifest has no identity.templatesDir");
+    const candidates = [join(specialtiesDir, name, "templates")];
+    if (name === SPECIALIST_TYPE.name) {
+      candidates.push(resolve(repoRoot, SPECIALIST_TYPE.templatesDir));
     }
-    // Manifests spell templatesDir relative to the repo root, or (shipped
-    // agent-types/, where the repo root may not be the image root) relative to
-    // the specialties dir's parent; a self-contained specialty (e.g. the
-    // platform test fixture) spells it relative to its own directory.
     const dir =
-      [
-        resolve(repoRoot, templatesDir),
-        resolve(dirname(specialtiesDir), templatesDir),
-      ].find((candidate) => existsSync(candidate)) ??
-      resolve(dirname(manifestPath), templatesDir);
+      candidates.find((candidate) => existsSync(candidate)) ??
+      (candidates[0] as string);
     if (!statSync(dir).isDirectory()) {
       throw new Error(`${dir} is not a directory`);
     }
@@ -165,7 +155,7 @@ function readTemplate(
       `Missing workspace template: ${path}. The runtime ships no product ` +
         "templates of its own: set SHIPWRIGHT_SPECIALTIES_DIR to a directory " +
         "of specialties and SHIPWRIGHT_DEFAULT_AGENT_TYPE to the specialty " +
-        "whose identity.templatesDir provides it.",
+        "whose templates/ directory provides it.",
     );
   }
 }

@@ -18,8 +18,14 @@ import {
 import { AgentCronJobService } from "./agent-cron-jobs.ts";
 import { NotFoundError, UnprocessableEntityError } from "./errors.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
-import type { SpecialtyManifestResolver } from "./specialty-manifest-loader.ts";
-import type { SpecialtyManifest } from "./specialty-registry.ts";
+import type {
+  SpecialtyDefaultCron,
+  SpecialtyDefaultsResolver,
+} from "./specialty-defaults.ts";
+import {
+  SPECIALIST_TYPE,
+  type SpecialtyTypeResolver,
+} from "./specialty-types.ts";
 
 const TEST_DB = process.env.DATABASE_URL_ADMIN_TEST;
 
@@ -34,9 +40,7 @@ function makePrisma(): PrismaClient {
 // cron, covering every field reconcile maps into a row.
 const FIXTURE_TYPE = "fixture";
 
-type ManifestCron = SpecialtyManifest["crons"][number];
-
-const FIXTURE_CRONS: ManifestCron[] = [
+const FIXTURE_CRONS: SpecialtyDefaultCron[] = [
   {
     name: "fixture-loop",
     schedule: "*/30 * * * *",
@@ -70,23 +74,16 @@ const FIXTURE_CRONS: ManifestCron[] = [
   },
 ];
 
-const fixtureManifest = {
-  crons: FIXTURE_CRONS,
-} as unknown as SpecialtyManifest;
+/** The extension hook supplying FIXTURE_TYPE's crons. */
+const fixtureDefaults: SpecialtyDefaultsResolver = (specialty) =>
+  specialty === FIXTURE_TYPE ? { crons: FIXTURE_CRONS } : undefined;
 
 /** Resolves only FIXTURE_TYPE; every other type is unknown. */
-const fixtureResolver: SpecialtyManifestResolver = {
-  getManifest(specialty: string): SpecialtyManifest {
-    if (specialty !== FIXTURE_TYPE)
-      throw new Error(`no manifest: ${specialty}`);
-    return fixtureManifest;
-  },
-  tryGetManifest(specialty: string): SpecialtyManifest | undefined {
-    return specialty === FIXTURE_TYPE ? fixtureManifest : undefined;
-  },
-  listTypes() {
-    return [{ name: FIXTURE_TYPE, displayName: FIXTURE_TYPE }];
-  },
+const fixtureResolver: SpecialtyTypeResolver = {
+  getType: () => SPECIALIST_TYPE,
+  tryGetType: (specialty) =>
+    specialty === FIXTURE_TYPE ? SPECIALIST_TYPE : undefined,
+  listTypes: () => [{ name: FIXTURE_TYPE, displayName: FIXTURE_TYPE }],
 };
 
 async function createAgent(
@@ -109,7 +106,12 @@ describeOrSkip("AgentCronJobService (integration)", () => {
     await prisma.agentTool.deleteMany();
     await prisma.agentEnv.deleteMany();
     await prisma.agent.deleteMany();
-    service = new AgentCronJobService(prisma, undefined, fixtureResolver);
+    service = new AgentCronJobService(
+      prisma,
+      undefined,
+      fixtureResolver,
+      fixtureDefaults,
+    );
   });
 
   afterEach(async () => {

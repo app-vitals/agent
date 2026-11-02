@@ -8,7 +8,7 @@ Guidance for AI coding agents working in this repository.
 - `admin/` (`@app-vitals/agent-admin`): admin API and UI. `admin/src/main.ts` is its composition root.
 - `chat/` (`@app-vitals/agent-chat`, private package): the chat service (Postgres-backed Thread/Message store + scoped tokens). Imported from shipwright `chat/`; `bun run db:generate` in `chat/` creates its Prisma client. Published as the `ghcr.io/app-vitals/agent-chat` image on release (`chat/Dockerfile`, platform semver tag).
 - `lib/` (`@app-vitals/agent-lib`): shared modules; each is exported from `lib/package.json`.
-- `agent-types/`: agent-type definitions and their JSON schema.
+- `agent-types/`: workspace templates for the built-in specialist type (the type record itself is `lib/specialist-type.ts`).
 - `index.ts`: the agent server composition root (`startAgent([])`).
 
 ## Commands

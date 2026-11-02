@@ -26,11 +26,13 @@ import { AgentMemberService } from "./agent-members.ts";
 import { AgentPluginService } from "./agent-plugins.ts";
 import type { AgentProvisioner, ProvisionResult } from "./agent-provisioner.ts";
 import { AgentToolService } from "./agent-tools.ts";
-import type { SpecialtyManifestResolver } from "./specialty-manifest-loader.ts";
-import type { SpecialtyManifest } from "./specialty-registry.ts";
 import type { CreateAgentDeps } from "./agents.ts";
 import { AgentService, createAgent } from "./agents.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
+import type {
+  SpecialtyType,
+  SpecialtyTypeResolver,
+} from "./specialty-types.ts";
 import { makeTokenCrypto } from "./token-crypto.ts";
 
 const TEST_DB = process.env.DATABASE_URL_ADMIN_TEST;
@@ -42,35 +44,22 @@ function makePrisma(): PrismaClient {
 }
 
 /** A minimal valid "coding" manifest, matching agents-api.integration.test.ts's fixture. */
-const CODING_MANIFEST: SpecialtyManifest = {
-  apiVersion: "shipwright.dev/v1alpha1",
-  kind: "Specialty",
-  metadata: {
-    name: "coding",
-    displayName: "Coding Agent",
-    description: "test manifest",
-    version: "1.0.0",
-    skills: [],
-  },
-  identity: { templatesDir: "workspace/" },
-  crons: [],
-  plugins: ["shipwright"],
+const CODING_TYPE: SpecialtyType = {
+  name: "coding",
+  displayName: "Coding Agent",
+  templatesDir: "workspace/",
   tools: ["Read", "Write", "Edit", "Bash"],
-  env: { required: [], optional: [] },
-  members: [],
-  repos: [],
-  chat: true,
-  voice: true,
+  requiredEnv: [],
 };
 
-function fakeSpecialtyRegistry(
-  byType: Record<string, SpecialtyManifest> = { coding: CODING_MANIFEST },
-): SpecialtyManifestResolver {
+function fakeSpecialtyTypes(
+  byType: Record<string, SpecialtyType> = { coding: CODING_TYPE },
+): SpecialtyTypeResolver {
   return {
-    getManifest(specialty: string): SpecialtyManifest {
-      return byType[specialty] ?? (byType.coding as SpecialtyManifest);
+    getType(specialty: string): SpecialtyType {
+      return byType[specialty] ?? (byType.coding as SpecialtyType);
     },
-    tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+    tryGetType(specialty: string): SpecialtyType | undefined {
       return byType[specialty];
     },
     listTypes() {
@@ -130,7 +119,7 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
 
   beforeEach(async () => {
     prisma = makePrisma();
-    agentService = new AgentService(prisma, fakeSpecialtyRegistry());
+    agentService = new AgentService(prisma, fakeSpecialtyTypes());
     agentToolService = new AgentToolService(prisma);
     agentPluginService = new AgentPluginService(prisma);
     agentMemberService = new AgentMemberService(prisma);
@@ -141,7 +130,7 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
     agentCronJobService = new AgentCronJobService(
       prisma,
       undefined,
-      fakeSpecialtyRegistry(),
+      fakeSpecialtyTypes(),
     );
 
     // Truncate between tests — this suite shares a DB with every other
@@ -171,7 +160,7 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
       agentEnvService,
       agentCronJobService,
       provisioner: makeProvisioner(),
-      specialtyRegistry: fakeSpecialtyRegistry(),
+      specialtyRegistry: fakeSpecialtyTypes(),
       ...overrides,
     };
   }
@@ -205,7 +194,7 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
       where: { agentId: result.agent.id },
     });
     expect(tools.map((t) => t.pattern).sort()).toEqual(
-      [...CODING_MANIFEST.tools].sort(),
+      [...CODING_TYPE.tools].sort(),
     );
 
     const plugins = await prisma.agentPlugin.findMany({
@@ -518,7 +507,7 @@ describeOrSkip("Agent.specialty — final shape (AGR-6.3)", () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    agentService = new AgentService(prisma, fakeSpecialtyRegistry());
+    agentService = new AgentService(prisma, fakeSpecialtyTypes());
   });
 
   afterEach(async () => {

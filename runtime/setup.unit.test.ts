@@ -162,7 +162,7 @@ describe("discoverBakedMarketplaces", () => {
 });
 
 describe("resolveTemplatesDir option resolution (AEP-1.2)", () => {
-  it("resolves the shipped specialist manifest to agent-types/specialist/templates/ with no warning (SAI-1.2)", async () => {
+  it("resolves the shipped specialist type to agent-types/specialist/templates/ with no warning (SAI-1.2)", async () => {
     const { resolveTemplatesDir } = await import("./setup.ts");
     const repoRoot = join(import.meta.dir, "..");
     const warnings: string[] = [];
@@ -234,10 +234,10 @@ describe("resolveTemplatesDir option resolution (AEP-1.2)", () => {
         SHIPWRIGHT_SPECIALTIES_DIR: "/fixture/types",
       },
     );
-    // Missing fixture manifest → warns naming the type, falls back built-in.
+    // Missing fixture templates dir → warns naming the type, falls back built-in.
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('"base"');
-    expect(warnings[0]).toContain("/fixture/types/base/manifest.yaml");
+    expect(warnings[0]).toContain("/fixture/types/base/templates");
     expect(dir).toMatch(/workspace$/);
   });
 });
@@ -288,22 +288,18 @@ describe("SHIPWRIGHT_REPO_ROOT override (PCB-1.1)", () => {
     const makeRoot = () => {
       const root = mkdtempSync(join(tmpdir(), "repo-root-"));
       const dir = join(root, "types", "foo");
-      mkdirSync(join(dir, "tpl"), { recursive: true });
-      writeFileSync(
-        join(dir, "manifest.yaml"),
-        "identity:\n  templatesDir: tpl\n",
-      );
+      mkdirSync(join(dir, "templates"), { recursive: true });
       for (const f of [
         "CLAUDE.md.template",
         "SOUL.md.template",
         "IDENTITY.md.template",
       ]) {
-        writeFileSync(join(dir, "tpl", f), "x");
+        writeFileSync(join(dir, "templates", f), "x");
       }
-      return { root, tpl: join(dir, "tpl") };
+      return { root, tpl: join(dir, "templates") };
     };
 
-    it("resolves templatesDir against SHIPWRIGHT_REPO_ROOT when set", () => {
+    it("resolves a type's templates/ under SHIPWRIGHT_SPECIALTIES_DIR when SHIPWRIGHT_REPO_ROOT is set", () => {
       const { root, tpl } = makeRoot();
       try {
         const warnings: string[] = [];

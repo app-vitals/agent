@@ -92,18 +92,9 @@ describe("fixture specialty templates", () => {
 });
 
 describe("coding is not special-cased (PCD-2.2)", () => {
-  const writeCodingManifest = (templatesDir: string) => {
+  it("resolves coding through the templates/ convention under the specialties dir", () => {
     const specialties = join(root, "specialties");
-    mkdirSync(join(specialties, "coding"), { recursive: true });
-    writeFileSync(
-      join(specialties, "coding", "manifest.yaml"),
-      `identity:\n  templatesDir: ${templatesDir}\n`,
-    );
-    return specialties;
-  };
-
-  it("resolves coding through its manifest identity.templatesDir", () => {
-    const tpl = join(root, "coding-tpl");
+    const tpl = join(specialties, "coding", "templates");
     mkdirSync(tpl, { recursive: true });
     for (const f of [
       "CLAUDE.md.template",
@@ -113,7 +104,7 @@ describe("coding is not special-cased (PCD-2.2)", () => {
       writeFileSync(join(tpl, f), "x");
     const warnings: string[] = [];
     const dir = resolveTemplatesDir("coding", root, (m) => warnings.push(m), {
-      SHIPWRIGHT_SPECIALTIES_DIR: writeCodingManifest(tpl),
+      SHIPWRIGHT_SPECIALTIES_DIR: specialties,
     });
     expect(dir).toBe(tpl);
     expect(warnings).toEqual([]);

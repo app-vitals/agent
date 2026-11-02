@@ -31,7 +31,7 @@ How the pieces fit:
   configuration of the admin process.
 - [agent-runtime.md](agent-runtime.md): the two runtime processes, boot order,
   Claude invocation, Slack, chat, cron, GitHub auth and health.
-- [agent-types.md](agent-types.md): the Specialty manifests that seed a new agent.
+- [agent-types.md](agent-types.md): the built-in specialist type record and the workspace templates that seed a new agent.
 - [shared-lib.md](shared-lib.md): modules shared by `admin/` and `runtime/`.
 
 ## Agent run modes

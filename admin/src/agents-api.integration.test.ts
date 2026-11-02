@@ -25,13 +25,15 @@ import type { AgentProvisioner } from "./agent-provisioner.ts";
 import { NoopAgentProvisioner } from "./agent-provisioner.ts";
 import { AgentTokenService } from "./agent-tokens.ts";
 import { AgentToolService } from "./agent-tools.ts";
-import type { SpecialtyManifestResolver } from "./specialty-manifest-loader.ts";
-import type { SpecialtyManifest } from "./specialty-registry.ts";
 import { AgentService } from "./agents.ts";
 import type { AdminDeps } from "./agents-api.ts";
 import { createAdminApp } from "./agents-api.ts";
 import { NoopChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
+import type {
+  SpecialtyType,
+  SpecialtyTypeResolver,
+} from "./specialty-types.ts";
 import { makeTokenCrypto } from "./token-crypto.ts";
 
 const TEST_DB = process.env.DATABASE_URL_ADMIN_TEST;
@@ -70,19 +72,10 @@ async function createAgent(
 }
 
 /** A minimal valid "coding" manifest used to drive seeding assertions below. */
-const CODING_MANIFEST: SpecialtyManifest = {
-  apiVersion: "shipwright.dev/v1alpha1",
-  kind: "Specialty",
-  metadata: {
-    name: "coding",
-    displayName: "Coding Agent",
-    description: "test manifest",
-    version: "1.0.0",
-    skills: [],
-  },
-  identity: { templatesDir: "workspace/" },
-  crons: [],
-  plugins: ["shipwright"],
+const CODING_TYPE: SpecialtyType = {
+  name: "coding",
+  displayName: "Coding Agent",
+  templatesDir: "workspace/",
   tools: [
     "Read",
     "Write",
@@ -95,32 +88,28 @@ const CODING_MANIFEST: SpecialtyManifest = {
     "Skill",
     "Agent",
   ],
-  env: { required: [], optional: [] },
-  members: [],
-  repos: [],
-  chat: true,
-  voice: true,
+  requiredEnv: [],
 };
 
 /**
- * Fake SpecialtyManifestResolver — resolves a fixed map of manifests by
- * specialty. tryGetManifest() returns undefined (no fallback) for anything
- * not in the map, mirroring SpecialtyRegistry's real contract.
+ * Fake SpecialtyTypeResolver — resolves a fixed map of manifests by
+ * specialty. tryGetType() returns undefined (no fallback) for anything
+ * not in the map, mirroring SpecialtyTypes's real contract.
  */
-function fakeSpecialtyRegistry(
-  byType: Record<string, SpecialtyManifest> = { coding: CODING_MANIFEST },
-): SpecialtyManifestResolver {
+function fakeSpecialtyTypes(
+  byType: Record<string, SpecialtyType> = { coding: CODING_TYPE },
+): SpecialtyTypeResolver {
   return {
-    getManifest(specialty: string): SpecialtyManifest {
-      return byType[specialty] ?? (byType.coding as SpecialtyManifest);
+    getType(specialty: string): SpecialtyType {
+      return byType[specialty] ?? (byType.coding as SpecialtyType);
     },
-    tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+    tryGetType(specialty: string): SpecialtyType | undefined {
       return byType[specialty];
     },
     listTypes() {
       return Object.entries(byType).map(([name, manifest]) => ({
         name,
-        displayName: manifest.metadata.displayName,
+        displayName: manifest.displayName,
       }));
     },
   };
@@ -129,7 +118,7 @@ function fakeSpecialtyRegistry(
 function makeDeps(
   prisma: PrismaClient,
   provisioner: AgentProvisioner = new NoopAgentProvisioner(),
-  specialtyRegistry: SpecialtyManifestResolver = fakeSpecialtyRegistry(),
+  specialtyRegistry: SpecialtyTypeResolver = fakeSpecialtyTypes(),
 ): AdminDeps {
   const savedKey = process.env.SHIPWRIGHT_ENCRYPTION_KEY;
   process.env.SHIPWRIGHT_ENCRYPTION_KEY = REAL_KEY;

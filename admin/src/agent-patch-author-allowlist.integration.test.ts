@@ -27,13 +27,15 @@ import { AgentPluginService } from "./agent-plugins.ts";
 import { NoopAgentProvisioner } from "./agent-provisioner.ts";
 import { AgentTokenService } from "./agent-tokens.ts";
 import { AgentToolService } from "./agent-tools.ts";
-import type { SpecialtyManifestResolver } from "./specialty-manifest-loader.ts";
-import type { SpecialtyManifest } from "./specialty-registry.ts";
 import { AgentService } from "./agents.ts";
 import type { AdminDeps } from "./agents-api.ts";
 import { createAdminApp } from "./agents-api.ts";
 import { NoopChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
+import type {
+  SpecialtyType,
+  SpecialtyTypeResolver,
+} from "./specialty-types.ts";
 import { makeTokenCrypto } from "./token-crypto.ts";
 
 const TEST_DB = process.env.DATABASE_URL_ADMIN_TEST;
@@ -63,40 +65,27 @@ function makePrisma(): PrismaClient {
   return createAdminPrismaClient(TEST_DB as string);
 }
 
-const CODING_MANIFEST: SpecialtyManifest = {
-  apiVersion: "shipwright.dev/v1alpha1",
-  kind: "Specialty",
-  metadata: {
-    name: "coding",
-    displayName: "Coding Agent",
-    description: "test manifest",
-    version: "1.0.0",
-    skills: [],
-  },
-  identity: { templatesDir: "workspace/" },
-  crons: [],
-  plugins: ["shipwright"],
+const CODING_TYPE: SpecialtyType = {
+  name: "coding",
+  displayName: "Coding Agent",
+  templatesDir: "workspace/",
   tools: ["Read", "Write", "Edit"],
-  env: { required: [], optional: [] },
-  members: [],
-  repos: [],
-  chat: true,
-  voice: true,
+  requiredEnv: [],
 };
 
-function fakeSpecialtyRegistry(): SpecialtyManifestResolver {
-  const byType: Record<string, SpecialtyManifest> = { coding: CODING_MANIFEST };
+function fakeSpecialtyTypes(): SpecialtyTypeResolver {
+  const byType: Record<string, SpecialtyType> = { coding: CODING_TYPE };
   return {
-    getManifest(specialty: string): SpecialtyManifest {
-      return byType[specialty] ?? (byType.coding as SpecialtyManifest);
+    getType(specialty: string): SpecialtyType {
+      return byType[specialty] ?? (byType.coding as SpecialtyType);
     },
-    tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+    tryGetType(specialty: string): SpecialtyType | undefined {
       return byType[specialty];
     },
     listTypes() {
       return Object.entries(byType).map(([name, manifest]) => ({
         name,
-        displayName: manifest.metadata.displayName,
+        displayName: manifest.displayName,
       }));
     },
   };
@@ -122,7 +111,7 @@ function makeDeps(prisma: PrismaClient): AdminDeps {
     agentTokenService: new AgentTokenService(prisma),
     agentPluginService: new AgentPluginService(prisma),
     agentMemberService: new AgentMemberService(prisma),
-    specialtyRegistry: fakeSpecialtyRegistry(),
+    specialtyRegistry: fakeSpecialtyTypes(),
     agentChatTokenService: new AgentChatTokenService(prisma),
     agentGitHubInstallationsService: new AgentGitHubInstallationsService(
       prisma,

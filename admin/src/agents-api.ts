@@ -49,10 +49,6 @@ import {
   registerAgentAskRoutes,
 } from "./agent-ask.ts";
 import type { AgentChatTokenService } from "./agent-chat-tokens.ts";
-import {
-  type CronRunNowDeps,
-  registerCronRunNowRoutes,
-} from "./cron-run-now.ts";
 import type {
   AgentCronJobService,
   AgentCronJobWithRunSummary,
@@ -93,6 +89,10 @@ import {
   memberOnlyCallerScopeResolver,
 } from "./caller-scope.ts";
 import type { ChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
+import {
+  type CronRunNowDeps,
+  registerCronRunNowRoutes,
+} from "./cron-run-now.ts";
 import {
   type CronRunTranscriptDeps,
   registerCronRunTranscriptRoutes,
@@ -157,7 +157,7 @@ import {
 } from "./openapi-schemas.ts";
 import type { SelfServeConfig } from "./self-serve-config.ts";
 import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
-import type { SpecialtyManifestResolver } from "./specialty-manifest-loader.ts";
+import type { SpecialtyTypeResolver } from "./specialty-types.ts";
 import { managedReconcileTargets } from "./startup-policy-reconcile.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -218,15 +218,15 @@ export interface AdminDeps {
   /** Account-aware caller-scope resolver (SSP-2.1); defaults to AgentMember-only. */
   callerScopeResolver?: CallerScopeResolver;
   /**
-   * Resolves a specialty name to its parsed Specialty manifest. Consumed
+   * Resolves a specialty name to its type record. Consumed
    * by POST /agents (createAgentRoute, APA-2.1) to seed AgentTool/AgentPlugin
-   * rows from the resolved manifest during agent creation — the same
+   * rows from the resolved type during agent creation — the same
    * createAgent() call admin-ui.ts's POST /admin/agents form handler makes
    * with its own independently-constructed specialtyRegistry instance.
    * Required (not optional) because the route needs it unconditionally.
    */
-  specialtyRegistry: SpecialtyManifestResolver;
-  /** Extension-supplied specialty defaults, consulted before the manifest. */
+  specialtyRegistry: SpecialtyTypeResolver;
+  /** Extension-supplied specialty defaults, consulted before the built-in type. */
   specialtyDefaults?: SpecialtyDefaultsResolver;
   agentChatTokenService: Pick<
     AgentChatTokenService,
@@ -421,7 +421,7 @@ const GetAgentResultSchema = z
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     /**
-     * Required env keys declared by the agent's type manifest that have no
+     * Required env keys declared by the agent's type that have no
      * corresponding AgentEnv row yet — key names only, never values
      * (secrets_in_logs). Always present; informational only (ATS-4.2).
      */
@@ -585,7 +585,7 @@ const createAgentRoute = createRoute({
   path: "/agents",
   summary: "Create an agent",
   description:
-    'Admin-only. Validates name/specialty, creates the Agent row, seeds AgentTool/AgentPlugin rows from the resolved type manifest, attaches repos/allowlists/members, patches Claude credentials, and provisions Kubernetes when `runtime` is "in-cluster" — the same createAgent() implementation (APA-1.1) the web UI form at /admin/agents/new uses. Transactional: on any failure zero rows persist, and this route never returns a partial-success 200. Returns the created agent in the same shape as GET /agents/:id.',
+    'Admin-only. Validates name/specialty, creates the Agent row, seeds AgentTool/AgentPlugin rows from the resolved type, attaches repos/allowlists/members, patches Claude credentials, and provisions Kubernetes when `runtime` is "in-cluster" — the same createAgent() implementation (APA-1.1) the web UI form at /admin/agents/new uses. Transactional: on any failure zero rows persist, and this route never returns a partial-success 200. Returns the created agent in the same shape as GET /agents/:id.',
   request: {
     body: {
       content: { "application/json": { schema: CreateAgentBodySchema } },
@@ -606,7 +606,7 @@ const getAgentRoute = createRoute({
   path: "/agents/{id}",
   summary: "Get an agent",
   description:
-    "Admin-only. Returns the full agent record including `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `specialty`, `accountId` (null for unassigned agents), and `missingRequiredEnv` — required env keys declared by the agent's type manifest with no corresponding AgentEnv row yet (informational only).",
+    "Admin-only. Returns the full agent record including `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `specialty`, `accountId` (null for unassigned agents), and `missingRequiredEnv` — required env keys declared by the agent's type with no corresponding AgentEnv row yet (informational only).",
   request: { params: AgentIdParamSchema },
   responses: {
     200: {
@@ -809,7 +809,7 @@ const reconcileCronsRoute = createRoute({
   path: "/agents/{id}/crons/reconcile",
   summary: "Reconcile system crons",
   description:
-    "Reconciles the agent's system crons against the cron list declared by its Specialty manifest. Runs in three passes within a single transaction: create-or-update matched-by-name system crons (preserving IDs so run history survives), link/unlink parent-child cron relationships, and delete orphaned system crons no longer in the manifest. Called automatically on agent startup; returns created/updated/deleted counts.",
+    "Reconciles the agent's system crons against the cron list supplied by the AdminExtension for its specialty. Runs in three passes within a single transaction: create-or-update matched-by-name system crons (preserving IDs so run history survives), link/unlink parent-child cron relationships, and delete orphaned system crons no longer in the defaults. Called automatically on agent startup; returns created/updated/deleted counts.",
   request: { params: AgentIdParamSchema },
   responses: {
     200: {

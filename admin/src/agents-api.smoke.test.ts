@@ -22,28 +22,19 @@ import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AdminDeps } from "./agents-api.ts";
 import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
 import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
-import type { SpecialtyManifest } from "./specialty-registry.ts";
+import type { SpecialtyType } from "./specialty-types.ts";
 import { identityCrypto } from "./token-crypto.ts";
 
-// ─── Fake SpecialtyManifestResolver ────────────────────────────────────────
+// ─── Fake SpecialtyTypeResolver ────────────────────────────────────────
 //
 // Mirrors the shape used by agent-cron-jobs.unit.test.ts's fakeRegistry —
-// resolves a fixed set of manifests by specialty, with tryGetManifest()
+// resolves a fixed set of manifests by specialty, with tryGetType()
 // returning undefined (no fallback) for anything not in the map.
 
-const CODING_MANIFEST: SpecialtyManifest = {
-  apiVersion: "shipwright.dev/v1alpha1",
-  kind: "Specialty",
-  metadata: {
-    name: "coding",
-    displayName: "Coding Agent",
-    description: "test manifest",
-    version: "1.0.0",
-    skills: [],
-  },
-  identity: { templatesDir: "workspace/" },
-  crons: [],
-  plugins: ["shipwright"],
+const CODING_TYPE: SpecialtyType = {
+  name: "coding",
+  displayName: "Coding Agent",
+  templatesDir: "workspace/",
   tools: [
     "Read",
     "Write",
@@ -56,32 +47,28 @@ const CODING_MANIFEST: SpecialtyManifest = {
     "Skill",
     "Agent",
   ],
-  env: { required: [], optional: [] },
-  members: [],
-  repos: [],
-  chat: true,
-  voice: true,
+  requiredEnv: [],
 };
 
-function fakeSpecialtyRegistry(
+function fakeSpecialtyTypes(
   // The self-serve specialty is registered too: account users are forced to it
   // (the platform test run points it at the fixture specialty, not "coding").
-  byType: Record<string, SpecialtyManifest> = {
-    coding: CODING_MANIFEST,
-    [getSelfServeSpecialty()]: CODING_MANIFEST,
+  byType: Record<string, SpecialtyType> = {
+    coding: CODING_TYPE,
+    [getSelfServeSpecialty()]: CODING_TYPE,
   },
 ): AdminDeps["specialtyRegistry"] {
   return {
-    getManifest(specialty: string) {
-      return byType[specialty] ?? (byType.coding as SpecialtyManifest);
+    getType(specialty: string) {
+      return byType[specialty] ?? (byType.coding as SpecialtyType);
     },
-    tryGetManifest(specialty: string) {
+    tryGetType(specialty: string) {
       return byType[specialty];
     },
     listTypes() {
       return Object.entries(byType).map(([name, manifest]) => ({
         name,
-        displayName: manifest.metadata.displayName,
+        displayName: manifest.displayName,
       }));
     },
   };
@@ -578,7 +565,7 @@ function makeMockDeps(): AdminDeps {
         },
       ],
     },
-    specialtyRegistry: fakeSpecialtyRegistry(),
+    specialtyRegistry: fakeSpecialtyTypes(),
     agentChatTokenService: {
       upsertDailyByModel: async (
         _agentId: string,

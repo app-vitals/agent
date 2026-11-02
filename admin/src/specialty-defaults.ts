@@ -4,12 +4,12 @@
  * The shape of a specialty's default crons, tools and plugins as supplied by
  * an AdminExtension's specialtyDefaults() hook (admin-extension.ts). The cron
  * reconcile (agent-cron-jobs.ts) and create-time seeding (agents.ts) consult
- * the hook first and fall back to the specialty manifest when it returns
- * nothing. Kept in its own module so those services can name the types without
+ * the hook first and fall back to the built-in type (lib/specialist-type.ts)
+ * when it returns nothing. Kept in its own module so those services can name the types without
  * importing admin-extension.ts.
  */
 
-/** A default cron template; same fields as a manifest cron, defaults optional. */
+/** A default cron template; defaults optional. */
 export interface SpecialtyDefaultCron {
   name: string;
   schedule: string;
@@ -22,7 +22,7 @@ export interface SpecialtyDefaultCron {
   parentCron?: string;
 }
 
-/** Any field left undefined falls back to the manifest for that field. */
+/** Any field left undefined falls back to the built-in type for that field. */
 export interface SpecialtyDefaults {
   crons?: readonly SpecialtyDefaultCron[];
   tools?: readonly string[];

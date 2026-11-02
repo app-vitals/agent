@@ -28,12 +28,12 @@
  *                            serviceIntegrations it needs no context and is
  *                            collected before the services are built; the cron
  *                            reconcile and create-time seeding consult it
- *                            before the specialty manifest, which remains the
- *                            fallback when no extension returns anything
+ *                            before the built-in specialist type, which remains
+ *                            the fallback when no extension returns anything
  *   agentTypes()           — agent types this extension offers in the new-agent
  *                            picker and accepts in POST /admin/agents, for
- *                            types with no manifest on disk. Extension entries
- *                            win over a manifest of the same name; a type's
+ *                            types beyond the built-in specialist. Extension
+ *                            entries win over a built-in of the same name; a type's
  *                            crons still come from specialtyDefaults(name)
  *
  * openApi() is static (no context): scripts/generate-admin-spec.ts calls it to
@@ -68,9 +68,9 @@ import type {
   SpecialtyDefaultsResolver,
 } from "./specialty-defaults.ts";
 import type {
-  SpecialtyManifestResolver,
   SpecialtyOption,
-} from "./specialty-manifest-loader.ts";
+  SpecialtyTypeResolver,
+} from "./specialty-types.ts";
 
 /** The platform services an extension may build on. */
 export interface AdminPlatformServices {
@@ -187,9 +187,9 @@ export interface AdminExtension {
   name?: string;
   /** See the header: env-only, resolved before the provisioner is built. */
   serviceIntegrations?(env: NodeJS.ProcessEnv): ServiceIntegration[];
-  /** See the header: undefined means "no opinion" — the manifest applies. */
+  /** See the header: undefined means "no opinion" — the built-in type applies. */
   specialtyDefaults?(specialty: string): SpecialtyDefaults | undefined;
-  /** See the header: additive; merged over the manifest-discovered types. */
+  /** See the header: additive; merged over the built-in types. */
   agentTypes?(): SpecialtyOption[];
   services?(ctx: AdminExtensionContext): AdminExtensionServices;
   apiRoutes?(ctx: AdminExtensionContext): AdminRouteContribution[];
@@ -369,8 +369,9 @@ export function collectServiceIntegrations(
 
 /**
  * Builds the resolver the cron reconcile and create-time seeding consult
- * before the manifest. The first extension returning defaults wins; with none
- * registered (or none answering) it returns undefined and the manifest applies.
+ * before the built-in type. The first extension returning defaults wins; with none
+ * registered (or none answering) it returns undefined and the built-in type's
+ * tools floor applies.
  */
 export function collectSpecialtyDefaults(
   extensions: readonly AdminExtension[],
@@ -385,7 +386,7 @@ export function collectSpecialtyDefaults(
 }
 
 /**
- * Merges every extension's agentTypes() over the manifest-discovered `base`
+ * Merges every extension's agentTypes() over the built-in `base`
  * list. Order is base first, then new extension names; on a name collision the
  * extension's entry replaces the base entry in place.
  */
@@ -406,12 +407,12 @@ export function mergeAgentTypes(
  * the wrapped registry behaves exactly like `registry`.
  */
 export function withExtensionAgentTypes(
-  registry: SpecialtyManifestResolver,
+  registry: SpecialtyTypeResolver,
   extensions: readonly AdminExtension[],
-): SpecialtyManifestResolver {
+): SpecialtyTypeResolver {
   return {
-    getManifest: (specialty) => registry.getManifest(specialty),
-    tryGetManifest: (specialty) => registry.tryGetManifest(specialty),
+    getType: (specialty) => registry.getType(specialty),
+    tryGetType: (specialty) => registry.tryGetType(specialty),
     listTypes: () => mergeAgentTypes(registry.listTypes(), extensions),
     hasExtensionType: (specialty) =>
       mergeAgentTypes([], extensions).some((type) => type.name === specialty),

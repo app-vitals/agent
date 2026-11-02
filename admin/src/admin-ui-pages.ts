@@ -28,7 +28,7 @@ import type {
   ThreadStats,
 } from "./http-chat-client.ts";
 import { renderPushToggle } from "./push-toggle.ts";
-import type { SpecialtyOption } from "./specialty-manifest-loader.ts";
+import type { SpecialtyOption } from "./specialty-types.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ export interface AgentDetail {
   /** The agent's type name (e.g. "specialist"), resolved at creation time. */
   specialty: string;
   /**
-   * Required env keys declared by the agent's type manifest with no
+   * Required env keys declared by the agent's type with no
    * corresponding AgentEnv row yet — key names only, never values. Always
    * present; purely informational (ATS-4.2), see renderAgentDetailPage's Env
    * Vars card.

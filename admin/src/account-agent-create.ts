@@ -9,7 +9,7 @@
  */
 
 import type { CallerScope } from "./caller-scope.ts";
-import { resolveDefaultSpecialtyName } from "./specialty-manifest-loader.ts";
+import { resolveDefaultSpecialtyName } from "./specialty-types.ts";
 
 /**
  * The only specialty account users may create: SHIPWRIGHT_SELF_SERVE_AGENT_TYPE

@@ -21,8 +21,7 @@
     "./main": "./src/main.ts",
     "./openapi-schemas": "./src/openapi-schemas.ts",
     "./prisma-client": "./src/prisma-client.ts",
-    "./specialty-manifest-loader": "./src/specialty-manifest-loader.ts",
-    "./specialty-registry": "./src/specialty-registry.ts",
+    "./specialty-types": "./src/specialty-types.ts",
     "./theme-tokens.json": "./src/theme-tokens.json",
     "./*": "./src/*.ts",
     "./prisma/client/*": "./prisma/client/*",
@@ -52,7 +51,6 @@
     "@slack/web-api": "^8.1.0",
     "hono": "^4.13.1",
     "pg": "^8.16.3",
-    "yaml": "^2.9.0",
     "zod": "^4"
   },
   "devDependencies": {

@@ -20,15 +20,18 @@ import type {
   AdminUISlackClient,
 } from "./admin-ui.ts";
 import { createAdminUIApp } from "./admin-ui.ts";
-import { SpecialtyRegistry } from "./specialty-manifest-loader.ts";
 import type { GoogleAuthClient } from "./google-auth-client.ts";
+import {
+  resolveDefaultSpecialtyName,
+  SpecialtyTypes,
+} from "./specialty-types.ts";
 
 // The configured default specialty (the fixture under the platform test run,
 // "coding" in the monorepo).
-const TYPE_META = new SpecialtyRegistry().getManifest(
-  process.env.SHIPWRIGHT_DEFAULT_AGENT_TYPE || "coding",
-).metadata;
-const TYPE = TYPE_META.name;
+const TYPE = resolveDefaultSpecialtyName();
+const TYPE_META = new SpecialtyTypes()
+  .listTypes()
+  .find((t) => t.name === TYPE) as { name: string; displayName: string };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

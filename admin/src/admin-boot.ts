@@ -74,9 +74,6 @@ import {
 import { createAdminUIApp } from "./admin-ui.ts";
 import { AgentAskService } from "./agent-ask.ts";
 import { parseAgentAskConfig } from "./agent-ask-config.ts";
-import { CronRunNowService } from "./cron-run-now.ts";
-import { parseCronRunNowConfig } from "./cron-run-now-config.ts";
-import { parsePodServiceAccountConfig } from "./pod-service-account-config.ts";
 import { AgentChatTokenService } from "./agent-chat-tokens.ts";
 import { AgentCronJobService } from "./agent-cron-jobs.ts";
 import { AgentCronRunStatsService } from "./agent-cron-run-stats.ts";
@@ -97,6 +94,8 @@ import {
 } from "./caller-scope.ts";
 import { parseChatCredentialConfig } from "./chat-credential-config.ts";
 import { HttpChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
+import { CronRunNowService } from "./cron-run-now.ts";
+import { parseCronRunNowConfig } from "./cron-run-now-config.ts";
 import { CronRunTranscriptService } from "./cron-run-transcripts.ts";
 import { isDevAuthAllowed } from "./dev-auth-guard.ts";
 import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-client.ts";
@@ -104,13 +103,14 @@ import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";
 import { mountPlatformDoc } from "./platform-doc-route.ts";
+import { parsePodServiceAccountConfig } from "./pod-service-account-config.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
 import { isPushEnabled } from "./push-sender.ts";
 import { PushService } from "./push-service.ts";
 import { parseRepoAccessConfig } from "./repo-access-config.ts";
 import { parseSelfServeConfig } from "./self-serve-config.ts";
 import { HttpSlackProvisioningClient } from "./slack-provisioning-client.ts";
-import { SpecialtyRegistry } from "./specialty-manifest-loader.ts";
+import { SpecialtyTypes } from "./specialty-types.ts";
 import { runStartupPolicyReconcile } from "./startup-policy-reconcile.ts";
 import { makeTokenCrypto } from "./token-crypto.ts";
 import { parseTranscriptConfig } from "./transcript-config.ts";
@@ -181,10 +181,10 @@ export async function startAdmin(
     anthropicFederationEnabled,
   );
   // Extension-supplied specialty defaults (crons/tools/plugins), consulted by
-  // the cron reconcile and create-time seeding before the manifest.
+  // the cron reconcile and create-time seeding before the built-in type.
   const specialtyDefaults = collectSpecialtyDefaults(extensions);
   const specialtyRegistry = withExtensionAgentTypes(
-    new SpecialtyRegistry(),
+    new SpecialtyTypes(),
     extensions,
   );
   const agentCronJobService = new AgentCronJobService(
