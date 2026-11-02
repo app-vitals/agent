@@ -52,9 +52,8 @@ describe("consumer compat workflow", () => {
     );
   });
 
-  test("is advisory: not continue-on-error, and not a check the release waits on", () => {
+  test("is required via the ruleset: not continue-on-error, and not a check the release waits on", () => {
     expect(code).not.toContain("continue-on-error");
-    expect(raw.toLowerCase()).toContain("advisory");
     const release = readFileSync(
       join(root, ".github/workflows/release.yml"),
       "utf8",
