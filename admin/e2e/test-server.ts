@@ -30,13 +30,13 @@ import type {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 // The suite runs without a product specialty: point the specialty lookup at the
-// minimal "coding" fixture next to this file (values already set win).
+// minimal "specialist" fixture next to this file (values already set win).
 process.env.SHIPWRIGHT_SPECIALTIES_DIR ||= resolve(
   import.meta.dir,
   "fixtures",
   "specialties",
 );
-process.env.SHIPWRIGHT_DEFAULT_AGENT_TYPE ||= "coding";
+process.env.SHIPWRIGHT_DEFAULT_AGENT_TYPE ||= "specialist";
 
 const ADMIN_E2E_PORT = 3490;
 const ADMIN_E2E_SESSION_SECRET =
@@ -324,7 +324,7 @@ function buildMockDeps(chatClient: ChatClient | undefined): AdminUIDeps {
           name: ADMIN_E2E_AGENT.name,
           slackId: ADMIN_E2E_AGENT.slackId,
           selfHosted: false,
-          specialty: "coding",
+          specialty: "specialist",
           createdAt: new Date("2024-01-01"),
           updatedAt: new Date("2024-01-01"),
         },
@@ -339,7 +339,7 @@ function buildMockDeps(chatClient: ChatClient | undefined): AdminUIDeps {
         name: input.name ?? ADMIN_E2E_AGENT.name,
         slackId: ADMIN_E2E_AGENT.slackId,
         selfHosted: false,
-        specialty: input.specialty ?? "coding",
+        specialty: input.specialty ?? "specialist",
         createdAt: new Date("2024-01-01"),
         updatedAt: new Date("2024-01-01"),
       }),
@@ -349,7 +349,7 @@ function buildMockDeps(chatClient: ChatClient | undefined): AdminUIDeps {
         name: ADMIN_E2E_AGENT.name,
         slackId: ADMIN_E2E_AGENT.slackId,
         selfHosted: false,
-        specialty: "coding",
+        specialty: "specialist",
         createdAt: new Date("2024-01-01"),
         updatedAt: new Date("2024-01-01"),
         repos: [],
@@ -361,7 +361,7 @@ function buildMockDeps(chatClient: ChatClient | undefined): AdminUIDeps {
         name: ADMIN_E2E_AGENT.name,
         slackId: ADMIN_E2E_AGENT.slackId,
         selfHosted: false,
-        specialty: "coding",
+        specialty: "specialist",
         createdAt: new Date("2024-01-01"),
         updatedAt: new Date("2024-01-01"),
         repos: [],
