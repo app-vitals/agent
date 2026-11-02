@@ -313,7 +313,7 @@ test.describe("GET /admin/agents/new — type picker", () => {
       'select[name="type"] option[value="specialist"]',
     );
     await expect(specialistOption).toBeAttached();
-    await expect(specialistOption).toHaveText("specialist");
+    await expect(specialistOption).toHaveText("Specialist Agent");
   });
 });
 
