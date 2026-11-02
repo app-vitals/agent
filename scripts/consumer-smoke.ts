@@ -471,10 +471,10 @@ function importProbe(repoRoot: string, scratch: string): boolean {
 }
 
 /** Script run inside the scratch dir: listTypes() must not throw without agent-types/. */
-export const LIST_TYPES_PROBE = `import { SpecialtyRegistry } from "@app-vitals/agent-admin/specialty-manifest-loader";
+export const LIST_TYPES_PROBE = `import { SpecialtyTypes } from "@app-vitals/agent-admin/specialty-types";
 const warn = console.warn;
 console.warn = () => {};
-const types = new SpecialtyRegistry().listTypes();
+const types = new SpecialtyTypes().listTypes();
 console.warn = warn;
 if (!Array.isArray(types) || types.length < 1) {
   console.error("  FAIL listTypes() returned no options: " + JSON.stringify(types));

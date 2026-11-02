@@ -51,7 +51,6 @@
         "@slack/web-api": "^8.1.0",
         "hono": "^4.13.1",
         "pg": "^8.16.3",
-        "yaml": "^2.9.0",
         "zod": "^4",
       },
       "devDependencies": {

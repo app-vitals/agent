@@ -175,7 +175,7 @@ RUN if [ -f bun.lock ]; then bun install --frozen-lockfile; else bun install; fi
 COPY runtime/ ./runtime/
 COPY admin/ ./admin/
 COPY lib/ ./lib/
-# Agent-type definitions (setup.ts reads identity.templatesDir from them).
+# Agent-type definitions (setup.ts reads each type's templates/ from them).
 COPY agent-types/ ./agent-types/
 # Composition root spawned by runtime/entrypoint.ts (../index.ts).
 COPY index.ts ./index.ts

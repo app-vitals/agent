@@ -12,8 +12,6 @@ import { dirname, join, resolve } from "node:path";
 
 const DOCS = [
   "specialties.md",
-  "specialties-examples.md",
-  "specialties-sources.md",
   "github-multi-org.md",
   "agent-api.md",
   "agent-api-ops.md",

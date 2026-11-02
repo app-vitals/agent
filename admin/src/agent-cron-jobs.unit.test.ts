@@ -2,7 +2,7 @@
  * Unit tests for agent-cron-jobs.ts:
  *   - the pure cron-expression validator (isValidCron)
  *   - reconcileSystemCrons()'s create/update/orphan/parent-link logic, driven
- *     by an injected SpecialtyManifestResolver double and an in-memory prisma
+ *     by an injected SpecialtyTypeResolver double and an in-memory prisma
  *     test double (no real DB, no filesystem).
  *
  * Pure logic against injected doubles — see docs/testing.md for the unit-layer
@@ -11,11 +11,16 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentCronJob, PrismaClient } from "../prisma/client/client.ts";
 import { AgentCronJobService, isValidCron } from "./agent-cron-jobs.ts";
+import type {
+  SpecialtyDefaultCron,
+  SpecialtyDefaultsResolver,
+} from "./specialty-defaults.ts";
 import {
   resolveDefaultSpecialtyName,
-  type SpecialtyManifestResolver,
-} from "./specialty-manifest-loader.ts";
-import type { SpecialtyManifest } from "./specialty-registry.ts";
+  SPECIALIST_TYPE,
+  type SpecialtyType,
+  type SpecialtyTypeResolver,
+} from "./specialty-types.ts";
 
 describe("isValidCron", () => {
   test("accepts standard 5-field schedules", () => {
@@ -54,31 +59,31 @@ describe("isValidCron", () => {
 
 // ─── reconcileSystemCrons() with injected registry + fake prisma ────────────
 
-type ManifestCron = SpecialtyManifest["crons"][number];
+type DefaultCron = SpecialtyDefaultCron;
 
-/** Build a minimal valid-enough manifest carrying just the crons we care about. */
-function manifestWithCrons(crons: ManifestCron[]): SpecialtyManifest {
-  return { crons } as unknown as SpecialtyManifest;
-}
-
-/** A registry double that always returns a fixed manifest and records lookups. */
+/**
+ * A resolver double knowing the types in `byType`, plus the matching
+ * specialtyDefaults() hook supplying their crons. Records registry lookups.
+ */
 function fakeRegistry(
-  byType: Record<string, ManifestCron[]>,
-  fallbackType = "coding",
-): SpecialtyManifestResolver & { lookups: string[] } {
+  byType: Record<string, DefaultCron[]>,
+): SpecialtyTypeResolver & {
+  lookups: string[];
+  defaults: SpecialtyDefaultsResolver;
+} {
   const lookups: string[] = [];
   return {
     lookups,
-    getManifest(specialty: string): SpecialtyManifest {
-      lookups.push(specialty);
-      const crons = byType[specialty] ?? byType[fallbackType];
-      if (!crons) throw new Error(`no manifest for ${specialty}`);
-      return manifestWithCrons(crons);
-    },
-    tryGetManifest(specialty: string): SpecialtyManifest | undefined {
-      lookups.push(specialty);
+    defaults: (specialty) => {
       const crons = byType[specialty];
-      return crons ? manifestWithCrons(crons) : undefined;
+      return crons ? { crons } : undefined;
+    },
+    getType(): SpecialtyType {
+      return SPECIALIST_TYPE;
+    },
+    tryGetType(specialty: string): SpecialtyType | undefined {
+      lookups.push(specialty);
+      return specialty in byType ? SPECIALIST_TYPE : undefined;
     },
     listTypes() {
       return Object.keys(byType).map((name) => ({ name, displayName: name }));
@@ -211,7 +216,7 @@ function makeFakePrisma(opts: {
   return { prisma, rows };
 }
 
-const loopCron: ManifestCron = {
+const loopCron: DefaultCron = {
   name: "shipwright-loop",
   schedule: "* * * * *",
   prompt: "internal",
@@ -219,7 +224,7 @@ const loopCron: ManifestCron = {
   enabled: false,
 };
 
-const childCron: ManifestCron = {
+const childCron: DefaultCron = {
   name: "shipwright-dev-task",
   schedule: "* * * * *",
   prompt: "/shipwright:dev-task",
@@ -229,18 +234,22 @@ const childCron: ManifestCron = {
 };
 
 describe("reconcileSystemCrons (unit, injected registry)", () => {
-  test("resolves the agent's specialty via the injected registry", async () => {
+  test("uses the extension defaults for the agent's specialty without consulting the registry", async () => {
     const registry = fakeRegistry({ coding: [loopCron] });
-    const { prisma } = makeFakePrisma({ specialty: "coding" });
+    const { prisma, rows } = makeFakePrisma({ specialty: "coding" });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
       undefined,
       registry,
+      registry.defaults,
     );
 
     await service.reconcileSystemCrons("agent-1");
 
-    expect(registry.lookups).toEqual(["coding"]);
+    expect(registry.lookups).toEqual([]);
+    expect(Array.from(rows.values()).map((r) => r.name)).toEqual([
+      "shipwright-loop",
+    ]);
   });
 
   test("creates one row per manifest cron on a fresh agent", async () => {
@@ -250,6 +259,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
       prisma as unknown as PrismaClient,
       undefined,
       registry,
+      registry.defaults,
     );
 
     const result = await service.reconcileSystemCrons("agent-1");
@@ -270,6 +280,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
       prisma as unknown as PrismaClient,
       undefined,
       registry,
+      registry.defaults,
     );
 
     await service.reconcileSystemCrons("agent-1");
@@ -291,6 +302,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
       prisma as unknown as PrismaClient,
       undefined,
       registry,
+      registry.defaults,
     );
 
     const result = await service.reconcileSystemCrons("agent-1");
@@ -310,6 +322,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
       prisma as unknown as PrismaClient,
       undefined,
       registry,
+      registry.defaults,
     );
 
     const result = await service.reconcileSystemCrons("agent-1");
@@ -334,6 +347,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
       prisma as unknown as PrismaClient,
       undefined,
       registry,
+      registry.defaults,
     );
 
     await service.reconcileSystemCrons("agent-1");
@@ -354,6 +368,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
       prisma as unknown as PrismaClient,
       undefined,
       registry,
+      registry.defaults,
     );
     const errors: unknown[][] = [];
     const original = console.error;
@@ -384,6 +399,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
       prisma as unknown as PrismaClient,
       undefined,
       registry,
+      registry.defaults,
     );
     const original = console.error;
     console.error = () => {};
@@ -399,19 +415,19 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
     expect(Array.from(rows.keys())).toEqual(["sys-1"]);
   });
 
-  test("a valid non-coding manifest reconciles normally", async () => {
+  test("extension crons for a non-coding type reconcile normally", async () => {
     const registry = fakeRegistry({ specialist: [loopCron] });
     const { prisma, rows } = makeFakePrisma({ specialty: "specialist" });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
       undefined,
       registry,
+      registry.defaults,
     );
 
     const result = await service.reconcileSystemCrons("agent-1");
 
     expect(result.created).toBe(1);
-    expect(registry.lookups).toEqual(["specialist"]);
     expect(Array.from(rows.values())[0]?.name).toBe("shipwright-loop");
   });
 });
@@ -444,8 +460,8 @@ describe("reconcileSystemCrons (specialtyDefaults hook)", () => {
     expect(row?.enabled).toBe(false);
   });
 
-  test("hook returning nothing falls back to the manifest", async () => {
-    const registry = fakeRegistry({ coding: [loopCron] });
+  test("hook returning nothing falls back to the built-in type, which declares no crons", async () => {
+    const registry = fakeRegistry({ coding: [] });
     const { prisma, rows } = makeFakePrisma({ specialty: "coding" });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
@@ -456,13 +472,11 @@ describe("reconcileSystemCrons (specialtyDefaults hook)", () => {
 
     await service.reconcileSystemCrons("agent-1");
 
-    expect(Array.from(rows.values()).map((r) => r.name)).toEqual([
-      "shipwright-loop",
-    ]);
+    expect(Array.from(rows.values())).toEqual([]);
   });
 
-  test("defaults without crons fall back to the manifest crons", async () => {
-    const registry = fakeRegistry({ coding: [loopCron] });
+  test("defaults without crons fall back to the built-in type, which declares no crons", async () => {
+    const registry = fakeRegistry({ coding: [] });
     const { prisma, rows } = makeFakePrisma({ specialty: "coding" });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
@@ -473,9 +487,7 @@ describe("reconcileSystemCrons (specialtyDefaults hook)", () => {
 
     await service.reconcileSystemCrons("agent-1");
 
-    expect(Array.from(rows.values()).map((r) => r.name)).toEqual([
-      "shipwright-loop",
-    ]);
+    expect(Array.from(rows.values())).toEqual([]);
   });
 
   test("reconciles hook crons without any manifest for the specialty", async () => {

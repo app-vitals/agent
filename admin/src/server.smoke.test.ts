@@ -77,8 +77,8 @@ function buildComposedApp() {
       runTransaction: notImplemented,
     },
     specialtyRegistry: {
-      getManifest: notImplemented,
-      tryGetManifest: notImplemented,
+      getType: notImplemented,
+      tryGetType: notImplemented,
       listTypes: notImplemented,
     },
     agentEnvService: {

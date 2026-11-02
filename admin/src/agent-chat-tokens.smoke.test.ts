@@ -222,10 +222,10 @@ function makeMockDeps(opts?: {
       listByAgentId: async () => [],
     },
     specialtyRegistry: {
-      getManifest: () => {
+      getType: () => {
         throw new Error("not implemented");
       },
-      tryGetManifest: () => undefined,
+      tryGetType: () => undefined,
       listTypes: () => [],
     },
     agentChatTokenService: {

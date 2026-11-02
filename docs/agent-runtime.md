@@ -52,8 +52,8 @@ kubelet probes stay green during setup.
 
 1. `ensureAgentHome` creates `workspace/` (with `state/`, `repos/`,
    `worktrees/`, `.claude/`), `mise/`, and seeds the `*.md.template` files from
-   `runtime/workspace/` (or the specialty's `identity.templatesDir`, see
-   `resolveTemplatesDir`). Seeding never overwrites an existing file.
+   `runtime/workspace/` (or from the resolved specialty type's templates when
+   available, see `resolveTemplatesDir`). Seeding never overwrites an existing file.
 2. Health server.
 3. `runMiseStartup` and `installPlugins` (agent-specific plugins only).
 4. First config sync (awaited), then repeated every 60 s: fetch the bundle,

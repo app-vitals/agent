@@ -7,8 +7,6 @@
 
 import { describe, expect, it } from "bun:test";
 import { DEFAULT_AGENT_ENV } from "@app-vitals/agent-lib/default-agent-env";
-import type { SpecialtyManifestResolver } from "./specialty-manifest-loader.ts";
-import type { SpecialtyManifest } from "./specialty-registry.ts";
 import type {
   AgentDetail,
   CreateAgentDeps,
@@ -17,6 +15,11 @@ import type {
 } from "./agents.ts";
 import { AgentService, createAgent, resolveOwnerEmail } from "./agents.ts";
 import type { PrismaTransactionClient } from "./prisma-tx.ts";
+import {
+  SPECIALIST_TYPE,
+  type SpecialtyType,
+  type SpecialtyTypeResolver,
+} from "./specialty-types.ts";
 
 // ─── In-memory prisma.agent test double ────────────────────────────────────
 
@@ -255,24 +258,15 @@ type FakePrisma = ReturnType<typeof makeFakePrisma>;
  * fakeRegistry() pattern in agent-cron-jobs.unit.test.ts. */
 function fakeRegistry(
   requiredEnvByType: Record<string, string[]>,
-): SpecialtyManifestResolver {
+): SpecialtyTypeResolver {
   return {
-    getManifest(specialty: string): SpecialtyManifest {
+    getType(specialty: string): SpecialtyType {
       const required = requiredEnvByType[specialty] ?? [];
-      return {
-        env: {
-          required: required.map((key) => ({
-            key,
-            description: `${key} description`,
-            secret: true,
-          })),
-          optional: [],
-        },
-      } as unknown as SpecialtyManifest;
+      return { ...SPECIALIST_TYPE, requiredEnv: required };
     },
-    tryGetManifest(specialty: string): SpecialtyManifest | undefined {
+    tryGetType(specialty: string): SpecialtyType | undefined {
       if (!(specialty in requiredEnvByType)) return undefined;
-      return this.getManifest(specialty);
+      return this.getType(specialty);
     },
     listTypes() {
       return Object.keys(requiredEnvByType).map((name) => ({
@@ -1119,32 +1113,19 @@ describe("AgentService.updateFields", () => {
 // criterion this whole task is about) is covered separately by
 // agents.integration.test.ts against a real DB.
 
-const CODING_MANIFEST: SpecialtyManifest = {
-  apiVersion: "shipwright.dev/v1alpha1",
-  kind: "Specialty",
-  metadata: {
-    name: "coding",
-    displayName: "Coding Agent",
-    description: "test manifest",
-    version: "1.0.0",
-    skills: [],
-  },
-  identity: { templatesDir: "workspace/" },
-  crons: [],
-  plugins: ["shipwright"],
+const CODING_TYPE: SpecialtyType = {
+  name: "coding",
+  displayName: "Coding Agent",
+  templatesDir: "workspace/",
   tools: ["Read", "Write", "Bash"],
-  env: { required: [], optional: [] },
-  members: [],
-  repos: [],
-  chat: true,
-  voice: true,
-} as unknown as SpecialtyManifest;
+  requiredEnv: [],
+};
 
-function fakeCreateSpecialtyRegistry(
-  byType: Record<string, SpecialtyManifest> = { coding: CODING_MANIFEST },
-): Pick<SpecialtyManifestResolver, "tryGetManifest"> {
+function fakeCreateSpecialtyTypes(
+  byType: Record<string, SpecialtyType> = { coding: CODING_TYPE },
+): Pick<SpecialtyTypeResolver, "tryGetType"> {
   return {
-    tryGetManifest: (specialty: string) => byType[specialty],
+    tryGetType: (specialty: string) => byType[specialty],
   };
 }
 
@@ -1166,7 +1147,7 @@ interface CreateAgentHarnessCalls {
 
 function makeCreateAgentHarness(
   opts: {
-    manifests?: Record<string, SpecialtyManifest>;
+    manifests?: Record<string, SpecialtyType>;
     canProvision?: boolean;
     provisionImpl?: (agentId: string) => Promise<unknown>;
     toolAddImpl?: (agentId: string, pattern: string) => Promise<unknown>;
@@ -1283,7 +1264,7 @@ function makeCreateAgentHarness(
     },
   };
 
-  const specialtyRegistry = fakeCreateSpecialtyRegistry(opts.manifests);
+  const specialtyRegistry = fakeCreateSpecialtyTypes(opts.manifests);
 
   return {
     deps: {
@@ -1320,7 +1301,7 @@ function baseCreateAgentInput(
 }
 
 describe("createAgent() specialtyDefaults hook", () => {
-  it("seeds tools and plugins from the hook instead of the manifest", async () => {
+  it("seeds tools and plugins from the hook instead of the type", async () => {
     const { deps, calls } = makeCreateAgentHarness();
     deps.specialtyDefaults = () => ({
       tools: ["Grep"],
@@ -1334,18 +1315,16 @@ describe("createAgent() specialtyDefaults hook", () => {
     expect(calls.pluginsAdded.map((p) => p.name)).toEqual(["ext-plugin"]);
   });
 
-  it("falls back to the manifest when the hook returns nothing", async () => {
+  it("falls back to the type's tools floor when the hook returns nothing", async () => {
     const { deps, calls } = makeCreateAgentHarness();
     deps.specialtyDefaults = () => undefined;
 
     await createAgent(deps, baseCreateAgentInput());
 
-    expect(calls.toolsAdded.map((t) => t.pattern)).toEqual(
-      CODING_MANIFEST.tools,
-    );
-    expect(calls.pluginsAdded.map((p) => p.name)).toEqual(
-      CODING_MANIFEST.plugins,
-    );
+    expect(calls.toolsAdded.map((t) => t.pattern)).toEqual([
+      ...CODING_TYPE.tools,
+    ]);
+    expect(calls.pluginsAdded).toEqual([]);
   });
 
   it("falls back per field when the hook omits tools or plugins", async () => {
@@ -1354,9 +1333,9 @@ describe("createAgent() specialtyDefaults hook", () => {
 
     await createAgent(deps, baseCreateAgentInput());
 
-    expect(calls.toolsAdded.map((t) => t.pattern)).toEqual(
-      CODING_MANIFEST.tools,
-    );
+    expect(calls.toolsAdded.map((t) => t.pattern)).toEqual([
+      ...CODING_TYPE.tools,
+    ]);
     expect(calls.pluginsAdded.map((p) => p.name)).toEqual(["ext-plugin"]);
   });
 
@@ -1533,7 +1512,7 @@ describe("createAgent()", () => {
     expect(calls.created).toEqual([]);
   });
 
-  it("happy path: creates the agent, seeds manifest tools/plugins, attaches repos/allowlists/members, and reconciles crons", async () => {
+  it("happy path: creates the agent, seeds the type's tools, attaches repos/allowlists/members, and reconciles crons", async () => {
     const { deps, calls } = makeCreateAgentHarness({ canProvision: false });
 
     const result = await createAgent(
@@ -1557,7 +1536,7 @@ describe("createAgent()", () => {
       "Write",
       "Bash",
     ]);
-    expect(calls.pluginsAdded.map((p) => p.name)).toEqual(["shipwright"]);
+    expect(calls.pluginsAdded).toEqual([]);
     expect(calls.updateFieldsCalls).toEqual([
       { id: result.agent.id, fields: { repos: ["org/repo1", "org/repo2"] } },
       {
@@ -1615,6 +1594,7 @@ describe("createAgent()", () => {
         throw new Error("boom: plugin seeding failed");
       },
     });
+    deps.specialtyDefaults = () => ({ plugins: ["ext-plugin"] });
 
     const result = await createAgent(deps, baseCreateAgentInput());
 

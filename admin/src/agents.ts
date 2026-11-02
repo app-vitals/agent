@@ -19,13 +19,13 @@ import { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
 import type { AgentProvisioner } from "./agent-provisioner.ts";
 import type { AgentToolService } from "./agent-tools.ts";
-import {
-  type SpecialtyManifestResolver,
-  SpecialtyRegistry,
-} from "./specialty-manifest-loader.ts";
-import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
 import { ANTHROPIC_CREDENTIALS_BLOCKED_CODE } from "./anthropic-credential-guard.ts";
 import type { PrismaTransactionClient } from "./prisma-tx.ts";
+import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
+import {
+  type SpecialtyTypeResolver,
+  SpecialtyTypes,
+} from "./specialty-types.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ interface CreateAgentInput {
   selfHosted?: boolean;
   /** Specialty name. Omitted means Prisma's column default ("specialist") applies. */
   specialty?: string;
-  /** Initial repos[] — the manifest repos merged with any request-supplied repos. */
+  /** Initial repos[] from the request. */
   repos?: string[];
   /** Initial reviewAuthorAllowlist[]. */
   reviewAuthorAllowlist?: string[];
@@ -108,7 +108,7 @@ export interface AgentDetail extends Partial<AgentAnthropicIdentity> {
   createdAt: Date;
   updatedAt: Date;
   /**
-   * Required env keys declared by the agent's type manifest that have no
+   * Required env keys declared by the agent's type that have no
    * corresponding AgentEnv row yet — key names only, never values
    * (secrets_in_logs). Always present (empty array when the type's required
    * contract is empty or every required key is set). Informational only —
@@ -302,7 +302,7 @@ const DETAIL_SELECT = {
 export class AgentService {
   constructor(
     private prisma: PrismaClient,
-    private specialtyRegistry: SpecialtyManifestResolver = new SpecialtyRegistry(),
+    private specialtyRegistry: SpecialtyTypeResolver = new SpecialtyTypes(),
     private agentMemberService: Pick<
       AgentMemberService,
       "listByAgentId"
@@ -407,11 +407,11 @@ export class AgentService {
   }
 
   /**
-   * The env-contract gap: the type manifest's required env keys minus the
+   * The env-contract gap: the type's required env keys minus the
    * keys already present in this agent's AgentEnv rows (key names only,
    * never values — the AgentEnv query below selects only `key`, never
    * `value`, so decrypted secrets can never reach this computation).
-   * Skips the AgentEnv query entirely when the manifest declares no required
+   * Skips the AgentEnv query entirely when the type declares no required
    * keys. Purely informational: never blocks create or gates provisioning
    * (ATS-4.2).
    */
@@ -420,9 +420,7 @@ export class AgentService {
     specialty: string,
     client: PrismaTransactionClient = this.prisma,
   ): Promise<string[]> {
-    const requiredKeys = this.specialtyRegistry
-      .getManifest(specialty)
-      .env.required.map((entry) => entry.key);
+    const requiredKeys = this.specialtyRegistry.getType(specialty).requiredEnv;
 
     if (requiredKeys.length === 0) return [];
 
@@ -785,10 +783,10 @@ export interface CreateAgentDeps {
   agentCronJobService: Pick<AgentCronJobService, "reconcileSystemCrons">;
   provisioner: Pick<AgentProvisioner, "canProvision" | "provision">;
   specialtyRegistry: Pick<
-    SpecialtyManifestResolver,
-    "tryGetManifest" | "hasExtensionType"
+    SpecialtyTypeResolver,
+    "tryGetType" | "hasExtensionType"
   >;
-  /** Extension-supplied tools/plugins, consulted before the manifest's. */
+  /** Extension-supplied tools/plugins, consulted before the type's tools floor. */
   specialtyDefaults?: SpecialtyDefaultsResolver;
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
   anthropicFederationEnabled?: boolean;
@@ -839,7 +837,7 @@ type CreateAgentTxOutcome =
 
 /**
  * Atomically create an agent: validate name/specialty, create the Agent row,
- * seed AgentTool/AgentPlugin from the resolved type manifest, attach
+ * seed AgentTool/AgentPlugin from the resolved type, attach
  * repos/allowlists/members, patch Claude credentials, provision Kubernetes
  * resources when requested, and best-effort reconcile system crons.
  *
@@ -878,18 +876,18 @@ export async function createAgent(
   }
 
   // Resolve the requested type BEFORE creating any row — an unknown/missing
-  // type must fail with zero rows created. The resolved manifest is
-  // captured (not discarded) so its tools/plugins can be seeded below.
+  // type must fail with zero rows created. The resolved type is
+  // captured (not discarded) so its tools can be seeded below.
   const specialty = input.specialty;
-  const manifest = specialty
-    ? deps.specialtyRegistry.tryGetManifest(specialty)
+  const type = specialty
+    ? deps.specialtyRegistry.tryGetType(specialty)
     : undefined;
   const extensionDefaults = specialty
     ? deps.specialtyDefaults?.(specialty)
     : undefined;
   if (
     !specialty ||
-    (!manifest &&
+    (!type &&
       !extensionDefaults &&
       !deps.specialtyRegistry.hasExtensionType?.(specialty))
   ) {
@@ -947,21 +945,16 @@ export async function createAgent(
         tx,
       );
 
-      // Seed AgentTool/AgentPlugin rows from the resolved manifest. Roll the
-      // agent row back on any seeding failure so a retry with the same name
-      // doesn't collide with a half-seeded agent. Members/repos are NOT
-      // seeded from the manifest here — they have their own dedicated
-      // handling below, and the manifest's members/repos arrays are empty
-      // for every specialty that exists today.
+      // Seed AgentTool/AgentPlugin rows from the extension's defaults, else
+      // the type's tools floor. Roll the agent row back on any seeding
+      // failure so a retry with the same name doesn't collide with a
+      // half-seeded agent. Members/repos have their own dedicated handling
+      // below.
       try {
-        for (const pattern of extensionDefaults?.tools ??
-          manifest?.tools ??
-          []) {
+        for (const pattern of extensionDefaults?.tools ?? type?.tools ?? []) {
           await deps.agentToolService.add(agent.id, pattern, tx);
         }
-        for (const pluginName of extensionDefaults?.plugins ??
-          manifest?.plugins ??
-          []) {
+        for (const pluginName of extensionDefaults?.plugins ?? []) {
           await deps.agentPluginService.add(
             agent.id,
             pluginName,

@@ -591,10 +591,10 @@ describe("mergeAgentTypes", () => {
 
 describe("withExtensionAgentTypes", () => {
   const registry = {
-    getManifest: () => {
+    getType: () => {
       throw new Error("unused");
     },
-    tryGetManifest: () => undefined,
+    tryGetType: () => undefined,
     listTypes: () => [{ name: "specialist", displayName: "Specialist" }],
   };
 

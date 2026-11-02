@@ -20,7 +20,7 @@ describe("default specialty resolution", () => {
       join(import.meta.dir, "..", "agent-types"),
     );
     expect(
-      existsSync(join(SHIPPED_AGENT_TYPES_DIR, "specialist", "manifest.yaml")),
+      existsSync(join(SHIPPED_AGENT_TYPES_DIR, "specialist", "templates")),
     ).toBe(true);
   });
 

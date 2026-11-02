@@ -15,17 +15,9 @@ import type {
   SpecialtyDefaultsResolver,
 } from "./specialty-defaults.ts";
 import {
-  type SpecialtyManifestResolver,
-  SpecialtyRegistry,
-} from "./specialty-manifest-loader.ts";
-import type { SpecialtyManifest } from "./specialty-registry.ts";
-
-/**
- * The shape of a single cron template resolved from a specialty's manifest.
- * Structurally identical to the former SYSTEM_CRONS SystemCron entries — the
- * manifest is now the source of truth (see specialty-manifest-loader.ts).
- */
-type ManifestCron = SpecialtyManifest["crons"][number];
+  type SpecialtyTypeResolver,
+  SpecialtyTypes,
+} from "./specialty-types.ts";
 
 export type { AgentCronJob };
 
@@ -87,7 +79,7 @@ export class AgentCronJobService {
   constructor(
     private prisma: PrismaClient,
     private clock: Clock = SystemClock(),
-    private specialtyRegistry: SpecialtyManifestResolver = new SpecialtyRegistry(),
+    private specialtyRegistry: SpecialtyTypeResolver = new SpecialtyTypes(),
     private specialtyDefaults: SpecialtyDefaultsResolver = () => undefined,
   ) {}
 
@@ -442,26 +434,25 @@ export class AgentCronJobService {
   /**
    * Reconcile system crons for the given agent.
    *
-   * The cron list is resolved from the agent's type manifest — the agent's
-   * stored `specialty` is looked up via the injected SpecialtyRegistry's
-   * `tryGetManifest()` (the parsed `specialties/{specialty}/manifest.yaml`),
-   * deliberately WITHOUT the default-type fallback: any type (the default
-   * included) with no loadable manifest logs an error and reconciles nothing
-   * (no seeding of another type's crons, no deletion of existing system
-   * crons). This replaced the former hardcoded
-   * SYSTEM_CRONS array as the source of truth (ATS-3.2).
+   * The cron list comes from the extension's specialtyDefaults() for the
+   * agent's stored `specialty`. Without extension crons the built-in types
+   * (looked up via the injected resolver's `tryGetType()`, deliberately
+   * WITHOUT a fallback) declare none, so their system crons are cleared; a
+   * specialty that is neither registered nor built in logs an error and
+   * reconciles nothing (no seeding of another type's crons, no deletion of
+   * existing system crons).
    *
-   * Two passes so parent/child links resolve regardless of the manifest's
+   * Two passes so parent/child links resolve regardless of the default
    * cron order or whether this is the agent's very first reconcile (i.e.
    * the parent row may not exist yet when a child entry is processed):
    *
-   * Pass 1 — for each manifest cron entry:
+   * Pass 1 — for each default cron entry:
    *   - If an existing system cron with matching name exists: update it in
-   *     place with the current manifest definition, preserving its id and
+   *     place with the current default definition, preserving its id and
    *     existing enabled state. Updating in place (rather than delete+create)
    *     keeps the row's id stable across restarts so AgentCronRun history
    *     (FK onDelete: Cascade) is never wiped out from under it.
-   *   - If no matching cron exists: create it with the manifest's default
+   *   - If no matching cron exists: create it with the default
    *     enabled state.
    *   Records each entry's resulting row id in a name → id map as it goes.
    *
@@ -472,10 +463,10 @@ export class AgentCronJobService {
    * non-null parentCronId on that row is cleared back to null. Self-heals
    * the link on every reconcile call in both directions — null→set (e.g.
    * a pre-existing row from before parentCron was introduced) and set→null
-   * (e.g. a parentCron declaration removed from the manifest).
+   * (e.g. a parentCron declaration removed from the defaults).
    *
    * Orphan pass: delete any cron with system=true whose name is no longer in
-   * the resolved manifest cron list.
+   * the resolved default cron list.
    *
    * All three passes run inside a single transaction for atomicity.
    *
@@ -484,7 +475,7 @@ export class AgentCronJobService {
   async reconcileSystemCrons(
     agentId: string,
   ): Promise<{ created: number; updated: number; deleted: number }> {
-    // Resolve the agent's type manifest → its declared cron list. No default-type
+    // Resolve the agent's default cron list. No default-type
     // fallback: seeding another type's crons on an agent is worse than
     // leaving its crons untouched.
     const agent = await this.prisma.agent.findUnique({
@@ -495,19 +486,18 @@ export class AgentCronJobService {
       throw new NotFoundError(`agent ${agentId} not found`);
     }
     const { specialty } = agent;
-    // Extension-supplied crons win; the manifest is the fallback.
+    // Extension-supplied crons win; built-in types declare none.
     const extensionCrons = this.specialtyDefaults(specialty)?.crons;
-    const manifest = extensionCrons
+    const knownType = extensionCrons
       ? undefined
-      : this.specialtyRegistry.tryGetManifest(specialty);
-    if (!extensionCrons && !manifest) {
+      : this.specialtyRegistry.tryGetType(specialty);
+    if (!extensionCrons && !knownType) {
       console.error(
-        `reconcileSystemCrons: no loadable manifest for specialty "${specialty}" (agent ${agentId}) — leaving crons untouched`,
+        `reconcileSystemCrons: no known type for specialty "${specialty}" (agent ${agentId}) — leaving crons untouched`,
       );
       return { created: 0, updated: 0, deleted: 0 };
     }
-    const manifestCrons: readonly (ManifestCron | SpecialtyDefaultCron)[] =
-      extensionCrons ?? manifest?.crons ?? [];
+    const defaultCrons: readonly SpecialtyDefaultCron[] = extensionCrons ?? [];
 
     // Fetch all existing system crons for this agent
     const existingSystemCrons = await this.prisma.agentCronJob.findMany({
@@ -522,8 +512,8 @@ export class AgentCronJobService {
       }
     }
 
-    // Build set of valid manifest cron names for orphan detection
-    const systemCronNames = new Set(manifestCrons.map((c) => c.name));
+    // Build set of valid default cron names for orphan detection
+    const systemCronNames = new Set(defaultCrons.map((c) => c.name));
 
     let created = 0;
     let updated = 0;
@@ -532,9 +522,9 @@ export class AgentCronJobService {
     // Wrap all mutations in a transaction so a crash mid-loop cannot leave
     // the agent missing required system crons (e.g. shipwright-dev-task).
     await this.prisma.$transaction(async (tx) => {
-      // Pass 1: reconcile each manifest cron entry, recording name → row id.
+      // Pass 1: reconcile each default cron entry, recording name → row id.
       const idByName = new Map<string, string>();
-      for (const systemCron of manifestCrons) {
+      for (const systemCron of defaultCrons) {
         const existing = existingByName.get(systemCron.name);
 
         if (existing) {
@@ -577,7 +567,7 @@ export class AgentCronJobService {
       // Also clears parentCronId back to null when an entry no longer
       // declares a resolvable parentCron, so the link self-heals in both
       // directions rather than only null→set.
-      for (const systemCron of manifestCrons) {
+      for (const systemCron of defaultCrons) {
         const childId = idByName.get(systemCron.name);
         if (!childId) continue;
         const parentId = systemCron.parentCron
@@ -600,7 +590,7 @@ export class AgentCronJobService {
         }
       }
 
-      // Orphan pass: delete any system cron whose name is not in the manifest.
+      // Orphan pass: delete any system cron whose name is not in the defaults.
       for (const cron of existingSystemCrons) {
         if (!cron.name || !systemCronNames.has(cron.name)) {
           await tx.agentCronJob.delete({ where: { id: cron.id } });

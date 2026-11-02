@@ -4,7 +4,7 @@
  * The platform's SPECIALTY.md.template is the generic fallback for every agent
  * type, so it must stay a neutral stub. Specialty-specific pipeline content
  * (e.g. the coding specialty's Shipwright workflow) is shipped by the specialty
- * itself through its manifest's identity.templatesDir.
+ * itself in its templates/ directory.
  *
  * Content-assertion only: readFileSync, no I/O beyond local file reads.
  */

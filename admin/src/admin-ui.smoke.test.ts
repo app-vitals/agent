@@ -12,8 +12,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sign } from "hono/jwt";
 import { withExtensionAgentTypes } from "./admin-extension.ts";
-import { createAdminUIApp } from "./admin-ui.ts";
-import { SpecialtyRegistry } from "./specialty-manifest-loader.ts";
 import {
   AGENT_ID,
   CRON_ID,
@@ -28,16 +26,22 @@ import {
   TOKEN_ID,
   TOOL_ID,
 } from "./admin-ui.fixtures.ts";
+import { createAdminUIApp } from "./admin-ui.ts";
 import { AnthropicCredentialsBlockedError } from "./anthropic-credential-guard.ts";
 import type { PushService } from "./push-service.ts";
+import {
+  resolveDefaultSpecialtyName,
+  SPECIALIST_TYPE,
+  SpecialtyTypes,
+} from "./specialty-types.ts";
 
 // The specialty the create-agent flows use: the configured default type (the
 // platform test run points it at the fixture specialty; the monorepo falls
 // back to "coding").
-const TYPE_MANIFEST = new SpecialtyRegistry().getManifest(
-  process.env.SHIPWRIGHT_DEFAULT_AGENT_TYPE || "coding",
-);
-const TYPE = TYPE_MANIFEST.metadata.name;
+const TYPE = resolveDefaultSpecialtyName();
+const TYPE_RECORD = new SpecialtyTypes()
+  .listTypes()
+  .find((t) => t.name === TYPE) as { name: string; displayName: string };
 
 // ─── Auth redirect tests ──────────────────────────────────────────────────────
 
@@ -1290,7 +1294,7 @@ describe("admin UI — authenticated pages", () => {
       '<select id="type" name="type" class="form-input" required>',
     );
     expect(html).toContain(
-      `<option value="${TYPE}">${TYPE_MANIFEST.metadata.displayName}</option>`,
+      `<option value="${TYPE}">${TYPE_RECORD.displayName}</option>`,
     );
   });
 
@@ -5551,14 +5555,14 @@ describe("admin UI — create agent with patch author allowlist", () => {
   });
 });
 
-describe("admin UI — create agent seeds manifest tools and plugins", () => {
+describe("admin UI — create agent seeds type tools and extension plugins", () => {
   let cookie: string;
 
   beforeAll(async () => {
     cookie = await makeSessionCookie();
   });
 
-  it("POST /admin/agents with the default type seeds an AgentTool row for every manifest tool and an AgentPlugin row for every manifest plugin", async () => {
+  it("POST /admin/agents with the default type seeds an AgentTool row for every type tool and no AgentPlugin rows", async () => {
     const seededTools: string[] = [];
     const seededPlugins: string[] = [];
     const deps = makeMockDeps();
@@ -5596,28 +5600,13 @@ describe("admin UI — create agent seeds manifest tools and plugins", () => {
     });
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(`/admin/agents/${AGENT_ID}`);
-    expect(seededTools).toEqual(TYPE_MANIFEST.tools);
+    expect(seededTools).toEqual([...SPECIALIST_TYPE.tools]);
     expect(seededTools).toContain("Bash");
-    expect(seededPlugins).toEqual(TYPE_MANIFEST.plugins);
+    expect(seededPlugins).toEqual([]);
   });
 
-  it("POST /admin/agents with the fixture specialty (AGR-1.9) seeds from its manifest and needs no product specialty", async () => {
-    const fixtureDir = [
-      join(
-        import.meta.dir,
-        "..",
-        "..",
-        "agent",
-        "src",
-        "fixtures",
-        "specialties",
-      ),
-      join(import.meta.dir, "..", "..", "runtime", "fixtures", "specialties"),
-    ].find((dir) => existsSync(dir)) as string;
-    const registry = new SpecialtyRegistry({
-      typesDir: fixtureDir,
-      defaultTypeName: "fixture",
-    });
+  it("POST /admin/agents with the configured default type (AGR-1.9) seeds the specialist floor and needs no product specialty", async () => {
+    const registry = new SpecialtyTypes({ defaultTypeName: "fixture" });
     const seededTools: string[] = [];
     const seededPlugins: string[] = [];
     const deps = makeMockDeps();
@@ -5649,7 +5638,7 @@ describe("admin UI — create agent seeds manifest tools and plugins", () => {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(await form.text()).toContain(
-      '<option value="fixture">Fixture Agent</option>',
+      '<option value="fixture">fixture</option>',
     );
     const res = await app.request("/admin/agents", {
       method: "POST",
@@ -5664,16 +5653,14 @@ describe("admin UI — create agent seeds manifest tools and plugins", () => {
     });
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(`/admin/agents/${AGENT_ID}`);
-    expect(seededTools).toEqual(registry.getManifest("fixture").tools);
-    expect(seededPlugins).toEqual(["fixture-plugin"]);
+    expect(seededTools).toEqual([...registry.getType("fixture").tools]);
+    expect(seededPlugins).toEqual([]);
   });
 
-  it("an extension-contributed type (ETP-1.2) shows in the picker and POST /admin/agents accepts it with no manifest", async () => {
-    const emptyDir = mkdtempSync(join(tmpdir(), "no-specialties-"));
-    const registry = withExtensionAgentTypes(
-      new SpecialtyRegistry({ typesDir: emptyDir }),
-      [{ agentTypes: () => [{ name: "coding", displayName: "Coding Agent" }] }],
-    );
+  it("an extension-contributed type (ETP-1.2) shows in the picker and POST /admin/agents accepts it", async () => {
+    const registry = withExtensionAgentTypes(new SpecialtyTypes(), [
+      { agentTypes: () => [{ name: "coding", displayName: "Coding Agent" }] },
+    ]);
     const deps = makeMockDeps();
     deps.specialtyRegistry = registry;
     const app = createAdminUIApp(deps);
@@ -5733,6 +5720,7 @@ describe("admin UI — create agent seeds manifest tools and plugins", () => {
   it("POST /admin/agents rolls back the agent and redirects with error when plugin seeding fails", async () => {
     let deletedId: string | undefined;
     const deps = makeMockDeps();
+    deps.specialtyDefaults = () => ({ plugins: ["ext-plugin"] });
     deps.agentPluginService = {
       ...deps.agentPluginService,
       add: async () => {

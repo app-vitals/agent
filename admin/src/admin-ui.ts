@@ -74,11 +74,6 @@ import type { AgentPluginService } from "./agent-plugins.ts";
 import type { AgentProvisioner } from "./agent-provisioner.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AgentToolService } from "./agent-tools.ts";
-import {
-  type SpecialtyManifestResolver,
-  SpecialtyRegistry,
-} from "./specialty-manifest-loader.ts";
-import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
 import type { AgentService } from "./agents.ts";
 import { createAgent, describeRepoNameCollision } from "./agents.ts";
 import { AnthropicCredentialsBlockedError } from "./anthropic-credential-guard.ts";
@@ -86,7 +81,6 @@ import {
   audioContentTypeForFilename,
   validateAttachment,
 } from "./attachment-validation.ts";
-import { parseByteRange } from "./http-range.ts";
 import {
   type CallerScopeResolver,
   memberOnlyCallerScopeResolver,
@@ -105,6 +99,7 @@ import {
   filterSince,
   toPolledMessage,
 } from "./http-chat-client.ts";
+import { parseByteRange } from "./http-range.ts";
 import type { OktaAuthClient } from "./okta-auth-client.ts";
 import type { PrismaTransactionClient } from "./prisma-tx.ts";
 import type { PushService } from "./push-service.ts";
@@ -132,6 +127,11 @@ import {
   PROVISION_STATE_TTL_SECONDS,
   SlackProvisioningService,
 } from "./slack-provisioning-service.ts";
+import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
+import {
+  type SpecialtyTypeResolver,
+  SpecialtyTypes,
+} from "./specialty-types.ts";
 
 export type AdminUIEnv = { Variables: { userEmail: string; isAdmin: boolean } };
 
@@ -347,13 +347,13 @@ export interface AdminUIDeps {
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
   anthropicFederationEnabled?: boolean;
   /**
-   * Resolves an agent's specialty to its parsed Specialty manifest and lists
-   * the registry's discoverable types (for the new-specialty picker).
-   * Defaults to a disk-backed SpecialtyRegistry, matching the DI pattern
+   * Resolves an agent's specialty to its type record and lists
+   * the registry's built-in types (for the new-specialty picker).
+   * Defaults to a disk-backed SpecialtyTypes, matching the DI pattern
    * already used by agents-api.ts's AdminDeps.
    */
-  specialtyRegistry?: SpecialtyManifestResolver;
-  /** Extension-supplied specialty defaults, consulted before the manifest. */
+  specialtyRegistry?: SpecialtyTypeResolver;
+  /** Extension-supplied specialty defaults, consulted before the built-in type. */
   specialtyDefaults?: SpecialtyDefaultsResolver;
   /**
    * Cleanup deps for the full delete-agent orchestration (POST
@@ -784,7 +784,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     accountOnboarding,
     accountCreatedNotifier,
     accountServices,
-    specialtyRegistry = new SpecialtyRegistry(),
+    specialtyRegistry = new SpecialtyTypes(),
     specialtyDefaults,
     callerScopeResolver = memberOnlyCallerScopeResolver(agentMemberService),
     serviceIntegrations,
