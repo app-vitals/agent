@@ -304,7 +304,7 @@ test.describe("GET /admin/agents/new — type picker", () => {
     await expect(typeSelect).toHaveAttribute("required", "");
   });
 
-  test('the select lists "Coding Agent" (value coding)', async ({
+  test('the select lists the configured default type "coding"', async ({
     page,
     context,
   }) => {
@@ -313,7 +313,7 @@ test.describe("GET /admin/agents/new — type picker", () => {
       'select[name="type"] option[value="coding"]',
     );
     await expect(codingOption).toBeAttached();
-    await expect(codingOption).toHaveText("Coding Agent");
+    await expect(codingOption).toHaveText("coding");
   });
 });
 

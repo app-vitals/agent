@@ -161,6 +161,7 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
       agentCronJobService,
       provisioner: makeProvisioner(),
       specialtyRegistry: fakeSpecialtyTypes(),
+      specialtyDefaults: () => ({ plugins: ["shipwright"] }),
       ...overrides,
     };
   }
