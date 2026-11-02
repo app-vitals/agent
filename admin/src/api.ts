@@ -66,7 +66,7 @@ export interface AgentConfigResponse {
    */
   accountStatus?: string | null;
   /**
-   * ARD-6.1: the agent's Specialty name (e.g. "coding"), read by the agent
+   * ARD-6.1: the agent's Specialty name (e.g. "specialist"), read by the agent
    * runtime to pick its workspace template directory.
    */
   specialty: string;
