@@ -15,11 +15,11 @@ import type {
   AgentConfigResponse,
   AgentCronJob,
 } from "@app-vitals/agent-admin";
+import type { AgentConfigClient } from "./agent-config-client.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface ShipwrightConfigClient {
-  getConfig(agentId: string): Promise<AgentConfigResponse>;
+export interface CutoverConfigClient extends AgentConfigClient {
   getCrons(agentId: string): Promise<AgentCronJob[]>;
 }
 
@@ -39,7 +39,7 @@ function hasGitHubAuth(env: Record<string, string>): boolean {
 }
 
 export async function validateCutover(
-  client: ShipwrightConfigClient,
+  client: CutoverConfigClient,
   agentId: string,
 ): Promise<CheckResult[]> {
   const [config, crons] = await Promise.all([

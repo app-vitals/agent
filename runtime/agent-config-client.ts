@@ -1,8 +1,8 @@
 /**
- * agent/src/runtime/shipwright-config-client.ts
+ * agent/src/runtime/agent-config-client.ts
  *
- * - ShipwrightConfigClient — interface for DI (used by entrypoint and tests)
- * - RecordedShipwrightConfigClient — cassette-backed double for tests
+ * - AgentConfigClient — interface for DI (used by entrypoint and tests)
+ * - RecordedAgentConfigClient — cassette-backed double for tests
  *
  * The HTTP implementation was consolidated into HttpShipwrightRuntimeClient
  * (shipwright-runtime-client.ts). Wire that via getAgentConfigBundle() as the
@@ -13,17 +13,17 @@ import type { AgentConfigResponse } from "@app-vitals/agent-admin";
 
 // ─── Interface ────────────────────────────────────────────────────────────────
 
-export interface ShipwrightConfigClient {
+export interface AgentConfigClient {
   getConfig(agentId: string): Promise<AgentConfigResponse>;
 }
 
-// ─── RecordedShipwrightConfigClient ───────────────────────────────────────────
+// ─── RecordedAgentConfigClient ───────────────────────────────────────────
 
 /**
  * Cassette-backed client for tests.
  * Returns a fixed AgentConfigResponse on every call — no network required.
  */
-export class RecordedShipwrightConfigClient implements ShipwrightConfigClient {
+export class RecordedAgentConfigClient implements AgentConfigClient {
   private readonly cassette: AgentConfigResponse;
 
   constructor(cassette: AgentConfigResponse) {
