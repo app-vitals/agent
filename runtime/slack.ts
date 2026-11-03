@@ -748,9 +748,9 @@ export function createSlackApp(
         progress.onProgress,
         runController.signal,
         {
-        SLACK_CHANNEL_ID: msg.channel,
-        SLACK_THREAD_TS: replyTs,
-      },
+          SLACK_CHANNEL_ID: msg.channel,
+          SLACK_THREAD_TS: replyTs,
+        },
       );
       if (runResult.streamIncomplete) {
         // Clean process exit, but the stream never emitted a terminal
@@ -973,9 +973,9 @@ export function createSlackApp(
         progress.onProgress,
         runController.signal,
         {
-        SLACK_CHANNEL_ID: ev.channel,
-        SLACK_THREAD_TS: replyTs,
-      },
+          SLACK_CHANNEL_ID: ev.channel,
+          SLACK_THREAD_TS: replyTs,
+        },
       );
       if (runResult.streamIncomplete) {
         // Clean process exit, but the stream never emitted a terminal
@@ -1138,9 +1138,9 @@ export function createSlackApp(
         progress.onProgress,
         runController.signal,
         {
-        SLACK_CHANNEL_ID: ev.item.channel,
-        SLACK_THREAD_TS: ev.item.ts,
-      },
+          SLACK_CHANNEL_ID: ev.item.channel,
+          SLACK_THREAD_TS: ev.item.ts,
+        },
       );
       if (runResult.streamIncomplete) {
         // Clean process exit, but the stream never emitted a terminal
