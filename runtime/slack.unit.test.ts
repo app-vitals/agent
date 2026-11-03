@@ -18,6 +18,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { AgentSlackMembershipRef } from "./agent-slack-membership-ref.ts";
 import { createAgentSlackMembershipRef } from "./agent-slack-membership-ref.ts";
+import { ClaudeAbortedError } from "./claude.ts";
 import {
   createSlackApp as _createSlackApp,
   dispatchMarkers,
@@ -675,7 +676,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "D0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000100",
     });
@@ -711,7 +712,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "C0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000150",
     });
@@ -742,7 +743,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "C0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000300",
     });
@@ -778,7 +779,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "C0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000400",
     });
@@ -808,7 +809,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "D0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000500",
     });
@@ -861,11 +862,22 @@ describe("agent_session_stopped handler", () => {
       userId: string,
       client: unknown,
     ) => Promise<string | undefined>;
+    rejectOnAbort?: boolean;
   }) {
     const runner = mock(
-      (_msg: string, _key?: string) =>
-        // biome-ignore lint/suspicious/noExplicitAny: deliberately never resolves — type matches ClaudeRunner's return via cast
-        new Promise(() => {}) as any,
+      (
+        _msg: string,
+        _key?: string,
+        _onProgress?: unknown,
+        signal?: AbortSignal,
+      ) =>
+        new Promise((_resolve, reject) => {
+          if (overrides.rejectOnAbort)
+            signal?.addEventListener("abort", () =>
+              reject(new ClaudeAbortedError()),
+            );
+          // biome-ignore lint/suspicious/noExplicitAny: deliberately never resolves (or rejects on abort) — type matches ClaudeRunner's return via cast
+        }) as any,
     );
     _createSlackApp(
       runner,
@@ -925,6 +937,45 @@ describe("agent_session_stopped handler", () => {
     // now a no-op — asserted indirectly by confirming a raw appendStream call
     // is never issued once the event has fired for this stream's key.
     expect(client.chat.appendStream).not.toHaveBeenCalled();
+  });
+
+  test("aborts the AbortSignal the runner observed for the in-flight run (SSC-1.1)", async () => {
+    const ref = createAgentSlackMembershipRef();
+    const { runner, client } = startAStream({
+      membershipRef: ref,
+      resolveUserEmailFn: async () => undefined,
+    });
+    await flushMicrotasks();
+
+    // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
+    const signal = (runner as any).mock.calls[0][3] as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+
+    await capturedAgentSessionStoppedHandler?.({
+      event: { channel: "D123", streaming_message_ts: "stream.ts.1" },
+      client,
+    });
+
+    expect(signal.aborted).toBe(true);
+  });
+
+  test("a runner rejecting with ClaudeAbortedError after stop posts no error message (SSC-1.1)", async () => {
+    const ref = createAgentSlackMembershipRef();
+    const { client, say } = startAStream({
+      membershipRef: ref,
+      resolveUserEmailFn: async () => undefined,
+      rejectOnAbort: true,
+    });
+    await flushMicrotasks();
+
+    await capturedAgentSessionStoppedHandler?.({
+      event: { channel: "D123", streaming_message_ts: "stream.ts.1" },
+      client,
+    });
+    await flushMicrotasks();
+
+    expect(say).not.toHaveBeenCalled();
   });
 
   test("resets the thread status via a direct agents.sessions.setStatus('active') call", async () => {
