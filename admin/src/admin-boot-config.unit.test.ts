@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { buildDeletionClients } from "./admin-boot-config.ts";
+import type { AgentTokenService } from "./agent-tokens.ts";
+import { buildProvisioner, buildDeletionClients } from "./admin-boot-config.ts";
 import {
   HttpChatServiceProvisioningClient,
   NoopChatServiceProvisioningClient,
@@ -24,5 +25,19 @@ describe("buildDeletionClients", () => {
       SHIPWRIGHT_CHAT_SERVICE_ADMIN_TOKEN: "chat-admin",
     });
     expect(chatService).toBeInstanceOf(HttpChatServiceProvisioningClient);
+  });
+});
+
+describe("buildProvisioner pod label configuration", () => {
+  it("rejects invalid labels during admin boot when provisioning is enabled", () => {
+    expect(() =>
+      buildProvisioner(
+        {
+          SHIPWRIGHT_K8S_PROVISIONING: "enabled",
+          SHIPWRIGHT_K8S_AGENT_POD_LABELS: '{"app.kubernetes.io/name":"wrong"}',
+        },
+        {} as AgentTokenService,
+      ),
+    ).toThrow("reserved key");
   });
 });

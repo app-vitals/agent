@@ -11,7 +11,9 @@
  * agents lose the mount after the policy is disabled. The same pass applies
  * the Anthropic workload identity federation wiring (ServiceAccount, projected
  * token volume, mount, federation env), so turning federation on or off and
- * restarting admin corrects existing agents.
+ * restarting admin corrects existing agents. Configured pod labels are also
+ * reconciled, preserving selectors and labels owned by other actors; changing
+ * a configured label rolls the affected agent through its Recreate strategy.
  *
  * The startup pass never moves agents onto their own per-agent identity: that
  * creates Anthropic and Kubernetes resources, which should not happen as a side
