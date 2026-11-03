@@ -364,8 +364,9 @@ export async function startAgent(
         message: string,
         sessionKey?: string,
         onProgress?: ProgressCallback,
+        signal?: AbortSignal,
         extraEnv?: Record<string, string>,
-      ) => runner(message, sessionKey, onProgress, undefined, extraEnv),
+      ) => runner(message, sessionKey, onProgress, signal, extraEnv),
       markdownToSlack,
       threadKey,
       undefined, // appFactory — default Bolt App

@@ -675,7 +675,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "D0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000100",
     });
@@ -711,7 +711,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "C0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000150",
     });
@@ -742,7 +742,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "C0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000300",
     });
@@ -778,7 +778,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "C0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000400",
     });
@@ -808,7 +808,7 @@ describe("extraEnv passed to runner — SLACK_CHANNEL_ID / SLACK_THREAD_TS (STC-
     expect(runner).toHaveBeenCalledTimes(1);
     // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
     const call = (runner as any).mock.calls[0];
-    expect(call[3]).toEqual({
+    expect(call[4]).toEqual({
       SLACK_CHANNEL_ID: "D0EXAMPLE",
       SLACK_THREAD_TS: "1700000000.000500",
     });
@@ -925,6 +925,27 @@ describe("agent_session_stopped handler", () => {
     // now a no-op — asserted indirectly by confirming a raw appendStream call
     // is never issued once the event has fired for this stream's key.
     expect(client.chat.appendStream).not.toHaveBeenCalled();
+  });
+
+  test("aborts the AbortSignal the runner observed for the in-flight run (SSC-1.1)", async () => {
+    const ref = createAgentSlackMembershipRef();
+    const { runner, client } = startAStream({
+      membershipRef: ref,
+      resolveUserEmailFn: async () => undefined,
+    });
+    await flushMicrotasks();
+
+    // biome-ignore lint/suspicious/noExplicitAny: test double captures calls
+    const signal = (runner as any).mock.calls[0][3] as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+
+    await capturedAgentSessionStoppedHandler?.({
+      event: { channel: "D123", streaming_message_ts: "stream.ts.1" },
+      client,
+    });
+
+    expect(signal.aborted).toBe(true);
   });
 
   test("resets the thread status via a direct agents.sessions.setStatus('active') call", async () => {

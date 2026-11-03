@@ -157,6 +157,7 @@ export type ClaudeRunner = (
   message: string,
   sessionKey?: string,
   onProgress?: ProgressCallback,
+  signal?: AbortSignal,
   extraEnv?: Record<string, string>,
 ) => Promise<ClaudeRunResult>;
 
@@ -596,11 +597,17 @@ export function createSlackApp(
   // (right after finish()) — so it never leaks entries for completed runs.
   // Closure-scoped (one instance per createSlackApp() call), same lifecycle
   // as threadStatusTracker above — never module-level.
-  const liveStreams = new Map<string, SlackProgress>();
+  const liveStreams = new Map<
+    string,
+    { progress: SlackProgress; controller: AbortController }
+  >();
 
-  function registerStream(progress: SlackProgress): void {
+  function registerStream(
+    progress: SlackProgress,
+    controller: AbortController,
+  ): void {
     const key = progress.streamKey();
-    if (key) liveStreams.set(key, progress);
+    if (key) liveStreams.set(key, { progress, controller });
   }
 
   function unregisterStream(progress: SlackProgress): void {
@@ -706,7 +713,8 @@ export function createSlackApp(
     // Registers the stream (no-op when startStream() failed to open one —
     // streamKey() is undefined either way) so agent_session_stopped can look
     // this instance up (AGS-1.1).
-    registerStream(progress);
+    const runController = new AbortController();
+    registerStream(progress, runController);
 
     const rawText =
       msg.text || (hasRichText ? richTextToMarkdown(msg.blocks ?? []) : "");
@@ -734,10 +742,16 @@ export function createSlackApp(
     // rather than the generic "Done" when the reply was suppressed.
     let wasSuppressed = false;
     try {
-      const runResult = await runner(prompt, sessionKey, progress.onProgress, {
+      const runResult = await runner(
+        prompt,
+        sessionKey,
+        progress.onProgress,
+        runController.signal,
+        {
         SLACK_CHANNEL_ID: msg.channel,
         SLACK_THREAD_TS: replyTs,
-      });
+      },
+      );
       if (runResult.streamIncomplete) {
         // Clean process exit, but the stream never emitted a terminal
         // `result` event — treat this the same as a genuine failure rather
@@ -900,7 +914,8 @@ export function createSlackApp(
     await startProgress(progress, threadStatusTracker.enter(sessionKey));
     // Registers the stream so agent_session_stopped can look this instance
     // up (AGS-1.1) — see the app.message handler's identical comment above.
-    registerStream(progress);
+    const runController = new AbortController();
+    registerStream(progress, runController);
 
     let prompt = await buildPromptWithFiles(
       ev.text,
@@ -952,10 +967,16 @@ export function createSlackApp(
     // rather than the generic "Done" when the reply was suppressed.
     let wasSuppressed = false;
     try {
-      const runResult = await runner(prompt, sessionKey, progress.onProgress, {
+      const runResult = await runner(
+        prompt,
+        sessionKey,
+        progress.onProgress,
+        runController.signal,
+        {
         SLACK_CHANNEL_ID: ev.channel,
         SLACK_THREAD_TS: replyTs,
-      });
+      },
+      );
       if (runResult.streamIncomplete) {
         // Clean process exit, but the stream never emitted a terminal
         // `result` event — treat this the same as a genuine failure rather
@@ -1103,17 +1124,24 @@ export function createSlackApp(
     await startProgress(progress, threadStatusTracker.enter(sessionKey));
     // Registers the stream so agent_session_stopped can look this instance
     // up (AGS-1.1) — see the app.message handler's identical comment above.
-    registerStream(progress);
+    const runController = new AbortController();
+    registerStream(progress, runController);
 
     // Set inside the try block below (STS2-3.1) — hoisted so finishProgress()
     // in the finally block can title the stream's completion card "Ack"
     // rather than the generic "Done" when the reply was suppressed.
     let wasSuppressed = false;
     try {
-      const runResult = await runner(prompt, sessionKey, progress.onProgress, {
+      const runResult = await runner(
+        prompt,
+        sessionKey,
+        progress.onProgress,
+        runController.signal,
+        {
         SLACK_CHANNEL_ID: ev.item.channel,
         SLACK_THREAD_TS: ev.item.ts,
-      });
+      },
+      );
       if (runResult.streamIncomplete) {
         // Clean process exit, but the stream never emitted a terminal
         // `result` event — treat this the same as a genuine failure rather
@@ -1246,10 +1274,13 @@ export function createSlackApp(
     let threadTs: string | undefined;
     if (ev.channel && ev.streaming_message_ts) {
       const key = `${ev.channel}:${ev.streaming_message_ts}`;
-      const progress = liveStreams.get(key);
-      if (progress) {
+      const live = liveStreams.get(key);
+      if (live) {
+        const { progress, controller } = live;
         threadTs = progress.getThreadTs();
         progress.markExternallyStopped();
+        // SSC-1.1: cancel the in-flight Claude run, not just the stream.
+        controller.abort();
         liveStreams.delete(key);
       }
     }
