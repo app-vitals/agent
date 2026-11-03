@@ -2034,3 +2034,75 @@ describe("KubernetesAgentProvisioner.reconcile() — pod ServiceAccount drift (C
     expect(patches).toHaveLength(0);
   });
 });
+
+describe("KubernetesAgentProvisioner configured pod labels", () => {
+  const agentId = "agent-label-example";
+  const podLabels = {
+    "vgs.io/service": "shipwright",
+    "vgs.io/team": "team-infrastructure",
+  };
+  for (const policyOnly of [false, true]) {
+    it(`updates existing templates and preserves selectors/unrelated labels (policyOnly=${policyOnly})`, async () => {
+      const client = emptyClient();
+      const original = new KubernetesAgentProvisioner(
+        client,
+        stubTokens() as AgentTokenService,
+        BASE_CONFIG,
+      );
+      await original.provision(agentId);
+      const name = sanitizeAgentName(agentId);
+      const before = await client.getDeployment(NAMESPACE, name);
+      const selector = structuredClone(before.spec.selector);
+      await client.patchDeployment(NAMESPACE, name, {
+        spec: {
+          template: {
+            metadata: {
+              labels: {
+                "other.io/label": "preserved",
+                "vgs.io/team": "NOT_SET",
+              },
+            },
+          },
+        },
+      });
+      const next = new KubernetesAgentProvisioner(
+        client,
+        stubTokens() as AgentTokenService,
+        { ...BASE_CONFIG, podLabels },
+      );
+      const preview = await next.reconcile([{ id: agentId }], {
+        policyOnly,
+        dryRun: true,
+      });
+      expect(preview.updated).toEqual([agentId]);
+      expect(
+        (await client.getDeployment(NAMESPACE, name)).spec.template.metadata
+          .labels["vgs.io/team"],
+      ).toBe("NOT_SET");
+      expect(
+        (await next.reconcile([{ id: agentId }], { policyOnly })).updated,
+      ).toEqual([agentId]);
+      const after = await client.getDeployment(NAMESPACE, name);
+      expect(after.spec.selector).toEqual(selector);
+      expect(after.spec.template.metadata.labels).toMatchObject({
+        ...podLabels,
+        "other.io/label": "preserved",
+      });
+      expect(
+        (await next.reconcile([{ id: agentId }], { policyOnly })).updated,
+      ).toEqual([]);
+    });
+  }
+  it("gives newly provisioned agents the configured labels", async () => {
+    const client = emptyClient();
+    await new KubernetesAgentProvisioner(
+      client,
+      stubTokens() as AgentTokenService,
+      { ...BASE_CONFIG, podLabels },
+    ).provision(agentId);
+    expect(
+      (await client.getDeployment(NAMESPACE, sanitizeAgentName(agentId))).spec
+        .template.metadata.labels,
+    ).toMatchObject(podLabels);
+  });
+});

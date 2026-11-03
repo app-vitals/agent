@@ -12,6 +12,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { validateAgentPodLabels } from "./agent-pod-labels.ts";
 import type {
   KubernetesDeployment,
   KubernetesEnvVar,
@@ -239,6 +240,8 @@ export function buildAgentPvcManifest(opts: AgentPvcOpts): KubernetesPvc {
 // ─── Deployment builder ─────────────────────────────────────────────────────
 
 export interface AgentDeploymentOpts {
+  /** Additional pod labels; reserved identity labels cannot be overridden. */
+  podLabels?: Record<string, string>;
   /** Original agent id (used verbatim in env + label, sanitized for the name). */
   agentId: string;
   namespace: string;
@@ -471,6 +474,7 @@ export function buildAgentDeploymentManifest(
   opts: AgentDeploymentOpts,
 ): KubernetesDeployment {
   const name = sanitizeAgentName(opts.agentId);
+  const podLabels = validateAgentPodLabels(opts.podLabels ?? {});
   const tokenKey = opts.tokenSecretKey ?? "token";
   const volumeName = "agent-home";
 
@@ -513,9 +517,11 @@ export function buildAgentDeploymentManifest(
       selector: { matchLabels: selectorLabels },
       template: {
         metadata: {
-          labels: tenant
-            ? { ...selectorLabels, [TENANT_LABEL]: "true" }
-            : selectorLabels,
+          labels: {
+            ...selectorLabels,
+            ...podLabels,
+            ...(tenant ? { [TENANT_LABEL]: "true" } : {}),
+          },
           ...(policy?.hash
             ? { annotations: { [CLAUDE_POLICY_HASH_ANNOTATION]: policy.hash } }
             : {}),

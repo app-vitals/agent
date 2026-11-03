@@ -75,6 +75,35 @@ describe("buildAgentDeploymentManifest", () => {
     });
   });
 
+  it("adds configured pod labels without changing immutable selectors or identity labels", () => {
+    const base = buildAgentDeploymentManifest(deployOpts);
+    const podLabels = {
+      "vgs.io/service": "shipwright",
+      "vgs.io/team": "team-infrastructure",
+    };
+    const labeled = buildAgentDeploymentManifest({
+      ...deployOpts,
+      podLabels,
+      accountId: "account-1",
+    });
+    expect(labeled.spec.selector).toEqual(base.spec.selector);
+    expect(labeled.metadata).toEqual({
+      ...base.metadata,
+      labels: { ...base.metadata.labels, [TENANT_LABEL]: "true" },
+    });
+    expect(labeled.spec.template.metadata.labels).toEqual({
+      ...base.spec.template.metadata.labels,
+      ...podLabels,
+      [TENANT_LABEL]: "true",
+    });
+    expect(() =>
+      buildAgentDeploymentManifest({
+        ...deployOpts,
+        podLabels: { "app.kubernetes.io/instance": "other" },
+      }),
+    ).toThrow();
+  });
+
   it("sets the required env vars including a secretKeyRef token", () => {
     const d = buildAgentDeploymentManifest(deployOpts);
     const env = d.spec.template.spec.containers[0].env ?? [];

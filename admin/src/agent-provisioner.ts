@@ -239,6 +239,8 @@ export interface AgentProvisioner {
 // ─── Configuration ──────────────────────────────────────────────────────────
 
 export interface KubernetesAgentProvisionerConfig {
+  /** Additional labels managed on new and existing agent pod templates. */
+  podLabels?: Record<string, string>;
   /** Namespace the agent resources live in. */
   namespace: string;
   /** Agent container image (without tag). */
@@ -940,6 +942,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
       tokenSecretKey: this.tokenKey,
       replicas: this.config.replicas,
       resources: this.config.resources,
+      podLabels: this.config.podLabels,
       voice: this.config.voice,
       serviceIntegrations: provisionableIntegrations(
         this.config.serviceIntegrations,
@@ -1486,11 +1489,18 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
           );
           const desired = desiredDeployment.spec.template.spec.containers[0];
           const desiredLabels = desiredDeployment.spec.template.metadata.labels;
-          const labelsDrifted =
-            !policyOnly &&
-            desiredLabels[TENANT_LABEL] !== undefined &&
-            deployment.spec.template.metadata?.labels?.[TENANT_LABEL] !==
-              desiredLabels[TENANT_LABEL];
+          // Manage only configured keys; preserve labels owned by other actors.
+          // Startup policy reconciliation also propagates ownership labels.
+          const managedLabels = {
+            ...(this.config.podLabels ?? {}),
+            ...(!policyOnly && desiredLabels[TENANT_LABEL] !== undefined
+              ? { [TENANT_LABEL]: desiredLabels[TENANT_LABEL] }
+              : {}),
+          };
+          const labelsDrifted = Object.entries(managedLabels).some(
+            ([key, value]) =>
+              deployment.spec.template.metadata?.labels?.[key] !== value,
+          );
           const policy = policyPatch(deployment, desiredDeployment);
           // Unmanaged federation (see reconcileFederationFor): no patch, so
           // the live ServiceAccount, token volume and env are left alone.
@@ -1571,9 +1581,7 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
                   }
                 : {};
             const podMetadata = {
-              ...(labelsDrifted
-                ? { labels: { [TENANT_LABEL]: desiredLabels[TENANT_LABEL] } }
-                : {}),
+              ...(labelsDrifted ? { labels: managedLabels } : {}),
               ...(policy?.annotations
                 ? { annotations: policy.annotations }
                 : {}),
@@ -1583,7 +1591,9 @@ export class KubernetesAgentProvisioner implements AgentProvisioner {
                 this.config.namespace,
                 resourceName,
                 {
-                  ...(labelsDrifted
+                  ...(labelsDrifted &&
+                  !policyOnly &&
+                  desiredLabels[TENANT_LABEL] !== undefined
                     ? {
                         metadata: {
                           labels: {
