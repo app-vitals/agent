@@ -18,6 +18,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { AgentSlackMembershipRef } from "./agent-slack-membership-ref.ts";
 import { createAgentSlackMembershipRef } from "./agent-slack-membership-ref.ts";
+import { ClaudeAbortedError } from "./claude.ts";
 import {
   createSlackApp as _createSlackApp,
   dispatchMarkers,
@@ -861,11 +862,22 @@ describe("agent_session_stopped handler", () => {
       userId: string,
       client: unknown,
     ) => Promise<string | undefined>;
+    rejectOnAbort?: boolean;
   }) {
     const runner = mock(
-      (_msg: string, _key?: string) =>
-        // biome-ignore lint/suspicious/noExplicitAny: deliberately never resolves — type matches ClaudeRunner's return via cast
-        new Promise(() => {}) as any,
+      (
+        _msg: string,
+        _key?: string,
+        _onProgress?: unknown,
+        signal?: AbortSignal,
+      ) =>
+        new Promise((_resolve, reject) => {
+          if (overrides.rejectOnAbort)
+            signal?.addEventListener("abort", () =>
+              reject(new ClaudeAbortedError()),
+            );
+          // biome-ignore lint/suspicious/noExplicitAny: deliberately never resolves (or rejects on abort) — type matches ClaudeRunner's return via cast
+        }) as any,
     );
     _createSlackApp(
       runner,
@@ -946,6 +958,24 @@ describe("agent_session_stopped handler", () => {
     });
 
     expect(signal.aborted).toBe(true);
+  });
+
+  test("a runner rejecting with ClaudeAbortedError after stop posts no error message (SSC-1.1)", async () => {
+    const ref = createAgentSlackMembershipRef();
+    const { client, say } = startAStream({
+      membershipRef: ref,
+      resolveUserEmailFn: async () => undefined,
+      rejectOnAbort: true,
+    });
+    await flushMicrotasks();
+
+    await capturedAgentSessionStoppedHandler?.({
+      event: { channel: "D123", streaming_message_ts: "stream.ts.1" },
+      client,
+    });
+    await flushMicrotasks();
+
+    expect(say).not.toHaveBeenCalled();
   });
 
   test("resets the thread status via a direct agents.sessions.setStatus('active') call", async () => {

@@ -31,6 +31,7 @@ import {
 } from "./chat-token-reporter.ts";
 import type { ClaudeRunResult, ProgressCallback } from "./claude.ts";
 import {
+  ClaudeAbortedError,
   ClaudeRunError,
   ClaudeTimeoutError,
   reportClaudeError,
@@ -826,6 +827,13 @@ export function createSlackApp(
         postedText: shouldSuppress ? undefined : cleaned,
       });
     } catch (err) {
+      // A user-initiated Stop (agent_session_stopped aborts runController) makes
+      // the runner reject with ClaudeAbortedError — a deliberate cancel, not a
+      // failure: no Sentry report and no error message in the thread.
+      if (err instanceof ClaudeAbortedError) {
+        console.info("[slack] run aborted by user stop");
+        return;
+      }
       console.error("[slack] error:", err);
       reportClaudeError(sentryClient, err);
       // Mark the Thinking Steps card status:"error" (STS2-4.1 AC #1) BEFORE the
@@ -1045,6 +1053,13 @@ export function createSlackApp(
         postedText: isSilent ? undefined : cleaned,
       });
     } catch (err) {
+      // A user-initiated Stop (agent_session_stopped aborts runController) makes
+      // the runner reject with ClaudeAbortedError — a deliberate cancel, not a
+      // failure: no Sentry report and no error message in the thread.
+      if (err instanceof ClaudeAbortedError) {
+        console.info("[slack] run aborted by user stop");
+        return;
+      }
       console.error("[slack] error:", err);
       reportClaudeError(sentryClient, err);
       // Mark the Thinking Steps card status:"error" (STS2-4.1 AC #1) BEFORE the
