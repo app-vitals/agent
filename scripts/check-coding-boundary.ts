@@ -63,10 +63,7 @@ function stripComments(source: string): string {
 }
 
 function moduleName(spec: string): string | undefined {
-  const base = spec
-    .split("/")
-    .pop()
-    ?.replace(/\.(?:ts|js)$/, "");
+  const base = spec.split("/").pop()?.replace(/\.(?:ts|js)$/, "");
   return CODING_MODULES.find((m) => m === base);
 }
 

@@ -67,25 +67,19 @@ describe("checkCodingBoundary", () => {
   it("fails on a new leak outside the allowlist", () => {
     write("admin/src/new.ts", 'export const t = "coding";\n');
     expect(checkCodingBoundary(root, [])).toEqual({
-      newLeaks: [
-        { rule: "coding-literal", file: "admin/src/new.ts", count: 1 },
-      ],
+      newLeaks: [{ rule: "coding-literal", file: "admin/src/new.ts", count: 1 }],
       staleEntries: [],
     });
   });
 
   it("fails when an allowlisted file gains another leak", () => {
     write("admin/src/old.ts", 'const a = "coding";\nconst b = "coding";\n');
-    const allow = [
-      { rule: "coding-literal", file: "admin/src/old.ts", count: 1 },
-    ];
+    const allow = [{ rule: "coding-literal", file: "admin/src/old.ts", count: 1 }];
     expect(checkCodingBoundary(root, allow).newLeaks).toHaveLength(1);
   });
 
   it("fails on a stale allowlist entry", () => {
-    const allow = [
-      { rule: "coding-literal", file: "admin/src/gone.ts", count: 1 },
-    ];
+    const allow = [{ rule: "coding-literal", file: "admin/src/gone.ts", count: 1 }];
     expect(checkCodingBoundary(root, allow)).toEqual({
       newLeaks: [],
       staleEntries: allow,
@@ -94,17 +88,13 @@ describe("checkCodingBoundary", () => {
 
   it("fails when an entry's count is higher than the remaining leaks", () => {
     write("admin/src/old.ts", 'const a = "coding";\n');
-    const allow = [
-      { rule: "coding-literal", file: "admin/src/old.ts", count: 2 },
-    ];
+    const allow = [{ rule: "coding-literal", file: "admin/src/old.ts", count: 2 }];
     expect(checkCodingBoundary(root, allow).staleEntries).toEqual(allow);
   });
 
   it("passes an exactly allowlisted leak", () => {
     write("admin/src/old.ts", 'const a = "coding";\n');
-    const allow = [
-      { rule: "coding-literal", file: "admin/src/old.ts", count: 1 },
-    ];
+    const allow = [{ rule: "coding-literal", file: "admin/src/old.ts", count: 1 }];
     expect(checkCodingBoundary(root, allow)).toEqual({
       newLeaks: [],
       staleEntries: [],
@@ -116,9 +106,7 @@ describe("allowlist format", () => {
   it("round-trips and skips comments and blank lines", () => {
     const text = "# header\n\ncoding-literal a/b.ts 2 # why\n";
     const parsed = parseAllowlist(text);
-    expect(parsed).toEqual([
-      { rule: "coding-literal", file: "a/b.ts", count: 2 },
-    ]);
+    expect(parsed).toEqual([{ rule: "coding-literal", file: "a/b.ts", count: 2 }]);
     expect(parseAllowlist(formatAllowlist(parsed))).toEqual(parsed);
   });
 
