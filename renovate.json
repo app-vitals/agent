@@ -27,6 +27,11 @@
   ],
   "packageRules": [
     {
+      "description": "Pin Docker base-image digests so Renovate keeps them current",
+      "matchDatasources": ["docker"],
+      "pinDigests": true
+    },
+    {
       "description": "Group routine (non-security) minor/patch bumps to cut down PR noise",
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "routine dependency updates"
