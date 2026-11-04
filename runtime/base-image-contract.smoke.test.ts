@@ -14,7 +14,13 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -146,4 +152,37 @@ describe.skipIf(!BASE_IMAGE)("agent base-image contract", () => {
       "/app/scripts/bin/git",
     ]);
   }, 60_000);
+
+  test("runtime image ships no devDependency-only packages and keeps the Prisma client", () => {
+    const run = docker([
+      "run",
+      "--rm",
+      "--entrypoint",
+      "bash",
+      DERIVED_TAG,
+      "-c",
+      "test -d /app/admin/prisma/client && ! ls -d /app/node_modules/.bun/handlebars@* /app/node_modules/.bun/typescript@* /app/node_modules/.bun/@typescript+* /app/node_modules/.bun/semantic-release@* /app/node_modules/.bun/@biomejs+* /app/node_modules/.bun/npm@* 2>/dev/null",
+    ]);
+    expect(run.exitCode, run.stdout + run.stderr).toBe(0);
+  }, 60_000);
+});
+
+// Static guard (no Docker needed): the runtime stage must take node_modules
+// from the production-only stage, never the build stage's full install.
+describe("runtime Dockerfile", () => {
+  const dockerfile = readFileSync(
+    join(import.meta.dir, "Dockerfile"),
+    "utf8",
+  );
+
+  test("copies node_modules from the production-only stage", () => {
+    expect(dockerfile).toMatch(
+      /^COPY --from=prod-deps\b.*\/app\/node_modules \.\/node_modules$/m,
+    );
+    expect(dockerfile).not.toMatch(
+      /^COPY --from=build\b.*\/app\/node_modules\b/m,
+    );
+    expect(dockerfile).toMatch(/^FROM base AS prod-deps$/m);
+    expect(dockerfile).toMatch(/bun install --frozen-lockfile --production/);
+  });
 });

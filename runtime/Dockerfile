@@ -150,6 +150,32 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # from process.env, so spawned claude processes inherit it.
 ENV DISABLE_AUTOUPDATER=1
 
+# ─── Production dependencies ──────────────────────────────────────────────────
+# Production-only install: the runtime stage copies node_modules from here, so
+# devDependencies (semantic-release → handlebars, the TypeScript native `tsc`
+# binary, a nested npm, biome) never ship in the image. Same manifests as the
+# build stage; admin/prisma is needed because admin's postinstall runs
+# `prisma generate`.
+
+FROM base AS prod-deps
+
+WORKDIR /app
+
+COPY package.json bunfig.toml bun.lock* ./
+COPY runtime/package.json ./runtime/
+COPY admin/package.json ./admin/
+COPY admin/prisma ./admin/prisma/
+COPY admin/prisma.config.ts ./admin/
+COPY lib/package.json ./lib/
+COPY patches/ ./patches/
+
+# typescript is only an optional peer of prisma / @prisma/client, but bun still
+# links it (and its native tsc binary) into the store because the lockfile
+# carries it; nothing at runtime loads it, so drop it.
+RUN if [ -f bun.lock ]; then bun install --frozen-lockfile --production; else bun install --production; fi \
+    && rm -rf node_modules/.bun/typescript@* node_modules/.bun/@typescript+* \
+              node_modules/.bun/node_modules/typescript node_modules/.bun/node_modules/@typescript
+
 # ─── Build stage ──────────────────────────────────────────────────────────────
 
 FROM base AS build
@@ -215,7 +241,7 @@ ENV HOME=/home/bun
 # routes push through signed-push.
 ENV PATH="/home/bun/.local/share/mise/shims:/app/scripts/bin:${PATH}"
 
-COPY --from=build --chown=1000:1000 /app/node_modules ./node_modules
+COPY --from=prod-deps --chown=1000:1000 /app/node_modules ./node_modules
 COPY --from=build --chown=1000:1000 /app/runtime ./runtime
 COPY --from=build --chown=1000:1000 /app/admin ./admin
 COPY --from=build --chown=1000:1000 /app/lib ./lib
