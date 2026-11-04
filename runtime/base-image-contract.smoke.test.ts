@@ -161,7 +161,7 @@ describe.skipIf(!BASE_IMAGE)("agent base-image contract", () => {
       "bash",
       DERIVED_TAG,
       "-c",
-      "test -d /app/admin/prisma/client && ! ls -d /app/node_modules/.bun/handlebars@* /app/node_modules/.bun/typescript@* /app/node_modules/.bun/@typescript+* /app/node_modules/.bun/semantic-release@* /app/node_modules/.bun/@biomejs+* /app/node_modules/.bun/npm@* 2>/dev/null",
+      'test -d /app/admin/prisma/client && test -z "$(find /app/node_modules/.bun -maxdepth 1 \\( -name "handlebars@*" -o -name "typescript@*" -o -name "@typescript+*" -o -name "semantic-release@*" -o -name "@biomejs+*" -o -name "npm@*" \\))"',
     ]);
     expect(run.exitCode, run.stdout + run.stderr).toBe(0);
   }, 60_000);
