@@ -400,7 +400,9 @@ async function install(args: Args, scratch: string): Promise<void> {
   writeFileSync(join(scratch, "package.json"), JSON.stringify(pkg, null, 2));
   if (args.tarballs) {
     // Local tarballs need no registry propagation: a single attempt.
-    if (run(["bun", "add", "--no-cache", ...specs], scratch, true).exitCode !== 0)
+    if (
+      run(["bun", "add", "--no-cache", ...specs], scratch, true).exitCode !== 0
+    )
       throw new Error("bun add failed");
     return;
   }
@@ -460,7 +462,8 @@ export async function waitForPackages(
   for (;;) {
     const missing: string[] = [];
     for (const name of names)
-      if (!(await opts.isVisible(name, version))) missing.push(`${name}@${version}`);
+      if (!(await opts.isVisible(name, version)))
+        missing.push(`${name}@${version}`);
     if (missing.length === 0) return;
     if (waited >= timeoutMs)
       throw new Error(

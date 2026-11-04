@@ -417,8 +417,13 @@ describe("waitForPackages", () => {
     const polls: Record<string, number> = {};
     const sleeps: number[] = [];
     await waitForPackages(names, "1.2.0", {
-      isVisible: (n) => (polls[n] = (polls[n] ?? 0) + 1) > (visibleAfter[n] ?? 0),
-      sleep: async (ms) => void sleeps.push(ms),
+      isVisible: (n) => {
+        polls[n] = (polls[n] ?? 0) + 1;
+        return polls[n] > (visibleAfter[n] ?? 0);
+      },
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
       intervalMs: 5,
     });
     expect(sleeps).toEqual([5, 5, 5]);
@@ -428,7 +433,9 @@ describe("waitForPackages", () => {
     let slept = 0;
     const err = await waitForPackages(names, "1.2.0", {
       isVisible: (n) => n !== "@app-vitals/agent-admin",
-      sleep: async (ms) => void (slept += ms),
+      sleep: async (ms) => {
+        slept += ms;
+      },
     }).catch((e: Error) => e);
     expect((err as Error).message).toContain("@app-vitals/agent-admin@1.2.0");
     expect((err as Error).message).not.toContain("agent-lib@");
@@ -440,7 +447,10 @@ describe("retryBunAdd", () => {
   test("retries until success", async () => {
     let calls = 0;
     await retryBunAdd(
-      () => ({ exitCode: ++calls < 3 ? 1 : 0, stderr: "failed to resolve" }),
+      () => {
+        calls++;
+        return { exitCode: calls < 3 ? 1 : 0, stderr: "failed to resolve" };
+      },
       { sleep: async () => {} },
     );
     expect(calls).toBe(3);
@@ -451,19 +461,27 @@ describe("retryBunAdd", () => {
     await expect(
       retryBunAdd(() => ({ exitCode: 1, stderr: "404" }), {
         attempts: 1,
-        sleep: async () => void slept++,
+        sleep: async () => {
+          slept++;
+        },
       }),
     ).rejects.toThrow("bun add failed");
     expect(slept).toBe(0);
   });
 
   test("default budget covers ~10 minutes of retries", async () => {
-    let calls = 0;
     let slept = 0;
     await expect(
-      retryBunAdd(() => (calls++, { exitCode: 1, stderr: "" }), {
-        sleep: async (ms) => void (slept += ms),
-      }),
+      retryBunAdd(
+        () => {
+          return { exitCode: 1, stderr: "" };
+        },
+        {
+          sleep: async (ms) => {
+            slept += ms;
+          },
+        },
+      ),
     ).rejects.toThrow();
     expect(slept).toBeGreaterThanOrEqual(9 * 60_000);
   });
