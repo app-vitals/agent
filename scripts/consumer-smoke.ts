@@ -398,16 +398,101 @@ async function install(args: Args, scratch: string): Promise<void> {
     specs = PACKAGES.map((p) => `${p.name}@${args.version}`);
   }
   writeFileSync(join(scratch, "package.json"), JSON.stringify(pkg, null, 2));
-  // npm publish can lag the release: retry while the version is not yet visible.
-  const attempts = args.tarballs ? 1 : 12;
+  if (args.tarballs) {
+    // Local tarballs need no registry propagation: a single attempt.
+    if (run(["bun", "add", "--no-cache", ...specs], scratch, true).exitCode !== 0)
+      throw new Error("bun add failed");
+    return;
+  }
+  // npm publish can lag the release: wait for every package to be visible, then
+  // retry bun add (its own resolution can lag the registry API a little longer).
+  await waitForPackages(
+    PACKAGES.map((p) => p.name),
+    args.version,
+    {
+      isVisible: npmViewVisible,
+      sleep: Bun.sleep,
+      log: (m) => console.error(m),
+    },
+  );
+  await retryBunAdd(
+    () => run(["bun", "add", "--no-cache", ...specs], scratch, true),
+    { sleep: Bun.sleep, log: (m) => console.error(m) },
+  );
+}
+
+/** Total time to wait for npm propagation, and for bun add to succeed after it. */
+export const REGISTRY_WAIT_MS = 10 * 60_000;
+export const REGISTRY_POLL_INTERVAL_MS = 15_000;
+export const BUN_ADD_ATTEMPTS = 30;
+export const BUN_ADD_RETRY_DELAY_MS = 20_000;
+
+type Sleep = (ms: number) => Promise<unknown>;
+
+/** True when `npm view name@version` finds the published version. */
+function npmViewVisible(name: string, version: string): boolean {
+  const r = run(
+    ["npm", "view", `${name}@${version}`, "version"],
+    process.cwd(),
+    true,
+  );
+  return r.exitCode === 0 && r.stdout.trim() === version;
+}
+
+/**
+ * Poll until every package is visible at `version`, up to `timeoutMs` total
+ * (counted in sleep time). Throws naming each package@version still missing.
+ */
+export async function waitForPackages(
+  names: readonly string[],
+  version: string,
+  opts: {
+    isVisible: (name: string, version: string) => boolean | Promise<boolean>;
+    sleep: Sleep;
+    log?: (msg: string) => void;
+    timeoutMs?: number;
+    intervalMs?: number;
+  },
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? REGISTRY_WAIT_MS;
+  const intervalMs = opts.intervalMs ?? REGISTRY_POLL_INTERVAL_MS;
+  let waited = 0;
+  for (;;) {
+    const missing: string[] = [];
+    for (const name of names)
+      if (!(await opts.isVisible(name, version))) missing.push(`${name}@${version}`);
+    if (missing.length === 0) return;
+    if (waited >= timeoutMs)
+      throw new Error(
+        `registry never showed ${missing.join(", ")} after ${Math.round(waited / 1000)}s`,
+      );
+    opts.log?.(
+      `[consumer-smoke] waiting for registry: ${missing.join(", ")} not yet visible`,
+    );
+    await opts.sleep(intervalMs);
+    waited += intervalMs;
+  }
+}
+
+/** Run `bun add` until it succeeds or the attempt budget is spent. */
+export async function retryBunAdd(
+  attempt: () => { exitCode: number | null; stderr: string },
+  opts: {
+    sleep: Sleep;
+    log?: (msg: string) => void;
+    attempts?: number;
+    delayMs?: number;
+  },
+): Promise<void> {
+  const attempts = opts.attempts ?? BUN_ADD_ATTEMPTS;
   for (let i = 1; i <= attempts; i++) {
-    const r = run(["bun", "add", "--no-cache", ...specs], scratch, true);
+    const r = attempt();
     if (r.exitCode === 0) return;
-    console.error(
+    opts.log?.(
       `[consumer-smoke] bun add attempt ${i}/${attempts} failed: ${r.stderr.trim().split("\n").pop()}`,
     );
     if (i === attempts) throw new Error("bun add failed");
-    await Bun.sleep(20_000);
+    await opts.sleep(opts.delayMs ?? BUN_ADD_RETRY_DELAY_MS);
   }
 }
 

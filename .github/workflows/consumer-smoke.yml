@@ -62,7 +62,7 @@ jobs:
 
       # The script derives its entry list from this checkout's package.json
       # exports (the tag), installs the published packages in an empty scratch
-      # dir (retrying while npm publish lags), imports every entry, and boots
+      # dir (waiting up to ~10 min for npm publish to propagate), imports every entry, and boots
       # both published images.
       - name: Consumer smoke (packages and images)
         env:
