@@ -54,7 +54,7 @@ Image scanning is in the release workflow, not in pull request CI.
 - **Pull request CI (`.github/workflows/ci.yml`)**: has no image scan step. Per-PR Trivy scans were considered and removed before PR #110 merged, at reviewer direction, so PR builds produce no scan output.
 - **Release workflow (`.github/workflows/release.yml`, `publish-image` job)**: this is the only place image scans run. The job runs once per matrix entry (`agent`, `agent-admin`, `agent-chat`), named `Image ghcr.io/app-vitals/<image>`.
 
-The release-workflow scan steps were added in PR #115. Each `publish-image` matrix entry does the following:
+The release-workflow scan steps are introduced in PR #115. Each `publish-image` matrix entry does the following:
 
 - Builds the image, runs two Trivy scans, and writes the results to the GitHub Actions job summary (`GITHUB_STEP_SUMMARY`). The scans run after Build and before Push.
 - Scans each image twice: once for OS packages (`vuln-type: os`) and once for application dependencies (`vuln-type: library`).
