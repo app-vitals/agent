@@ -198,11 +198,11 @@ jobs:
             echo "## Trivy agent-admin:ci (report-only, HIGH/CRITICAL, fixable)"
             echo "### OS packages"
             echo '```'
-            cat trivy-os.txt
+            cat trivy-os.txt 2>/dev/null || echo "(scan did not produce output)"
             echo '```'
             echo "### Application dependencies"
             echo '```'
-            cat trivy-deps.txt
+            cat trivy-deps.txt 2>/dev/null || echo "(scan did not produce output)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -253,11 +253,11 @@ jobs:
             echo "## Trivy agent-chat:ci (report-only, HIGH/CRITICAL, fixable)"
             echo "### OS packages"
             echo '```'
-            cat trivy-os.txt
+            cat trivy-os.txt 2>/dev/null || echo "(scan did not produce output)"
             echo '```'
             echo "### Application dependencies"
             echo '```'
-            cat trivy-deps.txt
+            cat trivy-deps.txt 2>/dev/null || echo "(scan did not produce output)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -318,11 +318,11 @@ jobs:
             echo "## Trivy agent:ci (report-only, HIGH/CRITICAL, fixable)"
             echo "### OS packages"
             echo '```'
-            cat trivy-os.txt
+            cat trivy-os.txt 2>/dev/null || echo "(scan did not produce output)"
             echo '```'
             echo "### Application dependencies"
             echo '```'
-            cat trivy-deps.txt
+            cat trivy-deps.txt 2>/dev/null || echo "(scan did not produce output)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
