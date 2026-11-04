@@ -368,7 +368,7 @@ describe("consumer-smoke workflow", () => {
     expect(job.permissions).toEqual({ contents: "read", packages: "read" });
   });
 
-  test("least privilege, pinned actions, bun 1.4.3 with no cache", () => {
+  test("least privilege, pinned actions, bun 1.4.4 with no cache", () => {
     expect(cwf.permissions).toEqual({ contents: "read" });
     const uses = [...cRaw.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map(
       (m) => m[1],
@@ -378,7 +378,7 @@ describe("consumer-smoke workflow", () => {
     // Same SHAs as release.yml.
     for (const u of uses) expect(raw).toContain(u);
     const bun = cSteps.find((s) => String(s.uses).includes("setup-bun"));
-    expect(bun?.with["bun-version"]).toBe("1.4.3");
+    expect(bun?.with["bun-version"]).toBe("1.4.4");
     expect(bun?.with["no-cache"]).toBe(true);
   });
 

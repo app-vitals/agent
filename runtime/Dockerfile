@@ -25,13 +25,13 @@
 # ─── Node.js binary source ─────────────────────────────────────────────────
 # Copied into the base stage below instead of piping deb.nodesource.com's
 # setup script through bash — that endpoint intermittently 403s in CI,
-# blocking every build. node:22-trixie-slim matches oven/bun:1-slim's Debian
+# blocking every build. node:22-trixie-slim matches oven/bun:1.4.4-slim's Debian
 # release (trixie) so the copied binary is glibc-compatible.
 FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS node-source
 
 # ─── Base: system tooling installed as root ───────────────────────────────────
 
-FROM oven/bun:1-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS base
+FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS base
 
 # Install system dependencies:
 #   - git          — required by Claude Code and mise
@@ -52,7 +52,7 @@ FROM oven/bun:1-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5
 #     against an installed 1.61.1, not assumed from docs or an older version's
 #     source. That dry run confirms chromium-headless-shell needs the identical
 #     package set as full `chromium` on this OS.
-#     oven/bun:1-slim is Debian trixie (13) — see node-source stage comment above
+#     oven/bun:1.4.4-slim is Debian trixie (13) — see node-source stage comment above
 #     — hence the t64-suffixed package names (Debian's 64-bit time_t transition).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
