@@ -220,6 +220,76 @@ describe("agent-chat image", () => {
   });
 });
 
+describe("image scan and digest hand-off", () => {
+  const TRIVY =
+    "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25";
+  const steps = () => stepsOf("publish-image");
+  const idxByName = (n: string) => steps().findIndex((s) => s.name === n);
+  const scans = () => steps().filter((s) => String(s.uses).startsWith(TRIVY));
+
+  test("Trivy scans OS packages and dependencies after Build and before Push, report-only", () => {
+    const found = scans();
+    expect(found.map((s) => s.with["vuln-type"]).sort()).toEqual([
+      "library",
+      "os",
+    ]);
+    for (const s of found) {
+      expect(s.with["image-ref"]).toBe("${{ env.IMAGE }}:${{ env.VERSION }}");
+      expect(s.with.severity).toBe("HIGH,CRITICAL");
+      expect(s.with["ignore-unfixed"]).toBe(true);
+      expect(s.with["exit-code"]).toBe("0");
+      const i = steps().indexOf(s);
+      expect(i).toBeGreaterThan(idxByName("Build image"));
+      expect(i).toBeLessThan(idxByName("Push image"));
+    }
+  });
+
+  test("dry runs still scan: scan steps are not gated on dry_run", () => {
+    for (const s of scans()) {
+      expect(String(s.if)).not.toContain("dry_run");
+      expect(String(s.if)).toContain("exists != 'true'");
+    }
+    const summary = steps().find((s) =>
+      String(s.run).includes("GITHUB_STEP_SUMMARY"),
+    );
+    expect(summary).toBeDefined();
+    expect(String(summary?.if ?? "")).not.toContain("dry_run");
+    expect(steps().indexOf(summary as Step)).toBeLessThan(
+      idxByName("Push image"),
+    );
+  });
+
+  test("the push step captures the pushed digest and uploads it per matrix entry", () => {
+    const push = steps()[idxByName("Push image")];
+    expect(push.id).toBe("push");
+    expect(push.run).toContain("docker push");
+    expect(push.run).toMatch(/sha256:/);
+    const upload = steps().find((s) =>
+      String(s.uses).startsWith("actions/upload-artifact@"),
+    );
+    expect(upload?.with.name).toBe("image-digest-${{ matrix.image }}");
+    expect(upload?.if).toContain("steps.push.outcome == 'success'");
+    expect(steps().indexOf(upload as Step)).toBeGreaterThan(
+      idxByName("Push image"),
+    );
+  });
+
+  test("notify-shipwright downloads the chat digest and adds chat_image_digest without touching chat_image", () => {
+    const job = wf.jobs["notify-shipwright"];
+    const dl = job.steps.find((s: Step) =>
+      String(s.uses).startsWith("actions/download-artifact@"),
+    );
+    expect(dl.with.name).toBe("image-digest-agent-chat");
+    const dispatch = job.steps.find((s: Step) => s.id === "dispatch");
+    expect(job.steps.indexOf(dl)).toBeLessThan(job.steps.indexOf(dispatch));
+    expect(dispatch.run).toContain("client_payload[chat_image_digest]=");
+    expect(dispatch.run).toContain(
+      '-f "client_payload[chat_image]=ghcr.io/app-vitals/agent-chat:$VERSION"',
+    );
+    expect(dispatch.run).toContain("client_payload[version]=$VERSION");
+  });
+});
+
 describe("automatic release on merge to main", () => {
   test("a push to main starts the workflow, but only the AUTO_RELEASE variable lets it release", () => {
     expect(wf.on.push.branches).toEqual(["main"]);
