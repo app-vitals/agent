@@ -167,8 +167,8 @@ jobs:
 
       # Report-only (exit-code 0): fixable HIGH/CRITICAL findings, OS packages
       # and application dependencies scanned separately.
-      # TODO: After baseline run on main, make enforcing by setting exit-code
-      # to 1 and removing continue-on-error: true.
+      # TODO: Not a PR gate (a newly published CVE would block unrelated PRs).
+      # Replace with a Shipwright cron that scans main and queues fix tasks.
       - name: Trivy scan (OS packages)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         continue-on-error: true
@@ -227,8 +227,8 @@ jobs:
 
       # Report-only (exit-code 0): fixable HIGH/CRITICAL findings, OS packages
       # and application dependencies scanned separately.
-      # TODO: After baseline run on main, make enforcing by setting exit-code
-      # to 1 and removing continue-on-error: true.
+      # TODO: Not a PR gate (a newly published CVE would block unrelated PRs).
+      # Replace with a Shipwright cron that scans main and queues fix tasks.
       - name: Trivy scan (OS packages)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         continue-on-error: true
@@ -297,8 +297,8 @@ jobs:
 
       # Report-only (exit-code 0): fixable HIGH/CRITICAL findings, OS packages
       # and application dependencies scanned separately.
-      # TODO: After baseline run on main, make enforcing by setting exit-code
-      # to 1 and removing continue-on-error: true.
+      # TODO: Not a PR gate (a newly published CVE would block unrelated PRs).
+      # Replace with a Shipwright cron that scans main and queues fix tasks.
       - name: Trivy scan (OS packages)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         continue-on-error: true
