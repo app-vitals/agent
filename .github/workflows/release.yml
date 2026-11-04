@@ -363,6 +363,50 @@ jobs:
           DOCKERFILE: ${{ matrix.dockerfile }}
         run: docker build -f "$DOCKERFILE" -t "$IMAGE:$VERSION" .
 
+      # Report-only (exit-code 0): fixable HIGH/CRITICAL findings, OS packages
+      # and application dependencies scanned separately. Not gated on dry_run, so
+      # a rehearsal exercises the scan; it runs before any push.
+      - name: Trivy scan (OS packages)
+        if: ${{ steps.exists.outputs.exists != 'true' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ env.VERSION }}
+          scan-type: image
+          vuln-type: os
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: table
+          output: trivy-os.txt
+
+      - name: Trivy scan (application dependencies)
+        if: ${{ steps.exists.outputs.exists != 'true' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ env.VERSION }}
+          scan-type: image
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: table
+          output: trivy-deps.txt
+
+      - name: Trivy findings to job summary
+        if: ${{ !cancelled() && steps.exists.outputs.exists != 'true' }}
+        run: |
+          {
+            echo "## Trivy $IMAGE:$VERSION (report-only, HIGH/CRITICAL, fixable)"
+            echo "### OS packages"
+            echo '```'
+            cat trivy-os.txt
+            echo '```'
+            echo "### Application dependencies"
+            echo '```'
+            cat trivy-deps.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Verify browser launch under sandbox restrictions
         if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
         run: |
@@ -381,9 +425,37 @@ jobs:
         if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
         run: SHIPWRIGHT_CONTRACT_BASE_IMAGE="$IMAGE:$VERSION" bun test runtime/base-image-contract.smoke.test.ts
 
+      # The pushed digest is written to a file and uploaded per matrix entry: a
+      # matrix job cannot expose one output per entry, only the last writer wins.
       - name: Push image
+        id: push
         if: ${{ needs.resolve.outputs.dry_run != 'true' && steps.exists.outputs.exists != 'true' }}
-        run: docker push "$IMAGE:$VERSION"
+        run: |
+          docker push "$IMAGE:$VERSION" | tee "$RUNNER_TEMP/push.log"
+          mkdir -p "$RUNNER_TEMP/digest"
+          DIGEST=$(grep -oE 'sha256:[0-9a-f]{64}' "$RUNNER_TEMP/push.log" | tail -n 1)
+          if [ -z "$DIGEST" ]; then
+            echo "Error: no digest in docker push output for $IMAGE:$VERSION" >&2
+            exit 1
+          fi
+          echo "$DIGEST" > "$RUNNER_TEMP/digest/digest.txt"
+
+      # Re-run of an already-published tag: the push was skipped, so read the
+      # digest of the image that is already there.
+      - name: Resolve digest of the existing image
+        id: existing
+        if: ${{ needs.resolve.outputs.dry_run != 'true' && steps.exists.outputs.exists == 'true' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digest"
+          docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}' > "$RUNNER_TEMP/digest/digest.txt"
+
+      - name: Upload image digest
+        if: ${{ steps.push.outcome == 'success' || steps.existing.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-digest-${{ matrix.image }}
+          path: ${{ runner.temp }}/digest/digest.txt
+          if-no-files-found: error
 
   # Tell Shipwright a new platform version exists so it can bump and rebuild
   # without waiting for Renovate. Failures must be loud: the 2026-10-02..10-09
@@ -403,15 +475,25 @@ jobs:
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
     steps:
+      - name: Download the agent-chat image digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: image-digest-agent-chat
+          path: ${{ runner.temp }}/chat-digest
+
+      # chat_image stays a tag (platform-release consumes it as one); the digest
+      # is additive.
       - name: Dispatch platform-release to app-vitals/shipwright
         id: dispatch
         env:
           GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
         run: |
+          CHAT_DIGEST=$(tr -d '[:space:]' < "$RUNNER_TEMP/chat-digest/digest.txt")
           gh api --method POST repos/app-vitals/shipwright/dispatches \
             -f event_type=platform-release \
             -f "client_payload[version]=$VERSION" \
-            -f "client_payload[chat_image]=ghcr.io/app-vitals/agent-chat:$VERSION"
+            -f "client_payload[chat_image]=ghcr.io/app-vitals/agent-chat:$VERSION" \
+            -f "client_payload[chat_image_digest]=$CHAT_DIGEST"
 
       - name: Open an issue when the dispatch failed
         if: ${{ failure() && steps.dispatch.outcome == 'failure' }}
