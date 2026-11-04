@@ -165,52 +165,6 @@ jobs:
       - name: Build admin Docker image
         run: docker build -f admin/Dockerfile -t agent-admin:ci .
 
-      # Report-only (exit-code 0): fixable HIGH/CRITICAL findings, OS packages
-      # and application dependencies scanned separately.
-      # TODO: Not a PR gate (a newly published CVE would block unrelated PRs).
-      # Replace with a Shipwright cron that scans main and queues fix tasks.
-      - name: Trivy scan (OS packages)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        continue-on-error: true
-        with:
-          image-ref: agent-admin:ci
-          scan-type: image
-          vuln-type: os
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-          format: table
-          output: trivy-os.txt
-
-      - name: Trivy scan (application dependencies)
-        if: ${{ !cancelled() }}
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        continue-on-error: true
-        with:
-          image-ref: agent-admin:ci
-          scan-type: image
-          vuln-type: library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-          format: table
-          output: trivy-deps.txt
-
-      - name: Trivy findings to job summary
-        if: ${{ !cancelled() }}
-        run: |
-          {
-            echo "## Trivy agent-admin:ci (report-only, HIGH/CRITICAL, fixable)"
-            echo "### OS packages"
-            echo '```'
-            cat trivy-os.txt 2>/dev/null || echo "(scan did not produce output)"
-            echo '```'
-            echo "### Application dependencies"
-            echo '```'
-            cat trivy-deps.txt 2>/dev/null || echo "(scan did not produce output)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
   chat-docker-build:
     name: chat docker build
     timeout-minutes: 20
@@ -224,52 +178,6 @@ jobs:
       # source file) runs inside this build.
       - name: Build chat Docker image
         run: docker build -f chat/Dockerfile -t agent-chat:ci .
-
-      # Report-only (exit-code 0): fixable HIGH/CRITICAL findings, OS packages
-      # and application dependencies scanned separately.
-      # TODO: Not a PR gate (a newly published CVE would block unrelated PRs).
-      # Replace with a Shipwright cron that scans main and queues fix tasks.
-      - name: Trivy scan (OS packages)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        continue-on-error: true
-        with:
-          image-ref: agent-chat:ci
-          scan-type: image
-          vuln-type: os
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-          format: table
-          output: trivy-os.txt
-
-      - name: Trivy scan (application dependencies)
-        if: ${{ !cancelled() }}
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        continue-on-error: true
-        with:
-          image-ref: agent-chat:ci
-          scan-type: image
-          vuln-type: library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-          format: table
-          output: trivy-deps.txt
-
-      - name: Trivy findings to job summary
-        if: ${{ !cancelled() }}
-        run: |
-          {
-            echo "## Trivy agent-chat:ci (report-only, HIGH/CRITICAL, fixable)"
-            echo "### OS packages"
-            echo '```'
-            cat trivy-os.txt 2>/dev/null || echo "(scan did not produce output)"
-            echo '```'
-            echo "### Application dependencies"
-            echo '```'
-            cat trivy-deps.txt 2>/dev/null || echo "(scan did not produce output)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -294,52 +202,6 @@ jobs:
       # source file) runs inside this build.
       - name: Build runtime Docker image
         run: docker build -f runtime/Dockerfile -t agent:ci .
-
-      # Report-only (exit-code 0): fixable HIGH/CRITICAL findings, OS packages
-      # and application dependencies scanned separately.
-      # TODO: Not a PR gate (a newly published CVE would block unrelated PRs).
-      # Replace with a Shipwright cron that scans main and queues fix tasks.
-      - name: Trivy scan (OS packages)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        continue-on-error: true
-        with:
-          image-ref: agent:ci
-          scan-type: image
-          vuln-type: os
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-          format: table
-          output: trivy-os.txt
-
-      - name: Trivy scan (application dependencies)
-        if: ${{ !cancelled() }}
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        continue-on-error: true
-        with:
-          image-ref: agent:ci
-          scan-type: image
-          vuln-type: library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-          format: table
-          output: trivy-deps.txt
-
-      - name: Trivy findings to job summary
-        if: ${{ !cancelled() }}
-        run: |
-          {
-            echo "## Trivy agent:ci (report-only, HIGH/CRITICAL, fixable)"
-            echo "### OS packages"
-            echo '```'
-            cat trivy-os.txt 2>/dev/null || echo "(scan did not produce output)"
-            echo '```'
-            echo "### Application dependencies"
-            echo '```'
-            cat trivy-deps.txt 2>/dev/null || echo "(scan did not produce output)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
 
       # Load-bearing: a green `bun test` in CI's unrestricted process does not
       # prove Chromium launches under a restricted securityContext (non-root,
