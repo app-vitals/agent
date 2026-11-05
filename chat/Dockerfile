@@ -33,7 +33,10 @@ RUN if [ -f bun.lock ]; then bun install --frozen-lockfile --production --ignore
 
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS production
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Upgrade apt/libapt-pkg7.0 past the base image's 3.0.3 (Trivy HIGH CVE-2026-109518, fixed in 3.0.4).
+RUN apt-get update \
+    && apt-get install -y --only-upgrade apt libapt-pkg7.0 \
+    && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
