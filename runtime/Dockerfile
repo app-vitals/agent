@@ -54,7 +54,10 @@ FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3
 #     package set as full `chromium` on this OS.
 #     oven/bun:1.4.4-slim is Debian trixie (13) — see node-source stage comment above
 #     — hence the t64-suffixed package names (Debian's 64-bit time_t transition).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Upgrade apt/libapt-pkg7.0 past the base image's 3.0.3 (Trivy HIGH CVE-2026-109518, fixed in 3.0.4).
+RUN apt-get update \
+    && apt-get install -y --only-upgrade apt libapt-pkg7.0 \
+    && apt-get install -y --no-install-recommends \
     git \
     curl \
     ca-certificates \
@@ -133,7 +136,7 @@ COPY --from=node-source /usr/local/lib/node_modules/npm /usr/local/lib/node_modu
 # upgrade it in place before installing anything with it. npm 12 blocks install
 # scripts by default, so Claude Code's postinstall (native binary) is allowed explicitly.
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.2.1
+ARG NPM_VERSION=12.2.2
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
 ARG CLAUDE_CODE_VERSION=2.1.292
 # The trailing check fails the build if the installed CLI doesn't report exactly
