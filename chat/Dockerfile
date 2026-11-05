@@ -20,9 +20,16 @@ COPY runtime/package.json ./runtime/
 COPY admin/package.json ./admin/
 COPY patches/ ./patches/
 
-# --ignore-scripts: chat's postinstall (prisma generate) runs below, after the
-# source is in place; the other workspaces' scripts are not needed here.
-RUN if [ -f bun.lock ]; then bun install --frozen-lockfile --ignore-scripts; else bun install --ignore-scripts; fi
+# --production: devDependencies (semantic-release's nested npm, typescript's native
+# tsc) never reach the shipped node_modules. --ignore-scripts: chat's postinstall
+# (prisma generate) runs below, after the source is in place; the other
+# workspaces' scripts are not needed here.
+# typescript is only an optional peer of prisma / @prisma/client, but bun still
+# links it (and its native tsc binary) into the store because the lockfile
+# carries it; nothing at runtime loads it, so drop it.
+RUN if [ -f bun.lock ]; then bun install --frozen-lockfile --production --ignore-scripts; else bun install --production --ignore-scripts; fi \
+    && rm -rf node_modules/.bun/typescript@* node_modules/.bun/@typescript+* \
+              node_modules/.bun/node_modules/typescript node_modules/.bun/node_modules/@typescript
 
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS production
 
@@ -43,8 +50,9 @@ COPY package.json bunfig.toml tsconfig.json ./
 COPY lib ./lib
 COPY chat ./chat
 
-# The generated Prisma client is not committed.
-RUN cd chat && bunx prisma generate --schema=prisma/schema.prisma
+# The generated Prisma client is not committed. prisma is a root runtime
+# dependency, so run the lockfile-pinned CLI from node_modules (no bunx download).
+RUN cd chat && ../node_modules/.bin/prisma generate --schema=prisma/schema.prisma
 
 # Module-resolution guard: bundle every chat source file as its own entry point
 # so an unresolvable import (e.g. a missing @app-vitals/agent-lib subpath) fails

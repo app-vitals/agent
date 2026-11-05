@@ -14,7 +14,14 @@ COPY runtime/package.json ./runtime/
 COPY lib/package.json ./lib/
 COPY patches/ ./patches/
 
-RUN if [ -f bun.lock ]; then bun install --frozen-lockfile; else bun install; fi
+# --production: devDependencies (semantic-release's nested npm, typescript's native
+# tsc) never reach the shipped node_modules.
+# typescript is only an optional peer of prisma / @prisma/client, but bun still
+# links it (and its native tsc binary) into the store because the lockfile
+# carries it; nothing at runtime loads it, so drop it.
+RUN if [ -f bun.lock ]; then bun install --frozen-lockfile --production; else bun install --production; fi \
+    && rm -rf node_modules/.bun/typescript@* node_modules/.bun/@typescript+* \
+              node_modules/.bun/node_modules/typescript node_modules/.bun/node_modules/@typescript
 
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS production
 
@@ -33,8 +40,9 @@ COPY --from=deps /app/lib/node_modules ./lib/node_modules
 # .dockerignore keeps node_modules, .git and build output out of the context.
 COPY . .
 
-# The generated Prisma client is not committed.
-RUN cd admin && bunx prisma generate --schema=prisma/schema
+# The generated Prisma client is not committed. prisma is a root runtime
+# dependency, so run the lockfile-pinned CLI from node_modules (no bunx download).
+RUN cd admin && ../node_modules/.bin/prisma generate --schema=prisma/schema
 
 EXPOSE 3000
 
