@@ -136,7 +136,7 @@ COPY --from=node-source /usr/local/lib/node_modules/npm /usr/local/lib/node_modu
 # upgrade it in place before installing anything with it. npm 12 blocks install
 # scripts by default, so Claude Code's postinstall (native binary) is allowed explicitly.
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.2.1
+ARG NPM_VERSION=12.2.2
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
 ARG CLAUDE_CODE_VERSION=2.1.292
 # The trailing check fails the build if the installed CLI doesn't report exactly
