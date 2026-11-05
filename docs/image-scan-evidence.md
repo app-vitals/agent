@@ -45,7 +45,7 @@ The `agent` image (`runtime/Dockerfile`) is also based on `oven/bun:1.4.4-slim`,
 COPY --from=node-source /usr/local/bin/node /usr/local/bin/node
 ```
 
-Node is needed because the Claude Code CLI requires a real Node runtime. A scan of `ghcr.io/app-vitals/agent` can therefore report genuine Node findings. Those findings are real and should be triaged as such. Do not dismiss them with the Bun symlink argument, and check the `node` version reported by `/usr/local/bin/node` directly when you need to confirm which build is present.
+Node is needed because the Claude Code CLI requires a real Node runtime. A scan of `ghcr.io/app-vitals/agent` can therefore report genuine Node findings. Those findings are real and should be triaged as such. Do not dismiss them with the Bun symlink argument, and note that the Dockerfile upgrades the npm bundled with `node-source` in place (pinned by the `NPM_VERSION` build ARG) because the copied npm carries vulnerable `undici` and `brace-expansion`; check the `node` version reported by `/usr/local/bin/node` directly when you need to confirm which build is present.
 
 ## Where scan results live
 

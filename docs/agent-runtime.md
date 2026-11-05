@@ -210,5 +210,9 @@ restarts. Reconnect blips and the not-yet-connected startup window stay 200.
 Tests sit beside the code as `*.unit.test.ts`, `*.integration.test.ts` and
 `*.smoke.test.ts`; shared fixtures are in `runtime/fixtures/`. The
 Dockerfile's module-resolution guard and base-image contract are covered by
-`base-image-contract.smoke.test.ts`; change them together. Run single files with
+`base-image-contract.smoke.test.ts`; change them together. That file also
+guards that the runtime stage copies `node_modules` from the production-only
+`prod-deps` stage (`bun install --frozen-lockfile --production`), so
+devDependency-only packages (handlebars, typescript, semantic-release, biome,
+a nested npm) never ship in the image while the Prisma client stays. Run single files with
 `bun test runtime/<file>`.
