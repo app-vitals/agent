@@ -63,6 +63,7 @@ import {
   HttpCronRunReporter,
   NoopCronRunReporter,
 } from "./cron-run-reporter.ts";
+import { reconcileCronTasks, type ScheduledEntry } from "./cron-sync.ts";
 import { markdownToSlack } from "./format.ts";
 import { buildGitHubAuthDeps } from "./github-auth-deps.ts";
 import {
@@ -728,7 +729,10 @@ export async function startAgent(
 
   // ─── Step 6: Cron sync loop ───────────────────────────────────────────────────
 
-  const cronTasks = new Map<string, ReturnType<typeof nodeCron.schedule>>();
+  const cronTasks = new Map<
+    string,
+    ScheduledEntry<ReturnType<typeof nodeCron.schedule>>
+  >();
 
   if (runtimeClient && agentId) {
     // Run-now requests (COS-42.1): honoured at most once each, in memory.
@@ -799,7 +803,7 @@ export async function startAgent(
       // kind (loop vs. generic). See planCronSchedule in agent-extension.ts and
       // the coding extension's loop-cron-classifier.ts for the full decision.
       const scheduled = planCronSchedule(extension, jobs);
-      const desired = new Map(scheduled.map((entry) => [entry.job.id, entry]));
+      const desired = new Set(scheduled.map((entry) => entry.job.id));
       dispatchKinds = new Map(
         scheduled.map((entry) => [entry.job.id, entry.dispatch]),
       );
@@ -808,54 +812,43 @@ export async function startAgent(
       // Only scheduled (enabled) jobs: a manually disabled cron is not run.
       void honourRunNow(jobs.filter((job) => desired.has(job.id)));
 
-      // Cancel removed/disabled jobs
-      for (const [id, task] of cronTasks) {
-        if (!desired.has(id)) {
-          task.stop();
-          cronTasks.delete(id);
-          console.log(`[cron-sync] unscheduled ${id}`);
-        }
-      }
-
-      // Schedule new jobs
-      for (const [id, entry] of desired) {
-        if (!cronTasks.has(id)) {
-          const { job, dispatch } = entry;
-          const task = nodeCron.schedule(job.schedule, async () => {
-            console.log(`[cron] firing job ${id}`);
-            try {
-              if (dispatch === "loop") {
-                if (!extension.dispatchLoop) {
-                  throw new Error(
-                    `cron job ${id} classified as loop but the agent extension has no dispatchLoop`,
-                  );
-                }
-                await extension.dispatchLoop(id);
-              } else {
-                await handleCronRequest(
-                  {
-                    jobId: id,
-                    prompt: job.prompt,
-                    channel: job.channel ?? undefined,
-                    user: job.user ?? undefined,
-                    silent: job.silent,
-                    preCheck: job.preCheck ?? undefined,
-                  },
-                  cronDeps,
+      // Unschedule removed/disabled jobs, schedule new ones, and reschedule any
+      // job whose schedule, prompt, channel, user, silent, preCheck or dispatch
+      // kind changed since the last tick.
+      reconcileCronTasks(cronTasks, scheduled, (job, dispatch) => {
+        const id = job.id;
+        return nodeCron.schedule(job.schedule, async () => {
+          console.log(`[cron] firing job ${id}`);
+          try {
+            if (dispatch === "loop") {
+              if (!extension.dispatchLoop) {
+                throw new Error(
+                  `cron job ${id} classified as loop but the agent extension has no dispatchLoop`,
                 );
               }
-            } catch (err) {
-              await reportCronFailure(id, err, {
-                cronRunReporter: cronRunReporter ?? new NoopCronRunReporter(),
-                sentryClient: process.env.SENTRY_DSN ? Sentry : undefined,
-                clock: SystemClock(),
-              });
+              await extension.dispatchLoop(id);
+            } else {
+              await handleCronRequest(
+                {
+                  jobId: id,
+                  prompt: job.prompt,
+                  channel: job.channel ?? undefined,
+                  user: job.user ?? undefined,
+                  silent: job.silent,
+                  preCheck: job.preCheck ?? undefined,
+                },
+                cronDeps,
+              );
             }
-          });
-          cronTasks.set(id, task);
-          console.log(`[cron-sync] scheduled ${id} (${job.schedule})`);
-        }
-      }
+          } catch (err) {
+            await reportCronFailure(id, err, {
+              cronRunReporter: cronRunReporter ?? new NoopCronRunReporter(),
+              sentryClient: process.env.SENTRY_DSN ? Sentry : undefined,
+              clock: SystemClock(),
+            });
+          }
+        });
+      });
     }
 
     void syncCrons();
@@ -940,7 +933,7 @@ export async function startAgent(
     markSlackDisconnected(slackClock);
 
     // Stop cron tasks so no new Claude work fires during drain
-    for (const [id, task] of cronTasks) {
+    for (const [id, { task }] of cronTasks) {
       task.stop();
       console.log(`[agent] cron unscheduled on shutdown: ${id}`);
     }
