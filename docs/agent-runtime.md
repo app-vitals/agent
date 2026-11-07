@@ -61,7 +61,9 @@ kubelet probes stay green during setup.
    plugins, clone newly configured repos, and start Slack if credentials have
    appeared.
 5. `reconcileSystemCrons`, best effort and non-fatal.
-6. Cron sync loop (60 s) and the periodic reconciler tick.
+6. Cron sync loop (60 s; `reconcileCronTasks()` in `cron-sync.ts` unschedules removed jobs
+   and reschedules any job whose schedule, prompt, channel, user, silent, preCheck or
+   dispatch kind changed) and the periodic reconciler tick.
 7. Slack Socket Mode app, chat poller, session pruner.
 
 Three hooks wired in `boot.ts` ride on the config sync and are gated by the
