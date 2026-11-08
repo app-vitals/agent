@@ -15,9 +15,11 @@ coding loop crons on the flip, convert the enabled `learn-dream` to a user cron;
 provisioning/memory/persona work in this session. No admin UI work: Dave performs the PATCH via the admin API.
 
 ### Business logic (app-vitals/agent, admin)
-- `admin/src/agent-cron-jobs.ts` `reconcileSystemCrons`: orphan pass gains a guard — an orphan `system=true` cron
-  with `enabled=true` is converted to a user cron (`system=false`, same id, `AgentCronRun` history kept) instead of
-  deleted; disabled orphans are deleted as today. Runs on every boot, so the guard lives here, not in the PATCH.
+- `admin/src/agent-cron-jobs.ts` `reconcileSystemCrons`: orphan pass gains an opt-in option
+  `convertEnabledOrphans` (default `false`). When set, an orphan `system=true` cron with `enabled=true` is converted to
+  a user cron (`system=false`, same id, `AgentCronRun` history kept) instead of deleted; disabled orphans are deleted
+  as today. Only the specialty-change path in `PATCH /agents/:id` passes it, so boot-time reconciles keep deleting
+  renamed or dropped system crons exactly as before and a manifest rename never leaves a user-cron duplicate.
 - `PATCH /agents/:id` accepts `specialty`: platform-admin only (403), 422 unless `specialtyRegistry.tryGetManifest`
   resolves it, no-op when unchanged. After the write: `reconcileSystemCrons(agentId)` immediately, then
   `reconcileAgentAfterSpecialtyChange` (copy of `reconcileAgentAfterAccountChange` in
@@ -47,14 +49,15 @@ provisioning/memory/persona work in this session. No admin UI work: Dave perform
 
 ### Testing strategy
 - agent: unit tests for schema/403/422/no-op and the preview shape; integration tests (real Postgres, as the existing
-  `agent-cron-jobs` tests do) for the orphan guard and for PATCH → cron reconcile → provisioner.reconcile called with
+  `agent-cron-jobs` tests do) for the `convertEnabledOrphans` option and for PATCH → cron reconcile → provisioner.reconcile called with
   the new specialty (provisioner injected as a test double, no global mocks); runtime unit test for `installPlugins`
   with an injected `execFn` covering the skip/heal branches.
 - vitals-os: extend `image/specialists/baked-marketplace.smoke.test.ts` and `scripts/image/image-parity.unit.test.ts`.
 
 ### Complexity risks
-- ⚠ `reconcileSystemCrons` is shared by every agent boot — the guard must be a pure extension of the orphan pass;
-  integration-test both branches. Rollback (`specialty: coding`) re-seeds `learn-dream` as a system cron next to the
+- ⚠ `reconcileSystemCrons` is shared by every agent boot — the option must default off and be a pure extension of the
+  orphan pass; integration-test both branches, plus a boot-path rename case (enabled orphan, option unset) asserting
+  the old cron is still deleted and no user-cron duplicate remains. Rollback (`specialty: coding`) re-seeds `learn-dream` as a system cron next to the
   converted user cron; the preview reports it and the HITL rollback step deletes the user copy first.
 - ⚠ Prod admin must run PR 1 before the PATCH; the admin ships via the shipwright chart pin, not the agent image.
 - ⚠ A coding pin PR merging before the swap restarts Saul an extra time (harmless, but breaks "one restart").
@@ -110,10 +113,10 @@ SAL-1.5 ⚠ Dan approves platform PR (needs 1.1, 1.2, 1.3, 1.4)
 
 ## Breaking change safety
 
-All code tasks are additive (new optional PATCH field, new GET route, new guard branch that only ever converts
+All code tasks are additive (new optional PATCH field, new GET route, new opt-in option that only converts
 instead of deletes, new baked directory, new build args). No renames, removals, or constraints. Every task:
-`Safe to deploy standalone: yes`. The only behaviour change for existing agents is SAL-1.1: an enabled system cron that
-falls out of its manifest is now kept as a user cron instead of deleted — strictly less destructive.
+`Safe to deploy standalone: yes`. SAL-1.1 changes nothing for existing agents: the conversion is opt-in and only the
+specialty-change PATCH passes it, so boot-time orphan deletion is unchanged.
 
 ## Out of scope
 CLI-provisioning Saul (memory, persona composer, `marketing:*` crons, marketplace rename); SIGTERM handling that kills
