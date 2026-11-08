@@ -358,6 +358,7 @@ describeOrSkip("AgentCronJobService (integration)", () => {
       created: FIXTURE_CRONS.length,
       updated: 0,
       deleted: 0,
+      converted: 0,
     });
 
     const systemJobs = (await service.list(agentId)).filter((j) => j.system);
@@ -372,6 +373,7 @@ describeOrSkip("AgentCronJobService (integration)", () => {
       created: 0,
       updated: FIXTURE_CRONS.length,
       deleted: 0,
+      converted: 0,
     });
   });
 
@@ -572,6 +574,7 @@ describeOrSkip("AgentCronJobService (integration)", () => {
       created: 0,
       updated: FIXTURE_CRONS.length,
       deleted: 0,
+      converted: 0,
     });
     const systemJobs = (await service.list(agentId)).filter((j) => j.system);
     expect(systemJobs.length).toBe(FIXTURE_CRONS.length);
@@ -583,7 +586,12 @@ describeOrSkip("AgentCronJobService (integration)", () => {
     // Must not throw, and must not seed another specialty's crons.
     const result = await service.reconcileSystemCrons(agentId);
 
-    expect(result).toEqual({ created: 0, updated: 0, deleted: 0 });
+    expect(result).toEqual({
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      converted: 0,
+    });
     expect(await service.list(agentId)).toEqual([]);
   });
 });
@@ -639,7 +647,12 @@ describeOrSkip("AgentCronJobService specialtyDefaults (integration)", () => {
   it("reconcile seeds the extension's crons instead of the manifest's", async () => {
     const agentId = await createAgent(prisma);
     const result = await service.reconcileSystemCrons(agentId);
-    expect(result).toEqual({ created: 2, updated: 0, deleted: 0 });
+    expect(result).toEqual({
+      created: 2,
+      updated: 0,
+      deleted: 0,
+      converted: 0,
+    });
     const jobs = await service.list(agentId);
     expect(jobs.map((j) => j.name).sort()).toEqual(["ext-child", "ext-loop"]);
     const loop = jobs.find((j) => j.name === "ext-loop");
@@ -662,6 +675,7 @@ describeOrSkip("AgentCronJobService specialtyDefaults (integration)", () => {
         agentId,
         name: "stale-system",
         system: true,
+        enabled: false,
         schedule: "* * * * *",
         prompt: "x",
       },
@@ -669,11 +683,268 @@ describeOrSkip("AgentCronJobService specialtyDefaults (integration)", () => {
 
     const result = await service.reconcileSystemCrons(agentId);
 
-    expect(result).toEqual({ created: 0, updated: 2, deleted: 1 });
+    expect(result).toEqual({
+      created: 0,
+      updated: 2,
+      deleted: 1,
+      converted: 0,
+    });
     const after = await service.list(agentId);
     const loopAfter = after.find((j) => j.name === "ext-loop");
     expect(loopAfter?.id).toBe(loop?.id as string);
     expect(loopAfter?.enabled).toBe(false);
     expect(after.some((j) => j.name === "stale-system")).toBe(false);
+  });
+});
+
+// Saul moves from a specialty with crons to `specialist` (`crons: []`): the
+// orphan pass must not destroy live crons or their run history.
+const emptyExtension: AdminExtension = {
+  name: "empty",
+  specialtyDefaults: (specialty) =>
+    specialty === FIXTURE_TYPE ? { crons: [] } : undefined,
+};
+
+describeOrSkip("reconcileSystemCrons orphan conversion (integration)", () => {
+  let prisma: PrismaClient;
+  let service: AgentCronJobService;
+
+  beforeEach(async () => {
+    prisma = makePrisma();
+    await prisma.agentToken.deleteMany();
+    await prisma.agentCronRun.deleteMany();
+    await prisma.agentCronJob.deleteMany();
+    await prisma.agentTool.deleteMany();
+    await prisma.agentEnv.deleteMany();
+    await prisma.agent.deleteMany();
+    service = new AgentCronJobService(
+      prisma,
+      undefined,
+      fixtureResolver,
+      collectSpecialtyDefaults([emptyExtension]),
+    );
+  });
+
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+
+  it("converts an enabled orphan to a user cron, keeping the row and its run history", async () => {
+    const agentId = await createAgent(prisma);
+    const cron = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "learn-dream",
+        system: true,
+        enabled: true,
+        schedule: "0 3 * * *",
+        prompt: "/learn-dream",
+        preCheck: "echo ok",
+        channel: "C123",
+      },
+    });
+    for (const startedAt of [new Date("2026-01-01"), new Date("2026-01-02")]) {
+      await prisma.agentCronRun.create({
+        data: { cronId: cron.id, agentId, startedAt },
+      });
+    }
+
+    const result = await service.reconcileSystemCrons(agentId);
+
+    expect(result).toEqual({
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      converted: 1,
+    });
+    const after = await prisma.agentCronJob.findUnique({
+      where: { id: cron.id },
+    });
+    expect(after).toMatchObject({
+      id: cron.id,
+      name: "learn-dream",
+      system: false,
+      enabled: true,
+      schedule: "0 3 * * *",
+      prompt: "/learn-dream",
+      preCheck: "echo ok",
+      channel: "C123",
+      parentCronId: null,
+    });
+    expect(
+      await prisma.agentCronRun.count({ where: { cronId: cron.id } }),
+    ).toBe(2);
+  });
+
+  it("clears parentCronId when converting an orphan that had a parent", async () => {
+    const agentId = await createAgent(prisma);
+    const parent = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "old-parent",
+        system: true,
+        enabled: false,
+        schedule: "* * * * *",
+        prompt: "p",
+      },
+    });
+    const child = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "old-child",
+        system: true,
+        enabled: true,
+        schedule: "* * * * *",
+        prompt: "c",
+        parentCronId: parent.id,
+      },
+    });
+
+    const result = await service.reconcileSystemCrons(agentId);
+
+    expect(result).toMatchObject({ deleted: 1, converted: 1 });
+    const after = await prisma.agentCronJob.findUnique({
+      where: { id: child.id },
+    });
+    expect(after?.system).toBe(false);
+    expect(after?.parentCronId).toBeNull();
+  });
+
+  it("still deletes a disabled orphan", async () => {
+    const agentId = await createAgent(prisma);
+    const cron = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "stale",
+        system: true,
+        enabled: false,
+        schedule: "* * * * *",
+        prompt: "x",
+      },
+    });
+
+    const result = await service.reconcileSystemCrons(agentId);
+
+    expect(result).toEqual({
+      created: 0,
+      updated: 0,
+      deleted: 1,
+      converted: 0,
+    });
+    expect(
+      await prisma.agentCronJob.findUnique({ where: { id: cron.id } }),
+    ).toBeNull();
+  });
+
+  it("Saul-shaped fixture: nine disabled shipwright-* crons deleted, enabled learn-dream converted", async () => {
+    const agentId = await createAgent(prisma);
+    for (let i = 0; i < 9; i++) {
+      await prisma.agentCronJob.create({
+        data: {
+          agentId,
+          name: `shipwright-${i}`,
+          system: true,
+          enabled: false,
+          schedule: "* * * * *",
+          prompt: `/shipwright:${i}`,
+        },
+      });
+    }
+    await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "learn-dream",
+        system: true,
+        enabled: true,
+        schedule: "0 3 * * *",
+        prompt: "/learn-dream",
+      },
+    });
+
+    const result = await service.reconcileSystemCrons(agentId);
+
+    expect(result).toEqual({
+      created: 0,
+      updated: 0,
+      deleted: 9,
+      converted: 1,
+    });
+    expect(
+      await prisma.agentCronJob.count({ where: { agentId, system: true } }),
+    ).toBe(0);
+    expect(await prisma.agentCronJob.count({ where: { agentId } })).toBe(1);
+  });
+
+  it("converts an unnamed enabled system orphan", async () => {
+    const agentId = await createAgent(prisma);
+    const cron = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        system: true,
+        enabled: true,
+        schedule: "* * * * *",
+        prompt: "x",
+      },
+    });
+
+    const result = await service.reconcileSystemCrons(agentId);
+
+    expect(result.converted).toBe(1);
+    const after = await prisma.agentCronJob.findUnique({
+      where: { id: cron.id },
+    });
+    expect(after?.system).toBe(false);
+  });
+});
+
+describeOrSkip("reconcileSystemCrons with manifest crons (integration)", () => {
+  it("manifest crons upsert while an enabled orphan alongside is converted", async () => {
+    const prisma = makePrisma();
+    try {
+      await prisma.agentToken.deleteMany();
+      await prisma.agentCronRun.deleteMany();
+      await prisma.agentCronJob.deleteMany();
+      await prisma.agentTool.deleteMany();
+      await prisma.agentEnv.deleteMany();
+      await prisma.agent.deleteMany();
+      const service = new AgentCronJobService(
+        prisma,
+        undefined,
+        fixtureResolver,
+        collectSpecialtyDefaults([fixtureExtension]),
+      );
+      const agentId = await createAgent(prisma);
+      const orphan = await prisma.agentCronJob.create({
+        data: {
+          agentId,
+          name: "orphan",
+          system: true,
+          enabled: true,
+          schedule: "* * * * *",
+          prompt: "x",
+        },
+      });
+
+      const result = await service.reconcileSystemCrons(agentId);
+
+      expect(result).toEqual({
+        created: 2,
+        updated: 0,
+        deleted: 0,
+        converted: 1,
+      });
+      const systemNames = (
+        await prisma.agentCronJob.findMany({ where: { agentId, system: true } })
+      )
+        .map((j) => j.name)
+        .sort();
+      expect(systemNames).toEqual(["ext-child", "ext-loop"]);
+      expect(
+        (await prisma.agentCronJob.findUnique({ where: { id: orphan.id } }))
+          ?.system,
+      ).toBe(false);
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 });

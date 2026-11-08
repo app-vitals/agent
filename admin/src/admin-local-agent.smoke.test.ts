@@ -178,6 +178,7 @@ function makeMockDeps(overrides?: Partial<AdminUIDeps>): AdminUIDeps {
         created: 0,
         updated: 0,
         deleted: 0,
+        converted: 0,
       }),
     },
     agentToolService: {
@@ -880,7 +881,7 @@ describe("admin UI — new local agent create flow", () => {
         reconcileSystemCrons: async (agentId: string) => {
           calls.reconciled.push(agentId);
           if (opts?.reconcileError) throw opts.reconcileError;
-          return { created: 3, updated: 0, deleted: 0 };
+          return { created: 3, updated: 0, deleted: 0, converted: 0 };
         },
       },
       provisioner: {

@@ -362,6 +362,7 @@ function makeMockDeps(): AdminDeps {
         created: 0,
         updated: 0,
         deleted: 0,
+        converted: 0,
       }),
     },
     agentToolService: {

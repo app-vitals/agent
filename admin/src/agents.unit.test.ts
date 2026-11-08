@@ -1251,7 +1251,7 @@ function makeCreateAgentHarness(
     reconcileSystemCrons: async (agentId) => {
       if (opts.reconcileImpl) await opts.reconcileImpl(agentId);
       calls.reconciled.push(agentId);
-      return { created: 0, updated: 0, deleted: 0 };
+      return { created: 0, updated: 0, deleted: 0, converted: 0 };
     },
   };
 

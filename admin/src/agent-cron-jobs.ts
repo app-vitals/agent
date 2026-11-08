@@ -465,16 +465,21 @@ export class AgentCronJobService {
    * a pre-existing row from before parentCron was introduced) and set→null
    * (e.g. a parentCron declaration removed from the defaults).
    *
-   * Orphan pass: delete any cron with system=true whose name is no longer in
-   * the resolved default cron list.
+   * Orphan pass: a cron with system=true whose name is no longer in the
+   * resolved default cron list is deleted if disabled, but converted to a user
+   * cron (system=false, parentCronId cleared, row id and run history kept) if
+   * enabled — a reconcile never destroys a live cron.
    *
    * All three passes run inside a single transaction for atomicity.
    *
-   * Returns a summary { created, updated, deleted }.
+   * Returns a summary { created, updated, deleted, converted }.
    */
-  async reconcileSystemCrons(
-    agentId: string,
-  ): Promise<{ created: number; updated: number; deleted: number }> {
+  async reconcileSystemCrons(agentId: string): Promise<{
+    created: number;
+    updated: number;
+    deleted: number;
+    converted: number;
+  }> {
     // Resolve the agent's default cron list. No default-type
     // fallback: seeding another type's crons on an agent is worse than
     // leaving its crons untouched.
@@ -495,7 +500,7 @@ export class AgentCronJobService {
       console.error(
         `reconcileSystemCrons: no known type for specialty "${specialty}" (agent ${agentId}) — leaving crons untouched`,
       );
-      return { created: 0, updated: 0, deleted: 0 };
+      return { created: 0, updated: 0, deleted: 0, converted: 0 };
     }
     const defaultCrons: readonly SpecialtyDefaultCron[] = extensionCrons ?? [];
 
@@ -518,6 +523,7 @@ export class AgentCronJobService {
     let created = 0;
     let updated = 0;
     let deleted = 0;
+    let converted = 0;
 
     // Wrap all mutations in a transaction so a crash mid-loop cannot leave
     // the agent missing required system crons (e.g. shipwright-dev-task).
@@ -590,15 +596,30 @@ export class AgentCronJobService {
         }
       }
 
-      // Orphan pass: delete any system cron whose name is not in the defaults.
-      for (const cron of existingSystemCrons) {
-        if (!cron.name || !systemCronNames.has(cron.name)) {
-          await tx.agentCronJob.delete({ where: { id: cron.id } });
-          deleted++;
-        }
+      // Orphan pass: a system cron whose name is not in the defaults is
+      // deleted if disabled; an enabled one is converted to a user cron so a
+      // specialty change cannot destroy a live cron or its run history.
+      // Conversions run first: parentCronId cascades on delete, so deleting a
+      // disabled orphan parent would otherwise take its converted child along.
+      const orphans = existingSystemCrons.filter(
+        (cron) => !cron.name || !systemCronNames.has(cron.name),
+      );
+      for (const cron of orphans.filter((c) => c.enabled)) {
+        await tx.agentCronJob.update({
+          where: { id: cron.id },
+          data: { system: false, parentCronId: null },
+        });
+        console.info(
+          `reconcileSystemCrons: converted orphan system cron to user cron (agent ${agentId}, cron ${cron.name ?? "(unnamed)"})`,
+        );
+        converted++;
+      }
+      for (const cron of orphans.filter((c) => !c.enabled)) {
+        await tx.agentCronJob.delete({ where: { id: cron.id } });
+        deleted++;
       }
     });
 
-    return { created, updated, deleted };
+    return { created, updated, deleted, converted };
   }
 }
