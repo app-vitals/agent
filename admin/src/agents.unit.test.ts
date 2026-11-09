@@ -1312,7 +1312,10 @@ describe("createAgent() specialtyDefaults hook", () => {
 
     expect(result.ok).toBe(true);
     expect(calls.toolsAdded.map((t) => t.pattern)).toEqual(["Grep"]);
-    expect(calls.pluginsAdded.map((p) => p.name)).toEqual(["ext-plugin"]);
+    expect(calls.pluginsAdded.map((p) => p.name)).toEqual([
+      "agent-platform@app-vitals-agent",
+      "ext-plugin",
+    ]);
   });
 
   it("falls back to the type's tools floor when the hook returns nothing", async () => {
@@ -1324,7 +1327,9 @@ describe("createAgent() specialtyDefaults hook", () => {
     expect(calls.toolsAdded.map((t) => t.pattern)).toEqual([
       ...CODING_TYPE.tools,
     ]);
-    expect(calls.pluginsAdded).toEqual([]);
+    expect(calls.pluginsAdded.map((p) => p.name)).toEqual([
+      "agent-platform@app-vitals-agent",
+    ]);
   });
 
   it("falls back per field when the hook omits tools or plugins", async () => {
@@ -1336,7 +1341,10 @@ describe("createAgent() specialtyDefaults hook", () => {
     expect(calls.toolsAdded.map((t) => t.pattern)).toEqual([
       ...CODING_TYPE.tools,
     ]);
-    expect(calls.pluginsAdded.map((p) => p.name)).toEqual(["ext-plugin"]);
+    expect(calls.pluginsAdded.map((p) => p.name)).toEqual([
+      "agent-platform@app-vitals-agent",
+      "ext-plugin",
+    ]);
   });
 
   it("accepts a specialty known only to the hook", async () => {
@@ -1351,7 +1359,9 @@ describe("createAgent() specialtyDefaults hook", () => {
 
     expect(result.ok).toBe(true);
     expect(calls.toolsAdded.map((t) => t.pattern)).toEqual(["Read"]);
-    expect(calls.pluginsAdded).toEqual([]);
+    expect(calls.pluginsAdded.map((p) => p.name)).toEqual([
+      "agent-platform@app-vitals-agent",
+    ]);
   });
 
   it("still rejects a specialty unknown to both hook and manifest", async () => {
@@ -1536,7 +1546,9 @@ describe("createAgent()", () => {
       "Write",
       "Bash",
     ]);
-    expect(calls.pluginsAdded).toEqual([]);
+    expect(calls.pluginsAdded.map((p) => p.name)).toEqual([
+      "agent-platform@app-vitals-agent",
+    ]);
     expect(calls.updateFieldsCalls).toEqual([
       { id: result.agent.id, fields: { repos: ["org/repo1", "org/repo2"] } },
       {
