@@ -216,6 +216,8 @@ COPY agent-types/ ./agent-types/
 # Composition root spawned by runtime/entrypoint.ts (../index.ts).
 COPY index.ts ./index.ts
 COPY scripts/ ./scripts/
+# Baked marketplace (plugins/.claude-plugin/marketplace.json + plugins/<name>/).
+COPY plugins/ ./plugins/
 
 # Module-resolution guard: bundle every runtime source file as its own entry
 # point so an unresolvable import fails the build itself, rather than only
@@ -259,6 +261,9 @@ COPY --from=build --chown=1000:1000 /app/agent-types ./agent-types
 COPY --from=build --chown=1000:1000 /app/index.ts ./index.ts
 COPY --from=build --chown=1000:1000 /app/scripts ./scripts
 COPY --from=build --chown=1000:1000 /app/package.json ./package.json
+# Baked marketplace: installPlugins() (runtime/setup.ts) registers every
+# /opt/shipwright/marketplaces/<name>/ that has .claude-plugin/marketplace.json.
+COPY --from=build --chown=1000:1000 /app/plugins /opt/shipwright/marketplaces/app-vitals-agent/
 
 RUN chmod +x /app/scripts/bin/git-credential-shipwright.sh \
     && chmod +x /app/scripts/bin/gh \

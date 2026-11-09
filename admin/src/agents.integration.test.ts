@@ -201,7 +201,10 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
     const plugins = await prisma.agentPlugin.findMany({
       where: { agentId: result.agent.id },
     });
-    expect(plugins.map((p) => p.name)).toEqual(["shipwright"]);
+    expect(plugins.map((p) => p.name).sort()).toEqual([
+      "agent-platform@app-vitals-agent",
+      "shipwright",
+    ]);
 
     const members = await prisma.agentMember.findMany({
       where: { agentId: result.agent.id },

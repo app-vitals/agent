@@ -48,10 +48,23 @@ specialty is read from the required `Agent.specialty` column.
 
 ## The `specialist` type
 
-A generic, non-coding agent: no system crons, no plugins, no GitHub scope, tools
+A generic, non-coding agent: no system crons, no GitHub scope, tools
 `Bash`, `WebSearch`, `WebFetch`, `Agent`. Its only required env is
 `CLAUDE_CODE_OAUTH_TOKEN`. Slack, voice and `GH_TOKEN` env are optional and set per
 agent. It is meant to be specialized after creation through the admin API.
+
+## Default plugins
+
+Every agent created through the platform (admin form, API, self-serve) is seeded with
+`agent-platform@app-vitals-agent`, the platform's own baked-marketplace plugin (progress
+pings to Slack and other runtime helpers). This is not per-specialty: it comes from
+`resolveDefaultPlugins()` in `lib/default-plugins.ts`, which prepends it to any plugins an
+extension's `specialtyDefaults()` supplies (deduped), so derived images get it without
+per-agent setup. Seeding happens at create time only; existing agents are unchanged.
+
+To enable it on an existing agent, add the plugin row (`POST /agents/:id/plugins` with
+`{"name": "agent-platform@app-vitals-agent"}`, or the Plugins tab in the admin UI) and
+restart the agent so `installPlugins()` picks it up.
 
 ## Adding a type
 
