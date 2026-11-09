@@ -60,6 +60,15 @@ describe("consumer compat workflow", () => {
     );
   });
 
+  test("documents the check order: admin-gen, then check-strings, then typecheck", () => {
+    const header = raw.slice(0, raw.indexOf("\non:"));
+    const order = ["admin-gen", "check-strings", "typecheck"].map((n) =>
+      header.indexOf(n),
+    );
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
   test("is required via the ruleset: not continue-on-error, and not a check the release waits on", () => {
     expect(code).not.toContain("continue-on-error");
     const release = readFileSync(

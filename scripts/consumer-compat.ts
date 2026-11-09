@@ -39,6 +39,9 @@
  * no drift assertion: a stale committed spec in shipwright is expected when
  * this PR changes the admin surface. A missing-property typecheck error gets
  * a one-line hint (make the member optional, or update the consumer first).
+ * The check-strings check then runs shipwright's banned-strings scan over the
+ * regenerated output (not the docs/platform snapshot, which only shipwright's
+ * bump workflow refreshes).
  *
  * Read-only toward shipwright: this script edits only the throwaway checkout
  * (package.json, bun.lock, node_modules, regenerated admin files) and never
@@ -246,6 +249,14 @@ export function buildShipwrightChecks(version: string): Check[] {
         ["bun", "run", "generate:admin-spec"],
         ["bun", "run", "generate:admin-types"],
       ],
+    },
+    {
+      // Shipwright's `check-strings` task, run right after admin-gen so a
+      // banned string in the regenerated spec/types fails this PR instead of
+      // shipwright's post-publish bump PR. The docs/platform snapshot is only
+      // refreshed in shipwright's bump workflow, so it is not covered here.
+      name: "check-strings",
+      steps: [["bun", "plugins/shipwright/scripts/check-banned-strings.ts"]],
     },
     { name: "typecheck", steps: [["bun", "run", "typecheck"]] },
     {
