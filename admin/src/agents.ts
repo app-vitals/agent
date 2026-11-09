@@ -126,6 +126,12 @@ export interface AgentDetail extends Partial<AgentAnthropicIdentity> {
   trialExpiresAt?: Date | null;
   trialExpiryWarnedAt?: Date | null;
   /**
+   * PMK-1.4: marketplace names baked into the agent's image, as last reported
+   * by the runtime. Read-only here; written only by setBakedMarketplaces().
+   * Optional so existing AgentDetail test doubles stay valid.
+   */
+  bakedMarketplaces?: string[];
+  /**
    * APM-1.3: the six real agent-policy fields (APM-1.1 DB columns,
    * Prisma-column defaults noted per field below). Optional here (like
    * `repos`/`trialExpiresAt` above) so existing test doubles constructing a
@@ -281,6 +287,7 @@ const DETAIL_SELECT = {
   updatedAt: true,
   trialExpiresAt: true,
   trialExpiryWarnedAt: true,
+  bakedMarketplaces: true,
   autoPostReviews: true,
   allowSelfReview: true,
   minConfidence: true,
@@ -452,6 +459,23 @@ export class AgentService {
       row.specialty,
     );
     return { ...row, missingRequiredEnv };
+  }
+
+  /**
+   * PMK-1.4: overwrite the agent's reported baked-marketplace names. Called
+   * only by the runtime-authenticated PUT /agents/:id/baked-marketplaces
+   * route; no PATCH field or UI control reaches it. Returns the stored list,
+   * or null when the agent does not exist.
+   */
+  async setBakedMarketplaces(
+    id: string,
+    names: string[],
+  ): Promise<string[] | null> {
+    const res = await this.prisma.agent.updateMany({
+      where: { id },
+      data: { bakedMarketplaces: names },
+    });
+    return res.count === 0 ? null : names;
   }
 
   /**

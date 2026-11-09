@@ -123,6 +123,7 @@ import {
   AgentSummarySchema,
   AgentTokenSchema,
   AgentToolSchema,
+  BakedMarketplacesResultSchema,
   ChatCredentialsWrapperSchema,
   ChatTokenStatsSchema,
   CreateAgentBodySchema,
@@ -154,6 +155,7 @@ import {
   PatchAgentPluginBodySchema,
   PatchAgentToolBodySchema,
   PluginNameQuerySchema,
+  PutBakedMarketplacesBodySchema,
   PutGitHubInstallationsBodySchema,
   TokenIdParamSchema,
   ToolIdParamSchema,
@@ -182,7 +184,10 @@ export interface AdminDeps {
     // through the narrower Pick above.
     | "updateFields"
     | "runTransaction"
-  >;
+  > &
+    // PMK-1.4: optional so existing AdminDeps consumers stay valid; the
+    // baked-marketplaces report route fails with a 500 when it is not wired.
+    Partial<Pick<AgentService, "setBakedMarketplaces">>;
   agentEnvService: Pick<
     AgentEnvService,
     "upsert" | "patch" | "getByAgentId" | "deleteKey"
@@ -453,6 +458,15 @@ const GetAgentResultSchema = z
      */
     trialExpiresAt: z.string().datetime().nullable().optional(),
     trialExpiryWarnedAt: z.string().datetime().nullable().optional(),
+    /**
+     * PMK-1.4: names of the marketplaces baked into the agent's image, as last
+     * reported by the runtime at boot. Read-only: only the runtime-authenticated
+     * PUT /agents/:id/baked-marketplaces route writes it.
+     */
+    bakedMarketplaces: z
+      .array(z.string())
+      .optional()
+      .openapi({ example: ["vitals-os", "shipwright"] }),
     /** APM-1.3: the six real agent-policy fields (APM-1.1 DB columns). */
     autoPostReviews: z.boolean().openapi({ example: true }),
     allowSelfReview: z.boolean().openapi({ example: false }),
@@ -1338,6 +1352,37 @@ const putGitHubInstallationsRoute = createRoute({
       description: "Forbidden — token does not own this agent",
       ...jsonError,
     },
+  },
+});
+
+const putBakedMarketplacesRoute = createRoute({
+  method: "put",
+  path: "/agents/{id}/baked-marketplaces",
+  summary: "Report the marketplaces baked into the agent's image",
+  description:
+    "Runtime-only report, authenticated with the agent's own key. Overwrites the stored list of baked marketplace names (the image's current state); it is exposed read-only as `bakedMarketplaces` on GET /agents/{id}. Other callers, including another agent's key, get 403.",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      content: {
+        "application/json": { schema: PutBakedMarketplacesBodySchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Baked marketplaces stored",
+      content: {
+        "application/json": { schema: BakedMarketplacesResultSchema },
+      },
+    },
+    400: { description: "Bad request", ...jsonError },
+    401: { description: "Unauthorized", ...jsonError },
+    403: {
+      description: "Forbidden — only the agent's own key may report",
+      ...jsonError,
+    },
+    404: { description: "Agent not found", ...jsonError },
   },
 });
 
@@ -2747,6 +2792,28 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     );
   });
 
+  // PUT /agents/:id/baked-marketplaces — runtime report (PMK-1.4), overwrite.
+  // Restricted to the agent's own key: admins, members and other agents' keys
+  // never write this value.
+  app.openapi(putBakedMarketplacesRoute, async (c) => {
+    const { id: agentId } = c.req.valid("param");
+    const scope = c.get("scope") as AdminScope | undefined;
+    if (scope?.kind !== "agent" || scope.agentId !== agentId) {
+      throw new ForbiddenError(
+        "Only the agent's own key may report baked marketplaces",
+      );
+    }
+    if (!agentService.setBakedMarketplaces) {
+      throw new Error("agentService.setBakedMarketplaces is not wired");
+    }
+    const { names } = c.req.valid("json");
+    const stored = await agentService.setBakedMarketplaces(agentId, [
+      ...new Set(names),
+    ]);
+    if (!stored) throw new NotFoundError(`agent ${agentId} not found`);
+    return c.json({ bakedMarketplaces: stored }, 200);
+  });
+
   // GET /agents/:id/github-installations — latest snapshot, 404 if none yet
   app.openapi(getGitHubInstallationsRoute, async (c) => {
     const { id: agentId } = c.req.valid("param");
@@ -2990,6 +3057,7 @@ function serializeAgent(
     missingRequiredEnv?: string[];
     trialExpiresAt?: Date | null;
     trialExpiryWarnedAt?: Date | null;
+    bakedMarketplaces?: string[];
     autoPostReviews?: boolean;
     allowSelfReview?: boolean;
     minConfidence?: number;
@@ -3024,6 +3092,7 @@ function serializeAgent(
     trialExpiryWarnedAt: agent.trialExpiryWarnedAt
       ? agent.trialExpiryWarnedAt.toISOString()
       : null,
+    bakedMarketplaces: agent.bakedMarketplaces ?? [],
     autoPostReviews: agent.autoPostReviews ?? true,
     allowSelfReview: agent.allowSelfReview ?? false,
     minConfidence: agent.minConfidence ?? 75,

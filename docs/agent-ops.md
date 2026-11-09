@@ -107,6 +107,10 @@ Put one subdirectory per marketplace under it. Each must contain `.claude-plugin
 
 Directories without `.claude-plugin/marketplace.json` are skipped silently, and a missing root yields no marketplaces. Before adding a directory, `installPlugins()` reads `known_marketplaces.json` (next to `installed_plugins.json`); if a persistent `~/.claude` still maps that marketplace name to a location with no `.claude-plugin/marketplace.json`, it runs `claude plugin marketplace remove <name>` first so the baked path registers cleanly. When the built-in repo root has no `marketplace.json` but a baked `shipwright` marketplace exists, startup logs that it is using the baked one. Registration is idempotent and non-fatal: a non-zero exit from `claude` is logged as a warning and startup continues. This path is part of the base-image contract that `runtime/Dockerfile` and `runtime/base-image-contract.smoke.test.ts` pin; change them together.
 
+### Runtime reporting (PMK-1.4)
+
+At boot, the runtime discovers the baked marketplaces and reports their directory basenames to admin with `PUT /agents/:id/baked-marketplaces` (agent-own-key only; fire-and-forget, never blocks startup). Admin stores them in the `bakedMarketplaces` column, which is exposed read-only on `GET /agents/:id`. The UI can show operators which plugin marketplaces are available in each deployed image.
+
 ## Remote marketplaces (config bundle)
 
 An agent's config bundle can declare remote plugin marketplaces (via database, `POST /agents/:id/marketplaces` in [agent-api-resources.md](./agent-api-resources.md#marketplaces)). The runtime reconciles these at entrypoint startup and during each 60-second config-sync tick via `installPlugins()`.

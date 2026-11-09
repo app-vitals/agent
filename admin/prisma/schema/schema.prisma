@@ -81,6 +81,10 @@ model Agent {
   maxFindings            Int      @default(5)
   cleanupMergedWorktrees Boolean  @default(true)
   cleanupAfterDays       Int      @default(14)
+  // PMK-1.4: names of the marketplaces baked into the agent's image, as last
+  // reported by the runtime at boot (overwritten each report). Written ONLY by
+  // PUT /agents/:id/baked-marketplaces; never by PATCH or any UI.
+  bakedMarketplaces      String[] @default([])
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 

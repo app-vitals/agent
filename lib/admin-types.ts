@@ -2514,6 +2514,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/baked-marketplaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Report the marketplaces baked into the agent's image
+         * @description Runtime-only report, authenticated with the agent's own key. Overwrites the stored list of baked marketplace names (the image's current state); it is exposed read-only as `bakedMarketplaces` on GET /agents/{id}. Other callers, including another agent's key, get 403.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PutBakedMarketplacesBody"];
+                };
+            };
+            responses: {
+                /** @description Baked marketplaces stored */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BakedMarketplacesResult"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden — only the agent's own key may report */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/github-installations": {
         parameters: {
             query?: never;
@@ -3325,6 +3406,11 @@ export interface components {
             trialExpiresAt?: string | null;
             /** Format: date-time */
             trialExpiryWarnedAt?: string | null;
+            /** @example [
+             *       "vitals-os",
+             *       "shipwright"
+             *     ] */
+            bakedMarketplaces?: string[];
             /** @example true */
             autoPostReviews: boolean;
             /** @example false */
@@ -4344,6 +4430,23 @@ export interface components {
              * @enum {string}
              */
             error?: "not_found" | "forbidden" | "rate_limited" | "network";
+        };
+        PutBakedMarketplacesBody: {
+            /**
+             * @example [
+             *       "vitals-os",
+             *       "shipwright"
+             *     ]
+             */
+            names: string[];
+        };
+        BakedMarketplacesResult: {
+            /**
+             * @example [
+             *       "vitals-os"
+             *     ]
+             */
+            bakedMarketplaces: string[];
         };
         PutGitHubInstallationsBody: {
             /**
