@@ -186,7 +186,7 @@ export interface AdminDeps {
     | "runTransaction"
   > &
     // PMK-1.4: optional so existing AdminDeps consumers stay valid; the
-    // baked-marketplaces report route answers 501 when it is absent.
+    // baked-marketplaces report route fails with a 500 when it is not wired.
     Partial<Pick<AgentService, "setBakedMarketplaces">>;
   agentEnvService: Pick<
     AgentEnvService,
