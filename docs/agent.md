@@ -11,15 +11,16 @@
 
 The admin service owns the platform's Postgres database
 (`DATABASE_URL_SHIPWRIGHT_ADMIN`, schema in `admin/prisma/schema/`). The platform
-schema (`schema.prisma`) defines nineteen models: `Agent` and its `AgentEnv`,
+schema (`schema.prisma`) defines twenty models: `Agent` and its `AgentEnv`,
 `AgentCronJob`, `AgentTool`, `AgentToken`, `AgentPlugin`, `AgentMarketplace` and `AgentMember` children;
 `AgentCronRun` with its `AgentCronRunModelBreakdown` and `AgentCronRunSkillUsage`
 children; `AgentChatTokenUsageDailyByModel` (daily chat-token rollups);
 `AgentGitHubInstallationsSnapshot` (latest GitHub App installations per agent);
-`PushSubscription`, `ChatThreadWatch` and `UserNotificationPrefs` (Web Push and
-notification preferences); and `Account`, `AccountMember` and `AccountInvite`
-(self-serve accounts). A separate file, `coding.prisma`, holds four models owned by a
-coding extension; they share the same database but are not covered here.
+`GitHubEnterpriseApp` (optional admin-level GitHub Apps); `PushSubscription`,
+`ChatThreadWatch` and `UserNotificationPrefs` (Web Push and notification preferences);
+and `Account`, `AccountMember` and `AccountInvite` (self-serve accounts). A separate
+file, `coding.prisma`, holds four models owned by a coding extension; they share the
+same database but are not covered here.
 
 Secrets at rest (env values, Slack and Anthropic keys) are AES-256-GCM encrypted at
 the service layer (`crypto.ts`, `token-crypto.ts`); agent API tokens are stored only

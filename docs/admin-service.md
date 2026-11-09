@@ -36,7 +36,8 @@ All paths are under `admin/src/`. Most modules have sibling `*.unit.test.ts`,
 | `agent-ask-config.ts` | Parses `SHIPWRIGHT_AGENT_ASK_ENABLED` and the `SHIPWRIGHT_AGENT_ASK_ALLOWLIST` `from>to` pairs into `{enabled, allowlist}`; a malformed pair throws. |
 | `startup-policy-reconcile.ts` | One-shot, never-throwing policy-only reconcile of managed agents after `Bun.serve`. Also reconciles configured pod labels. Also exports `managedReconcileTargets`, shared with `POST /agents/reconcile`. |
 | `prisma-client.ts`, `prisma-tx.ts`, `clock.ts`, `errors.ts` | Prisma 7 driver-adapter client (pool observability hook), optional-transaction param type, injectable `Clock`, typed `ApiError` subclasses. |
-| `crypto.ts`, `token-crypto.ts` | AES-256-GCM (`iv:ciphertext:authTag`, hex). `makeTokenCrypto()` reads `SHIPWRIGHT_ENCRYPTION_KEY`; unset means identity functions (plaintext). |
+| `crypto.ts`, `token-crypto.ts` | AES-256-GCM (`iv:ciphertext:authTag`, hex). `makeTokenCrypto()` reads `SHIPWRIGHT_ENCRYPTION_KEY`; unset means identity functions (plaintext). `makeStrictTokenCrypto()` is a strict variant that requires the key and throws on any decryption failure (no plain-text fallback), used for credentials that must never be stored unencrypted. |
+| `github-enterprise-apps.ts` | `GitHubEnterpriseAppService`: platform-level GitHub Enterprise Apps (at most one per role: `installer` or `lookup`), optional feature. Private keys are encrypted (AES-256-GCM via `TokenCrypto`) and never returned by read paths. `save()` requires `SHIPWRIGHT_ENCRYPTION_KEY` to be configured. |
 
 ### HTTP API and auth
 
