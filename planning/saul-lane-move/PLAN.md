@@ -121,3 +121,15 @@ specialty-change PATCH passes it, so boot-time orphan deletion is unchanged.
 ## Out of scope
 CLI-provisioning Saul (memory, persona composer, `marketing:*` crons, marketplace rename); SIGTERM handling that kills
 in-flight Claude jobs (`runtime/boot.ts` ~930) — candidate for its own platform task; `GITHUB_PAT_TRAFFIC` 401.
+
+## Update 2026-11-09: cron guard dropped, shipwright via remote marketplace
+
+- **SAL-1.1 is no longer a code change.** The `reconcileSystemCrons` orphan-conversion guard (the `converted` summary field) is
+  dropped: implemented unconditionally it would leave a stale user-cron duplicate whenever a system cron is renamed or retired,
+  on every agent, on every boot. Saul's enabled `learn-dream` row is converted to a user cron by hand instead (a one-row
+  `system = false` update; run history is kept). SAL-1.1 is now that manual step. Reconcile keeps delete-on-orphan semantics,
+  so SAL-1.2 reverts the guard on `feat/sal-specialty-change`, and the specialty-change preview has no `converted` bucket.
+- **Saul gets `shipwright@shipwright` from a remote marketplace, not the bake.** Session `public-marketplaces` (prefix `PMK`)
+  adds DB-driven remote marketplaces to the runtime and removes the bake from the specialists image. SAL-2.3 and SAL-3.1 now
+  depend on PMK-2.2 (the bake-less image deployed), SAL-3.1 adds Saul's marketplace row, and SAL-3.3 expects the marketplace
+  to come from GitHub. See `planning/public-marketplaces/PLAN.md`.
