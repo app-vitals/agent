@@ -7,6 +7,7 @@
  */
 
 import { findRepoNameCollisions } from "@app-vitals/agent-lib/clone-plan";
+import { resolveDefaultPlugins } from "@app-vitals/agent-lib/default-plugins";
 import { DEFAULT_AGENT_ENV } from "@app-vitals/agent-lib/default-agent-env";
 import { isGithubLogin } from "@app-vitals/agent-lib/github-login";
 import { isOrgRepo } from "@app-vitals/agent-lib/org-repo";
@@ -983,7 +984,9 @@ export async function createAgent(
         for (const pattern of extensionDefaults?.tools ?? type?.tools ?? []) {
           await deps.agentToolService.add(agent.id, pattern, tx);
         }
-        for (const pluginName of extensionDefaults?.plugins ?? []) {
+        for (const pluginName of resolveDefaultPlugins(
+          extensionDefaults?.plugins,
+        )) {
           await deps.agentPluginService.add(
             agent.id,
             pluginName,
