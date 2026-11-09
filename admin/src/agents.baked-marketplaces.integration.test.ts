@@ -111,8 +111,12 @@ describeOrSkip("baked marketplaces store (integration)", () => {
       )
       .sort();
     // agents.ts: writer + read select; agents-api.ts: report route + read
-    // serialization; openapi-schemas.ts: response/read schemas only.
+    // serialization; openapi-schemas.ts: response/read schemas only;
+    // admin-ui.ts / admin-ui-pages.ts: read-only display on the agent page
+    // (PMK-1.5), no write path.
     expect(writers).toEqual([
+      "admin-ui-pages.ts",
+      "admin-ui.ts",
       "agents-api.ts",
       "agents.ts",
       "openapi-schemas.ts",

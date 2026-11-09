@@ -4527,3 +4527,62 @@ describe("renderAgentDetailPage — signed commits toggle", () => {
     expect(checkbox).toContain("checked");
   });
 });
+
+describe("renderAgentDetailPage — marketplaces section (PMK-1.5)", () => {
+  const render = (
+    marketplaces: Array<{
+      id: string;
+      name: string;
+      source: string;
+      ref: string | null;
+      createdAt: Date;
+    }>,
+    bakedMarketplaces?: string[],
+  ) =>
+    renderAgentDetailPage(
+      { ...AGENT, bakedMarketplaces },
+      {},
+      [],
+      [],
+      [],
+      [],
+      [],
+      USER_NAME,
+      true,
+      { timezone: "UTC", marketplaces },
+    );
+  const remote = {
+    id: "mk1",
+    name: "shipwright",
+    source: "app-vitals/shipwright",
+    ref: "v1",
+    createdAt: new Date("2024-01-01"),
+  };
+
+  test("remote rows carry a remove form; the add form is present", () => {
+    const html = render([remote]);
+    expect(html).toContain("app-vitals/shipwright");
+    expect(html).toContain(`/admin/agents/${AGENT.id}/marketplaces/delete`);
+    expect(html).toContain('name="marketplaceId" value="mk1"');
+    expect(html).toContain(`/admin/agents/${AGENT.id}/marketplaces"`);
+  });
+
+  test("baked rows are labelled from image and have no form or button", () => {
+    const html = render([], ["baked-one"]);
+    const row = html.match(
+      /<tr data-baked-marketplace="baked-one">.*?<\/tr>/s,
+    )?.[0];
+    expect(row).toContain("from image");
+    expect(row).not.toMatch(/<form|<button|<input/);
+  });
+
+  test("shows the empty state with no remote or baked rows", () => {
+    expect(render([])).toContain("No marketplaces.");
+  });
+
+  test("escapes marketplace values", () => {
+    const html = render([{ ...remote, name: "<b>x</b>" }]);
+    expect(html).not.toContain("<b>x</b>");
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
+  });
+});

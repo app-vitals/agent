@@ -34,6 +34,7 @@ import {
   SPECIALIST_TYPE,
   SpecialtyTypes,
 } from "./specialty-types.ts";
+import { UnprocessableEntityError } from "./errors.ts";
 
 // The specialty the create-agent flows use: the configured default type (the
 // platform test run points it at the fixture specialty; the monorepo falls
@@ -3714,6 +3715,128 @@ describe("admin UI — member management routes", () => {
       },
     });
     expect(res.status).toBe(403);
+  });
+});
+
+describe("admin UI — marketplaces (PMK-1.5)", () => {
+  const MEMBER = "member@example.com";
+  const form = (fields: Record<string, string>, cookie: string) => ({
+    method: "POST",
+    body: new URLSearchParams(fields).toString(),
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Cookie: `admin_session=${cookie}`,
+    },
+  });
+  const memberDeps = () => ({
+    agentMemberService: {
+      listByEmail: async (email: string) =>
+        email === MEMBER
+          ? [{ id: "m1", agentId: AGENT_ID, email, createdAt: new Date() }]
+          : [],
+      exists: async (_agentId: string, email: string) => email === MEMBER,
+      add: async () => ({
+        id: "m1",
+        agentId: AGENT_ID,
+        email: MEMBER,
+        createdAt: new Date(),
+      }),
+      remove: async () => {},
+      listByAgentId: async () => [],
+    },
+  });
+
+  it("admin add upserts the row with the trimmed ref and redirects", async () => {
+    const calls: unknown[] = [];
+    const app = createAdminUIApp(
+      makeMockDeps({
+        agentMarketplaceService: {
+          list: async () => [],
+          upsert: async (_id: string, input: unknown) => {
+            calls.push(input);
+            return {} as never;
+          },
+          remove: async () => {},
+        },
+      }),
+    );
+    const res = await app.request(
+      `/admin/agents/${AGENT_ID}/marketplaces`,
+      form(
+        { name: "shipwright", source: "app-vitals/shipwright", ref: " v1 " },
+        await makeSessionCookie(),
+      ),
+    );
+    expect(res.status).toBe(302);
+    expect(calls).toEqual([
+      { name: "shipwright", source: "app-vitals/shipwright", ref: "v1" },
+    ]);
+  });
+
+  it("add with an invalid source redirects with the validation message", async () => {
+    const app = createAdminUIApp(
+      makeMockDeps({
+        agentMarketplaceService: {
+          list: async () => [],
+          upsert: async () => {
+            throw new UnprocessableEntityError("source must be bad");
+          },
+          remove: async () => {},
+        },
+      }),
+    );
+    const res = await app.request(
+      `/admin/agents/${AGENT_ID}/marketplaces`,
+      form({ name: "x", source: "/etc" }, await makeSessionCookie()),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("error=source%20must%20be");
+  });
+
+  it("an agent member can add and remove; a non-member gets 403", async () => {
+    let removed: string | null = null;
+    const service = {
+      list: async () => [],
+      upsert: async () => ({}) as never,
+      remove: async (_id: string, mid: string) => {
+        removed = mid;
+      },
+    };
+    const memberCookie = await makeSessionCookie(
+      SESSION_SECRET,
+      "google-sub-member",
+      MEMBER,
+      false,
+    );
+    const outsiderCookie = await makeSessionCookie(
+      SESSION_SECRET,
+      "google-sub-outsider",
+      "outsider@example.com",
+      false,
+    );
+    const app = createAdminUIApp(
+      makeMockDeps({ ...memberDeps(), agentMarketplaceService: service }),
+    );
+    const add = await app.request(
+      `/admin/agents/${AGENT_ID}/marketplaces`,
+      form({ name: "x", source: "a/b" }, memberCookie),
+    );
+    const del = await app.request(
+      `/admin/agents/${AGENT_ID}/marketplaces/delete`,
+      form({ marketplaceId: "mk1" }, memberCookie),
+    );
+    expect([add.status, del.status]).toEqual([302, 302]);
+    expect(removed as string | null).toBe("mk1");
+    for (const path of ["marketplaces", "marketplaces/delete"]) {
+      const res = await app.request(
+        `/admin/agents/${AGENT_ID}/${path}`,
+        form(
+          { name: "x", source: "a/b", marketplaceId: "mk1" },
+          outsiderCookie,
+        ),
+      );
+      expect(res.status).toBe(403);
+    }
   });
 });
 

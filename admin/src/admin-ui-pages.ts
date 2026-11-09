@@ -111,6 +111,12 @@ export interface AgentDetail {
   anthropicIdentityName?: string | null;
   anthropicServiceAccountId?: string | null;
   anthropicFederationRuleId?: string | null;
+  /**
+   * PMK-1.5: marketplace names baked into the agent's image, as reported by
+   * the runtime at boot. Rendered read-only. Absent or empty shows the empty
+   * state.
+   */
+  bakedMarketplaces?: string[];
 }
 
 export interface CronJobItem {
@@ -177,6 +183,14 @@ export interface PluginItem {
   name: string;
   version: string | null;
   enabled: boolean;
+  createdAt: Date;
+}
+
+export interface MarketplaceItem {
+  id: string;
+  name: string;
+  source: string;
+  ref: string | null;
   createdAt: Date;
 }
 
@@ -957,6 +971,8 @@ export function renderAgentDetailPage(
      * /admin/agents/:id/queue-activity; absent/false omits the link.
      */
     queueActivityLinks?: boolean;
+    /** PMK-1.5: remote AgentMarketplace rows for the Marketplaces card. */
+    marketplaces?: MarketplaceItem[];
   },
 ): string {
   // Reference time for relative timestamps — injected by tests for determinism,
@@ -1270,6 +1286,39 @@ export function renderAgentDetailPage(
     </tr>`,
           )
           .join("\n");
+
+  const marketplaces = opts?.marketplaces ?? [];
+  const bakedMarketplaces = agent.bakedMarketplaces ?? [];
+  const marketplaceRows = marketplaces
+    .map(
+      (m) => `<tr>
+      <td class="mono">${escapeHtml(m.name)}</td>
+      <td class="mono">${escapeHtml(m.source)}</td>
+      <td class="mono">${m.ref ? escapeHtml(m.ref) : "default"}</td>
+      <td><span class="badge badge-green">remote</span></td>
+      <td>
+        <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/marketplaces/delete" style="display:inline">
+          <input type="hidden" name="marketplaceId" value="${escapeHtml(m.id)}" />
+          <button type="submit" class="btn btn-danger" style="font-size:11px;padding:3px 8px">Remove</button>
+        </form>
+      </td>
+    </tr>`,
+    )
+    .join("\n");
+  const bakedMarketplaceRows = bakedMarketplaces
+    .map(
+      (name) => `<tr data-baked-marketplace="${escapeHtml(name)}">
+      <td class="mono">${escapeHtml(name)}</td>
+      <td class="mono" style="color:#6b7280">—</td>
+      <td class="mono" style="color:#6b7280">—</td>
+      <td><span class="badge badge-gray" title="Comes from the agent image; only an image update changes it">from image</span></td>
+      <td></td>
+    </tr>`,
+    )
+    .join("\n");
+  const marketplaceTableRows =
+    marketplaceRows + bakedMarketplaceRows ||
+    `<tr><td colspan="5" class="empty-state">No marketplaces.</td></tr>`;
 
   const memberRows =
     members.length === 0
@@ -1683,6 +1732,33 @@ export function renderAgentDetailPage(
       </div>
     </div>`;
 
+  const marketplacesSection = `<div class="card">
+      <div class="card-title">Marketplaces</div>
+      <div class="data-table-wrapper">
+        <table class="data-table" id="marketplaces-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Source</th>
+              <th>Ref</th>
+              <th>Origin</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${marketplaceTableRows}
+          </tbody>
+        </table>
+      </div>
+      <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/marketplaces" id="add-marketplace-form" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <input name="name" type="text" class="form-input mono" placeholder="name (e.g. shipwright)" required />
+        <input name="source" type="text" class="form-input mono" placeholder="owner/repo or https git URL" required />
+        <input name="ref" type="text" class="form-input mono" placeholder="ref (optional)" />
+        <button type="submit" class="btn btn-primary">Add marketplace</button>
+      </form>
+      <p style="color:#6b7280;font-size:12px;margin-top:8px">Rows marked "from image" are baked into the agent's image and can't be edited here.</p>
+    </div>`;
+
   // PAI-2.5: read-only trace from this agent to its Anthropic identity. Values
   // are user data (owner email) or provider IDs, so every one is escaped.
   const identityPlaceholder = '<span style="color:#9ca3af">—</span>';
@@ -1874,7 +1950,7 @@ export function renderAgentDetailPage(
   const pluginsToolsGroup = renderGroup(
     "Plugins &amp; Tools",
     pluginsToolsStat,
-    `${toolsSection}${pluginsSection}`,
+    `${toolsSection}${pluginsSection}${marketplacesSection}`,
   );
 
   const expandCollapseControls = `
