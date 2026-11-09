@@ -58,3 +58,28 @@ export function makeTokenCrypto(
     },
   };
 }
+
+/**
+ * Strict TokenCrypto for credentials that must never be stored or passed on as
+ * plain text (e.g. GitHub Enterprise App private keys).
+ *
+ * Differences from makeTokenCrypto(): returns null when no key is configured
+ * (callers must refuse to save, not fall back to identity), and decrypt()
+ * throws on any failure instead of returning the stored value as legacy
+ * plain text. A malformed key still throws at construction. Error messages
+ * never include the input value.
+ */
+export function makeStrictTokenCrypto(
+  key = process.env.SHIPWRIGHT_ENCRYPTION_KEY,
+): TokenCrypto | null {
+  if (!key) return null;
+  if (!isValidKeyHex(key)) {
+    throw new Error(
+      `SHIPWRIGHT_ENCRYPTION_KEY must be a 64-character hex string (32 bytes for AES-256-GCM), but got ${key.length} character(s). Generate one with: openssl rand -hex 32`,
+    );
+  }
+  return {
+    encrypt: (token) => encrypt(token, key),
+    decrypt: (encrypted) => decrypt(encrypted, key),
+  };
+}
