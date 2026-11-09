@@ -5562,7 +5562,7 @@ describe("admin UI — create agent seeds type tools and extension plugins", () 
     cookie = await makeSessionCookie();
   });
 
-  it("POST /admin/agents with the default type seeds an AgentTool row for every type tool and no AgentPlugin rows", async () => {
+  it("POST /admin/agents with the default type seeds an AgentTool row for every type tool and the default agent-platform plugin", async () => {
     const seededTools: string[] = [];
     const seededPlugins: string[] = [];
     const deps = makeMockDeps();
@@ -5602,7 +5602,7 @@ describe("admin UI — create agent seeds type tools and extension plugins", () 
     expect(res.headers.get("Location")).toBe(`/admin/agents/${AGENT_ID}`);
     expect(seededTools).toEqual([...SPECIALIST_TYPE.tools]);
     expect(seededTools).toContain("Bash");
-    expect(seededPlugins).toEqual([]);
+    expect(seededPlugins).toEqual(["agent-platform@app-vitals-agent"]);
   });
 
   it("POST /admin/agents with the configured default type (AGR-1.9) seeds the specialist floor and needs no product specialty", async () => {
@@ -5654,7 +5654,7 @@ describe("admin UI — create agent seeds type tools and extension plugins", () 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(`/admin/agents/${AGENT_ID}`);
     expect(seededTools).toEqual([...registry.getType("fixture").tools]);
-    expect(seededPlugins).toEqual([]);
+    expect(seededPlugins).toEqual(["agent-platform@app-vitals-agent"]);
   });
 
   it("an extension-contributed type (ETP-1.2) shows in the picker and POST /admin/agents accepts it", async () => {

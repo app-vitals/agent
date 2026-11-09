@@ -14,7 +14,7 @@ The built-in type is a small typed record, `SPECIALIST_TYPE` in `lib/specialist-
 | `tools` | `Bash`, `WebSearch`, `WebFetch`, `Agent` | seeded as `AgentTool` rows when an agent is created |
 | `requiredEnv` | `CLAUDE_CODE_OAUTH_TOKEN` | `missingRequiredEnv` on the agent detail (key names only, informational, never blocks create) |
 
-`specialist` has no system crons and no plugins. It is specialized after creation through the admin API.
+`specialist` has no system crons and no type-specific plugins (every new agent still gets the platform default `agent-platform@app-vitals-agent`; see [agent-types.md](agent-types.md#default-plugins)). It is specialized after creation through the admin API.
 
 ## Type validity
 

@@ -29,6 +29,7 @@
     "./request-context": "./request-context.ts",
     "./secret-env-vars": "./secret-env-vars.ts",
     "./default-agent-env": "./default-agent-env.ts",
+    "./default-plugins": "./default-plugins.ts",
     "./default-specialty": "./default-specialty.ts",
     "./specialist-type": "./specialist-type.ts",
     "./sentry": "./sentry.ts",
