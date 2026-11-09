@@ -1590,3 +1590,239 @@ describe("installPlugins stale shipwright marketplace healing", () => {
     expect(calls).toEqual([["plugin", "marketplace", "add", root]]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// installPlugins — remote marketplaces (PMK-1.3)
+// ---------------------------------------------------------------------------
+
+describe("installPlugins — remote marketplaces", () => {
+  const ROW = { name: "mkt", source: "owner/mkt", ref: "v1" };
+  const NO_REPO = () => join(testHome, "no-repo");
+  const registryPath = () => join(testHome, "known_marketplaces.json");
+  const manifestPath = () => join(testHome, "installed_plugins.json");
+
+  const writeRegistry = (registry: unknown) => {
+    mkdirSync(testHome, { recursive: true });
+    writeFileSync(registryPath(), JSON.stringify(registry));
+  };
+
+  // A marketplace dir the registry can point at.
+  const installDir = (withManifest: boolean): string => {
+    const dir = join(testHome, "marketplaces-cache", "mkt");
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    if (withManifest) {
+      writeFileSync(
+        join(dir, ".claude-plugin", "marketplace.json"),
+        JSON.stringify({ name: "mkt" }),
+      );
+    }
+    return dir;
+  };
+
+  const githubEntry = (
+    repo: string,
+    ref: string | undefined,
+    installLocation: string,
+  ) => ({
+    source: { source: "github", repo, ...(ref ? { ref } : {}) },
+    installLocation,
+    lastUpdated: "2026-11-09T00:00:00.000Z",
+  });
+
+  const run = async (
+    exec: (
+      cmd: string,
+      args: string[],
+      opts: { cwd: string },
+    ) => Promise<{ stdout: string; exitCode: number }>,
+    rows: Array<{ name: string; source: string; ref?: string | null }>,
+    extraDirs: string[] = NO_EXTRA_MARKETPLACES,
+    plugins: AgentPlugin[] = [],
+  ) =>
+    installPlugins(
+      exec,
+      testHome,
+      plugins,
+      NO_REPO(),
+      manifestPath(),
+      extraDirs,
+      undefined,
+      {},
+      rows,
+    );
+
+  const recorder = (exitFor: (args: string[]) => number = () => 0) => {
+    const calls: string[][] = [];
+    const exec = async (_cmd: string, args: string[]) => {
+      calls.push(args);
+      return { stdout: "", exitCode: exitFor(args) };
+    };
+    return { calls, exec };
+  };
+
+  it("with no rows the call sequence is unchanged", async () => {
+    const { calls, exec } = recorder();
+    await run(exec, [], NO_EXTRA_MARKETPLACES, [SHIPWRIGHT_ROW]);
+    expect(calls).toEqual([
+      ["plugin", "install", "shipwright@shipwright"],
+      ["plugin", "update", "shipwright@shipwright"],
+    ]);
+  });
+
+  it("fresh home: baked adds, remote add <source>#<ref>, update, then plugins", async () => {
+    const baked = join(testHome, "baked", "baked-mkt");
+    const { calls, exec } = recorder();
+    await run(exec, [ROW], [baked], [SHIPWRIGHT_ROW]);
+    expect(calls).toEqual([
+      ["plugin", "marketplace", "add", baked],
+      ["plugin", "marketplace", "add", "owner/mkt#v1"],
+      ["plugin", "marketplace", "update", "mkt"],
+      ["plugin", "install", "shipwright@shipwright"],
+      ["plugin", "update", "shipwright@shipwright"],
+    ]);
+  });
+
+  it("adds without a ref suffix when the row has no ref", async () => {
+    const { calls, exec } = recorder();
+    await run(exec, [{ name: "mkt", source: "owner/mkt", ref: null }]);
+    expect(calls[0]).toEqual(["plugin", "marketplace", "add", "owner/mkt"]);
+  });
+
+  it("same source and ref: only update", async () => {
+    writeRegistry({ mkt: githubEntry("owner/mkt", "v1", installDir(true)) });
+    const { calls, exec } = recorder();
+    await run(exec, [ROW]);
+    expect(calls).toEqual([["plugin", "marketplace", "update", "mkt"]]);
+  });
+
+  it("different ref: remove, add, update", async () => {
+    writeRegistry({ mkt: githubEntry("owner/mkt", "v0", installDir(true)) });
+    const { calls, exec } = recorder();
+    await run(exec, [ROW]);
+    expect(calls).toEqual([
+      ["plugin", "marketplace", "remove", "mkt"],
+      ["plugin", "marketplace", "add", "owner/mkt#v1"],
+      ["plugin", "marketplace", "update", "mkt"],
+    ]);
+  });
+
+  it("different source: remove, add, update", async () => {
+    writeRegistry({ mkt: githubEntry("other/mkt", "v1", installDir(true)) });
+    const { calls, exec } = recorder();
+    await run(exec, [ROW]);
+    expect(calls.map((c) => c[2])).toEqual(["remove", "add", "update"]);
+  });
+
+  it("installLocation without marketplace.json: remove, add, update", async () => {
+    writeRegistry({ mkt: githubEntry("owner/mkt", "v1", installDir(false)) });
+    const { calls, exec } = recorder();
+    await run(exec, [ROW]);
+    expect(calls.map((c) => c[2])).toEqual(["remove", "add", "update"]);
+  });
+
+  it("a git URL source matches its registered form", async () => {
+    writeRegistry({
+      mkt: {
+        source: {
+          source: "git",
+          url: "https://github.com/Owner/mkt.git",
+          ref: "v1",
+        },
+        installLocation: installDir(true),
+      },
+    });
+    const { calls, exec } = recorder();
+    await run(exec, [{ ...ROW, source: "https://github.com/owner/mkt" }]);
+    expect(calls).toEqual([["plugin", "marketplace", "update", "mkt"]]);
+  });
+
+  it("a baked dir of the same name suppresses the row with a warning", async () => {
+    const baked = join(testHome, "baked", "mkt");
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const { calls, exec } = recorder();
+    await run(exec, [ROW], [baked]);
+    expect(calls).toEqual([["plugin", "marketplace", "add", baked]]);
+    expect(warn.mock.calls.flat().join("\n")).toContain("baked marketplace");
+    warn.mockRestore();
+  });
+
+  it("warns on a manifest name mismatch", async () => {
+    // The CLI registers under the manifest name, not the row name.
+    writeRegistry({
+      actual: githubEntry("owner/mkt", "v1", installDir(true)),
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const { exec } = recorder();
+    await run(exec, [ROW]);
+    expect(warn.mock.calls.flat().join("\n")).toContain("named actual");
+    warn.mockRestore();
+  });
+
+  it("failed add, remove and update warn and boot continues", async () => {
+    writeRegistry({ mkt: githubEntry("owner/mkt", "v0", installDir(true)) });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const { calls, exec } = recorder((args) =>
+      args[0] === "plugin" && args[1] === "marketplace" ? 1 : 0,
+    );
+    await run(exec, [ROW], NO_EXTRA_MARKETPLACES, [SHIPWRIGHT_ROW]);
+    const text = warn.mock.calls.flat().join("\n");
+    expect(text).toContain("marketplace remove mkt exited 1");
+    expect(text).toContain("marketplace add owner/mkt#v1 exited 1");
+    expect(text).toContain("marketplace update mkt exited 1");
+    expect(calls.at(-1)).toEqual(["plugin", "update", "shipwright@shipwright"]);
+    warn.mockRestore();
+  });
+
+  it("never removes registrations the agent does not manage", async () => {
+    writeRegistry({
+      unmanaged: githubEntry("x/y", undefined, installDir(false)),
+      mkt: githubEntry("owner/mkt", "v1", installDir(true)),
+    });
+    const { calls, exec } = recorder();
+    await run(exec, [ROW]);
+    expect(calls.some((c) => c.includes("unmanaged"))).toBe(false);
+    expect(calls.some((c) => c[2] === "remove")).toBe(false);
+  });
+
+  it("keeps the baked stale-registration heal working alongside rows", async () => {
+    const baked = join(testHome, "baked", "heal-mkt");
+    writeRegistry({
+      "heal-mkt": {
+        source: { source: "directory", path: "/nonexistent-app" },
+        installLocation: "/nonexistent-app",
+      },
+    });
+    const { calls, exec } = recorder();
+    await run(exec, [ROW], [baked]);
+    expect(calls.slice(0, 2)).toEqual([
+      ["plugin", "marketplace", "remove", "heal-mkt"],
+      ["plugin", "marketplace", "add", baked],
+    ]);
+  });
+
+  it("two consecutive boots are idempotent", async () => {
+    // Fake CLI that persists registrations the way `claude` does.
+    const cliExec = async (_cmd: string, args: string[]) => {
+      const [, sub, action, target] = args;
+      if (sub === "marketplace") {
+        const reg = existsSync(registryPath())
+          ? JSON.parse(readFileSync(registryPath(), "utf8"))
+          : {};
+        if (action === "add" && target?.startsWith("owner/")) {
+          const [repo, ref] = target.split("#");
+          reg.mkt = githubEntry(repo, ref, installDir(true));
+        } else if (action === "remove") {
+          delete reg[target as string];
+        }
+        writeFileSync(registryPath(), JSON.stringify(reg));
+      }
+      return { stdout: "", exitCode: 0 };
+    };
+    const firstCalls: string[][] = [];
+    const secondCalls: string[][] = [];
+    await run(async (c, a) => (firstCalls.push(a), cliExec(c, a)), [ROW]);
+    await run(async (c, a) => (secondCalls.push(a), cliExec(c, a)), [ROW]);
+    expect(firstCalls.map((c) => c[2])).toEqual(["add", "update"]);
+    expect(secondCalls).toEqual([["plugin", "marketplace", "update", "mkt"]]);
+  });
+});
