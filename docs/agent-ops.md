@@ -110,3 +110,22 @@ Directories without `.claude-plugin/marketplace.json` are skipped silently, and 
 ### Runtime reporting (PMK-1.4)
 
 At boot, the runtime discovers the baked marketplaces and reports their directory basenames to admin with `PUT /agents/:id/baked-marketplaces` (agent-own-key only; fire-and-forget, never blocks startup). Admin stores them in the `bakedMarketplaces` column, which is exposed read-only on `GET /agents/:id`. The UI can show operators which plugin marketplaces are available in each deployed image.
+
+## Remote marketplaces (config bundle)
+
+An agent's config bundle can declare remote plugin marketplaces (via database, `POST /agents/:id/marketplaces` in [agent-api-resources.md](./agent-api-resources.md#marketplaces)). The runtime reconciles these at entrypoint startup and during each 60-second config-sync tick via `installPlugins()`.
+
+Each remote marketplace row has `name`, `source` (a GitHub `owner/repo` or https git URL), and an optional `ref` (branch, tag or commit). Reconciliation runs after all baked marketplaces are registered and follows these steps:
+
+1. **Baked marketplaces win.** If a baked marketplace has the same `name`, the remote entry is skipped with a warning.
+2. **Check registry.** Look up the entry in `known_marketplaces.json`. If already registered with a matching `source` and `ref`, skip to step 4 (it is in the desired state).
+3. **Remove dangling or mismatched.** If the entry is registered but:
+   - Its `source` or `ref` differs, or
+   - Its `installLocation` points to a directory with no `.claude-plugin/marketplace.json`,
+   
+   then remove it first with `claude plugin marketplace remove <name>`.
+4. **Add if missing.** If not registered, add it: `claude plugin marketplace add <source>[#<ref>]` (the `#<ref>` is included only when `ref` is present).
+5. **Update.** Always run `claude plugin marketplace update <name>` after adding or skipping to refresh plugin manifests.
+6. **Warn on manifest name mismatch.** The CLI registers a marketplace under its manifest's declared `name` field. If that name differs from the row's `name`, the registry will have an entry under the manifest name instead, and a warning is logged: plugin specs in the agent's `AgentPlugin` rows must reference the manifest name (use `@<manifest-name>` not `@<row-name>`).
+
+All marketplace operations are non-fatal: a non-zero exit from `claude` is logged as a warning and reconciliation continues. Operators can enable or remove remote marketplaces at any time via the admin UI or API; changes take effect within one config-sync tick (≤60 s) without a pod restart.
