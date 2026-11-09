@@ -46,7 +46,7 @@ mutating routes a `platform.ops` key may call:
 
 | Method | Path | Notes |
 |---|---|---|
-| `PATCH` | `/agents/{id}` | Any field except `accountId` and `podServiceAccountName`, which stay platform-admin only (a `platform.ops` key gets 403 for either). |
+| `PATCH` | `/agents/{id}` | Any field except `accountId`, `podServiceAccountName` and `specialty`, which stay platform-admin only (a `platform.ops` key gets 403 for any of them). See [specialties.md](specialties.md) for what a specialty change does. |
 | `POST` | `/agents/{id}/repos` | Also matches deeper paths. |
 | `DELETE` | `/agents/{id}/repos` | Also matches deeper paths, e.g. `/agents/{id}/repos/{owner}/{name}`. |
 | `PATCH` | `/agents/{id}/crons/{cronId}` | |
