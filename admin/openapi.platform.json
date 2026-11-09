@@ -253,7 +253,7 @@
               "type": "string"
             },
             "example": [
-              "vitals-os",
+              "example-marketplace",
               "shipwright"
             ]
           },
@@ -3102,7 +3102,7 @@
               "type": "string"
             },
             "example": [
-              "vitals-os"
+              "example-marketplace"
             ]
           }
         },
@@ -3122,7 +3122,7 @@
             },
             "maxItems": 100,
             "example": [
-              "vitals-os",
+              "example-marketplace",
               "shipwright"
             ]
           }

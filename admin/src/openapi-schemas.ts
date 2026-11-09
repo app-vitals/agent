@@ -1087,14 +1087,14 @@ export const PutBakedMarketplacesBodySchema = z
     names: z
       .array(z.string().min(1).max(255))
       .max(100)
-      .openapi({ example: ["vitals-os", "shipwright"] }),
+      .openapi({ example: ["example-marketplace", "shipwright"] }),
   })
   .strict()
   .openapi("PutBakedMarketplacesBody");
 
 export const BakedMarketplacesResultSchema = z
   .object({
-    bakedMarketplaces: z.array(z.string()).openapi({ example: ["vitals-os"] }),
+    bakedMarketplaces: z.array(z.string()).openapi({ example: ["example-marketplace"] }),
   })
   .openapi("BakedMarketplacesResult");
 
