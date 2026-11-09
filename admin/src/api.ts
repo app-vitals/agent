@@ -44,6 +44,12 @@ export interface AgentConfigResponse {
   env: Record<string, string>;
   allowedTools: string[];
   plugins: AgentPlugin[];
+  /**
+   * PMK-1.2: remote plugin marketplaces to register before plugin install.
+   * Optional so existing fixtures/doubles built against this interface keep
+   * compiling; the live handler always populates it (empty when none).
+   */
+  marketplaces?: Array<{ name: string; source: string; ref: string | null }>;
   repos: string[];
   reviewAuthorAllowlist: string[];
   patchAuthorAllowlist: string[];
@@ -155,6 +161,12 @@ interface AgentPluginServiceLike {
   listEnabled(agentId: string): Promise<Array<{ name: string }>>;
 }
 
+interface AgentMarketplaceServiceLike {
+  list(
+    agentId: string,
+  ): Promise<Array<{ name: string; source: string; ref: string | null }>>;
+}
+
 export interface AgentPhaseMethodologyServiceLike {
   list(
     agentId: string,
@@ -166,6 +178,11 @@ export interface AgentRuntimeDeps {
   agentCronJobService: AgentCronJobServiceLike;
   agentService: AgentServiceLike;
   agentPluginService: AgentPluginServiceLike;
+  /**
+   * PMK-1.2: optional. Absent → GET /agents/:id/config reports
+   * `marketplaces: []`.
+   */
+  agentMarketplaceService?: AgentMarketplaceServiceLike;
   /**
    * Optional: supplied by an AdminExtension (the coding extension). Absent →
    * GET /agents/:id/config omits `phaseMethodology`.
@@ -290,11 +307,13 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
     }
 
     // Fetch env bundle, plugins, and phase-methodology overrides in parallel
-    const [bundle, plugins, phaseMethodologyRows] = await Promise.all([
-      agentEnvService.getConfigBundle(id),
-      agentPluginService.listEnabled(id),
-      agentPhaseMethodologyService?.list(id),
-    ]);
+    const [bundle, plugins, marketplaceRows, phaseMethodologyRows] =
+      await Promise.all([
+        agentEnvService.getConfigBundle(id),
+        agentPluginService.listEnabled(id),
+        deps.agentMarketplaceService?.list(id),
+        agentPhaseMethodologyService?.list(id),
+      ]);
 
     // WIF-2.1: with federation enabled, a non-self-hosted agent must never be
     // handed Anthropic credentials, even ones already stored in its bundle
@@ -341,6 +360,11 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
           ? { marketplace: "shipwright", plugin: p.name }
           : { plugin: p.name.slice(0, at), marketplace: p.name.slice(at + 1) };
       }),
+      marketplaces: (marketplaceRows ?? []).map((m) => ({
+        name: m.name,
+        source: m.source,
+        ref: m.ref,
+      })),
       repos: agent.repos,
       reviewAuthorAllowlist: agent.reviewAuthorAllowlist,
       patchAuthorAllowlist: agent.patchAuthorAllowlist,

@@ -895,6 +895,43 @@ export const PatchAgentPluginBodySchema = z
   })
   .openapi("PatchAgentPluginBody");
 
+// ─── AgentMarketplace ─────────────────────────────────────────────────────────
+
+export const AgentMarketplaceSchema = z
+  .object({
+    id: z.string().openapi({ example: "clx1234567890" }),
+    agentId: z.string().openapi({ example: "clx1234567890" }),
+    name: z.string().openapi({ example: "shipwright" }),
+    source: z.string().openapi({ example: "app-vitals/shipwright" }),
+    ref: z.string().nullable().openapi({ example: "main" }),
+    createdAt: z
+      .string()
+      .datetime()
+      .openapi({ example: "2026-01-01T00:00:00.000Z" }),
+    updatedAt: z
+      .string()
+      .datetime()
+      .openapi({ example: "2026-01-01T00:00:00.000Z" }),
+  })
+  .openapi("AgentMarketplace");
+
+export type AgentMarketplace = z.infer<typeof AgentMarketplaceSchema>;
+
+/**
+ * `source` / `name` / `ref` are validated by AgentMarketplaceService (422), not
+ * here — the Zod layer answers 400.
+ */
+export const UpsertAgentMarketplaceBodySchema = z
+  .object({
+    name: z.string().openapi({ example: "shipwright" }),
+    source: z.string().openapi({
+      description: "GitHub `owner/repo` or an https git URL",
+      example: "app-vitals/shipwright",
+    }),
+    ref: z.string().nullable().optional().openapi({ example: "main" }),
+  })
+  .openapi("UpsertAgentMarketplaceBody");
+
 // ─── Pipeline phases ────────────────────────────────────────────────────────────
 //
 // The six pipeline phases a methodology override can target — the keys of the
@@ -1082,6 +1119,11 @@ export const ToolIdParamSchema = z.object({
 export const TokenIdParamSchema = z.object({
   id: z.string().openapi({ example: "clx1234567890" }),
   tokenId: z.string().openapi({ example: "clx0987654321" }),
+});
+
+export const MarketplaceIdParamSchema = z.object({
+  id: z.string().openapi({ example: "clx1234567890" }),
+  marketplaceId: z.string().openapi({ example: "clx0987654321" }),
 });
 
 export const EnvKeyParamSchema = z.object({
@@ -1298,6 +1340,14 @@ const AgentConfigPluginSchema = z
   })
   .openapi("AgentConfigPlugin");
 
+const AgentConfigMarketplaceSchema = z
+  .object({
+    name: z.string().openapi({ example: "shipwright" }),
+    source: z.string().openapi({ example: "app-vitals/shipwright" }),
+    ref: z.string().nullable().openapi({ example: "main" }),
+  })
+  .openapi("AgentConfigMarketplace");
+
 export const AgentConfigResponseSchema = z
   .object({
     env: z
@@ -1305,6 +1355,12 @@ export const AgentConfigResponseSchema = z
       .openapi({ example: { SLACK_BOT_TOKEN: "xoxb-..." } }),
     allowedTools: z.array(z.string()).openapi({ example: ["Read", "Write"] }),
     plugins: z.array(AgentConfigPluginSchema),
+    /**
+     * PMK-1.2: remote plugin marketplaces to register before plugin install.
+     * Optional so existing fixtures/doubles keep compiling; the handler
+     * always populates it (empty array when the agent has none).
+     */
+    marketplaces: z.array(AgentConfigMarketplaceSchema).optional(),
     repos: z.array(z.string()).openapi({ example: ["org/repo1", "org/repo2"] }),
     reviewAuthorAllowlist: z
       .array(z.string())

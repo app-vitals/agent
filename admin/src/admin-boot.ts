@@ -23,7 +23,7 @@
  * They use non-overlapping sub-paths so Hono resolves them correctly:
  *   runtime  → GET  /agents/:id/config, GET /agents/:id/crons
  *   admin    → GET /agents/:id/crons/summary (enriched with run stats)
- *              POST/PATCH/DELETE /agents/:id/envs, /crons, /tools, /tokens, /plugins
+ *              POST/PATCH/DELETE /agents/:id/envs, /crons, /tools, /tokens, /plugins, /marketplaces
  *
  * This file must not import any coding module — main.ts is the only file
  * that wires a concrete extension in.
@@ -80,6 +80,7 @@ import { AgentCronRunStatsService } from "./agent-cron-run-stats.ts";
 import { AgentCronRunService } from "./agent-cron-runs.ts";
 import { AgentEnvService } from "./agent-envs.ts";
 import { AgentGitHubInstallationsService } from "./agent-github-installations.ts";
+import { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import { AgentMemberService } from "./agent-members.ts";
 import { AgentPluginService } from "./agent-plugins.ts";
 import { AgentTokenService } from "./agent-tokens.ts";
@@ -197,6 +198,7 @@ export async function startAdmin(
   const agentToolService = new AgentToolService(prisma);
   const agentTokenService = new AgentTokenService(prisma);
   const agentPluginService = new AgentPluginService(prisma);
+  const agentMarketplaceService = new AgentMarketplaceService(prisma);
   const agentMemberService = new AgentMemberService(prisma);
   // Account-aware caller scope (SSP-2.1). Account membership contributes
   // agents only when the self-serve flag is on; off → AgentMember-only.
@@ -433,6 +435,7 @@ export async function startAdmin(
     agentCronJobService,
     agentService,
     agentPluginService,
+    agentMarketplaceService,
     ...(resolvedExtensions.agentPhaseMethodologyService
       ? {
           agentPhaseMethodologyService:
@@ -461,6 +464,7 @@ export async function startAdmin(
     agentToolService,
     agentTokenService,
     agentPluginService,
+    agentMarketplaceService,
     agentMemberService,
     callerScopeResolver,
     specialtyRegistry,

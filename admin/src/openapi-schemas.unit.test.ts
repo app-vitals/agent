@@ -10,6 +10,7 @@ import { type AgentRuntimeDeps, createAgentRuntimeApp } from "./api.ts";
 import {
   type AgentCronJob,
   AgentCronJobSchema,
+  AgentMarketplaceSchema,
   type AgentPlugin,
   AgentPluginSchema,
   type AgentToken,
@@ -18,6 +19,7 @@ import {
   AgentToolSchema,
   ErrorSchema,
   PatchAgentBodySchema,
+  UpsertAgentMarketplaceBodySchema,
 } from "./openapi-schemas.ts";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -379,5 +381,32 @@ describe("PatchAgentBodySchema.podServiceAccountName (COS-49.1)", () => {
     ]) {
       expect(parse(bad).success).toBe(false);
     }
+  });
+});
+
+// ─── AgentMarketplace (PMK-1.2) ───────────────────────────────────────────────
+
+describe("AgentMarketplace schemas", () => {
+  test("AgentMarketplaceSchema accepts a row with a null ref", () => {
+    const result = AgentMarketplaceSchema.safeParse({
+      id: "m1",
+      agentId: "a1",
+      name: "shipwright",
+      source: "app-vitals/shipwright",
+      ref: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("UpsertAgentMarketplaceBodySchema leaves source validation to the service (422)", () => {
+    expect(
+      UpsertAgentMarketplaceBodySchema.safeParse({ name: "m", source: "bad" })
+        .success,
+    ).toBe(true);
+    expect(
+      UpsertAgentMarketplaceBodySchema.safeParse({ name: "m" }).success,
+    ).toBe(false);
   });
 });
