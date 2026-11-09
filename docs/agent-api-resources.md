@@ -144,6 +144,28 @@ Returns `204`. Errors with `404` when the id does not exist or belongs to a diff
 
 ---
 
+## Baked marketplaces (PMK-1.4)
+
+Read-only report of the marketplace directories baked into the agent's image, as discovered and reported by the runtime at boot.
+
+### Report baked marketplaces
+
+```
+PUT /agents/:id/baked-marketplaces
+```
+
+Runtime-only. The agent's own bearer token is required; other agents' keys, admins and session members get `403`.
+
+Body: `{ names: string[] }` — array of marketplace directory basenames (e.g. `["vitals-os", "shipwright"]`).
+
+Returns `200` with `{ names: string[] }` — the stored list.
+
+Fire-and-forget at boot: never blocks startup if the admin service is unreachable or unresponsive.
+
+The stored list is exposed read-only as `bakedMarketplaces` on `GET /agents/:id`.
+
+---
+
 ## Chat token usage
 
 Daily aggregate of Slack chat session token usage.
