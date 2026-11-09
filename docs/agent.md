@@ -11,8 +11,8 @@
 
 The admin service owns the platform's Postgres database
 (`DATABASE_URL_SHIPWRIGHT_ADMIN`, schema in `admin/prisma/schema/`). The platform
-schema (`schema.prisma`) defines eighteen models: `Agent` and its `AgentEnv`,
-`AgentCronJob`, `AgentTool`, `AgentToken`, `AgentPlugin` and `AgentMember` children;
+schema (`schema.prisma`) defines nineteen models: `Agent` and its `AgentEnv`,
+`AgentCronJob`, `AgentTool`, `AgentToken`, `AgentPlugin`, `AgentMarketplace` and `AgentMember` children;
 `AgentCronRun` with its `AgentCronRunModelBreakdown` and `AgentCronRunSkillUsage`
 children; `AgentChatTokenUsageDailyByModel` (daily chat-token rollups);
 `AgentGitHubInstallationsSnapshot` (latest GitHub App installations per agent);
@@ -116,6 +116,7 @@ service layer, not by the database.
 | `AgentTool` | Allowed tool patterns | `pattern` (for example `Read`, `Bash`), `enabled`; unique per `[agentId, pattern]`. |
 | `AgentToken` | Scoped API tokens | `token` (SHA-256 hash, unique), `label`, `revokedAt`. |
 | `AgentPlugin` | Installed Claude Code plugins | `name` (canonical `plugin@marketplace` spec, or a bare plugin name that defaults to the `shipwright` marketplace), `version` (null means latest), `enabled`; unique per `[agentId, name]`. |
+| `AgentMarketplace` | Registered Claude Code plugin marketplaces | `agentId`, `name` (marketplace name; used in `plugin@name` spec), `source` (marketplace source URL or reference), `ref` (optional branch/tag pin); unique per `[agentId, name]`. |
 | `AgentMember` | Authorized human members | `agentId`, `email`; unique per `[agentId, email]`. Managed by `AgentMemberService`. Admins bypass this table. |
 | `PushSubscription` | Browser Web Push subscription (RFC 8291) | `userEmail`, `endpoint` (unique), `p256dh`, `auth`, `detailOptIn` (`generic` / `title` / `preview`, default `generic`). User-scoped with no agent foreign key. |
 | `ChatThreadWatch` | User watches a chat thread | `userEmail`, `threadId`, `agentId`; unique per `[userEmail, threadId]`. Upserted whenever a user sends a message from the admin console; targets the reply push, then `PushSubscription` supplies the device endpoints. |
