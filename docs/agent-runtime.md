@@ -37,7 +37,7 @@ tests pass doubles and production wires real ones in `entrypoint-main.ts`.
 4. Symlink `~/.claude` to `$AGENT_HOME/dot-claude` (`ensureDotClaudeSymlink`).
 5. GitHub auth (`setup-github-auth.ts`, below).
 6. `runMiseStartup`: install the workspace's mise tools and put the shims on `PATH`.
-7. `installPlugins` with the bundle's plugins and marketplaces, plus any marketplaces baked into
+7. `installPlugins` with the bundle's plugins, plus any marketplaces baked into
    the image under `/opt/shipwright/marketplaces` (`BAKED_MARKETPLACES_ROOT`).
 8. Spawn `bun run index.ts` with inherited stdio.
 
@@ -58,7 +58,7 @@ kubelet probes stay green during setup.
 3. `runMiseStartup` and `installPlugins` (agent-specific plugins only).
 4. First config sync (awaited), then repeated every 60 s: fetch the bundle,
    re-apply env, update the live Claude config, repos and policy refs, install
-   marketplaces and plugins, clone newly configured repos, and start Slack if credentials have
+   plugins, clone newly configured repos, and start Slack if credentials have
    appeared.
 5. `reconcileSystemCrons`, best effort and non-fatal.
 6. Cron sync loop (60 s; `reconcileCronTasks()` in `cron-sync.ts` unschedules removed jobs
