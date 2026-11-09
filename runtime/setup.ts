@@ -382,30 +382,168 @@ export function findStalePluginSpecs(
   });
 }
 
+/** A remote marketplace row from the agent config bundle. */
+export interface RemoteMarketplace {
+  name: string;
+  source: string;
+  ref?: string | null;
+}
+
+/** Name of the built-in marketplace: its manifest name, else `shipwright`. */
+function builtinMarketplaceName(repoRoot: string): string {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(
+        join(repoRoot, ".claude-plugin", "marketplace.json"),
+        "utf8",
+      ),
+    );
+    if (typeof manifest?.name === "string") return manifest.name;
+  } catch {}
+  return "shipwright";
+}
+
+interface RegisteredMarketplace {
+  source?: { repo?: unknown; url?: unknown; path?: unknown; ref?: unknown };
+  installLocation?: unknown;
+}
+
 /**
  * Reads the Claude CLI's known-marketplaces registry
- * (`known_marketplaces.json`, a sibling of `installed_plugins.json`) and
- * returns the install location it records for `name`. Defensive: returns
- * `undefined` for a missing or unparsable registry or an unknown name, and
+ * (`known_marketplaces.json`, a sibling of `installed_plugins.json`).
+ * Defensive: returns an empty registry for a missing or unparsable file, and
  * warns when the file exists but cannot be read.
  */
-function readRegisteredMarketplaceLocation(
+function readMarketplaceRegistry(
   registryPath: string,
-  name: string,
-): string | undefined {
-  if (!existsSync(registryPath)) return undefined;
+): Record<string, RegisteredMarketplace | null> {
+  if (!existsSync(registryPath)) return {};
   try {
-    const registry = JSON.parse(readFileSync(registryPath, "utf8")) as Record<
-      string,
-      { installLocation?: unknown } | null
-    >;
-    const location = registry?.[name]?.installLocation;
-    return typeof location === "string" ? location : undefined;
+    const registry = JSON.parse(readFileSync(registryPath, "utf8"));
+    return registry && typeof registry === "object" ? registry : {};
   } catch (err) {
     console.warn(
       `[agent] could not read ${registryPath} (nothing to heal): ${(err as Error).message}`,
     );
-    return undefined;
+    return {};
+  }
+}
+
+/** The install location the registry records for `name`, if any. */
+function readRegisteredMarketplaceLocation(
+  registryPath: string,
+  name: string,
+): string | undefined {
+  const location = readMarketplaceRegistry(registryPath)[name]?.installLocation;
+  return typeof location === "string" ? location : undefined;
+}
+
+/** Normalises a marketplace source (`owner/repo` or git URL) for comparison. */
+function normalizeMarketplaceSource(source: string): string {
+  return source
+    .trim()
+    .replace(/^https:\/\/github\.com\//i, "")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/i, "")
+    .toLowerCase();
+}
+
+/** Whether a registry entry was added from the same source and ref as `row`. */
+function registeredMatchesRow(
+  entry: RegisteredMarketplace | null | undefined,
+  row: RemoteMarketplace,
+): boolean {
+  const src = entry?.source;
+  const registeredSource = [src?.repo, src?.url, src?.path].find(
+    (v): v is string => typeof v === "string",
+  );
+  if (registeredSource === undefined) return false;
+  const registeredRef = typeof src?.ref === "string" ? src.ref : null;
+  return (
+    normalizeMarketplaceSource(registeredSource) ===
+      normalizeMarketplaceSource(row.source) &&
+    registeredRef === (row.ref ?? null)
+  );
+}
+
+/** Runs `claude plugin marketplace <args>`; a non-zero exit warns, never throws. */
+async function runMarketplaceCommand(
+  execFn: ExecFn,
+  cwd: string,
+  args: string[],
+): Promise<boolean> {
+  const result = await execFn("claude", ["plugin", "marketplace", ...args], {
+    cwd,
+  });
+  if (result.exitCode !== 0) {
+    console.warn(
+      `[agent] claude plugin marketplace ${args.join(" ")} exited ${result.exitCode}: ${result.stdout}`,
+    );
+  }
+  return result.exitCode === 0;
+}
+
+/**
+ * Reconciles one remote marketplace row (from the agent config bundle) to its
+ * desired state, then updates it:
+ *   1. a baked/built-in marketplace of the same name wins (warn, skip)
+ *   2. registered with another source/ref, or with an installLocation that has
+ *      no marketplace.json -> remove first
+ *   3. not registered -> add `<source>[#ref]`
+ *   4. update
+ * Only the row's own name is ever touched. Failures warn and continue.
+ */
+async function reconcileRemoteMarketplace(
+  row: RemoteMarketplace,
+  managedLocalNames: Set<string>,
+  registryPath: string,
+  execFn: ExecFn,
+  cwd: string,
+): Promise<void> {
+  if (managedLocalNames.has(row.name)) {
+    console.warn(
+      `[agent] remote marketplace ${row.name} ignored: a baked marketplace with the same name takes precedence`,
+    );
+    return;
+  }
+
+  const entry = readMarketplaceRegistry(registryPath)[row.name];
+  let registered = entry !== undefined && entry !== null;
+  if (registered) {
+    const location =
+      typeof entry?.installLocation === "string"
+        ? entry.installLocation
+        : undefined;
+    const dangling =
+      location === undefined ||
+      !existsSync(join(location, ".claude-plugin", "marketplace.json"));
+    if (dangling || !registeredMatchesRow(entry, row)) {
+      console.log(
+        `[agent] marketplace ${row.name} is registered with a different source/ref or no marketplace.json — removing before re-adding ${row.source}`,
+      );
+      await runMarketplaceCommand(execFn, cwd, ["remove", row.name]);
+      registered = false;
+    }
+  }
+
+  if (!registered) {
+    const spec = row.ref ? `${row.source}#${row.ref}` : row.source;
+    await runMarketplaceCommand(execFn, cwd, ["add", spec]);
+  }
+  await runMarketplaceCommand(execFn, cwd, ["update", row.name]);
+
+  // The CLI registers a marketplace under its manifest name, so a mismatch
+  // leaves the registry without an entry for the row's name.
+  const after = readMarketplaceRegistry(registryPath);
+  if (after[row.name] === undefined) {
+    const actual = Object.entries(after).find(([, e]) =>
+      registeredMatchesRow(e, row),
+    )?.[0];
+    if (actual !== undefined) {
+      console.warn(
+        `[agent] remote marketplace row ${row.name} cloned a manifest named ${actual} — plugin specs must use @${actual}`,
+      );
+    }
   }
 }
 
@@ -446,6 +584,7 @@ export async function installPlugins(
   extraMarketplaceDirs?: string[],
   extraMarketplacesRoot: string = BAKED_MARKETPLACES_ROOT,
   env: Record<string, string | undefined> = process.env,
+  remoteMarketplaces: RemoteMarketplace[] = [],
 ): Promise<void> {
   const shipwrightRepoRoot =
     shipwrightRepoRootOverride ?? resolveShipwrightRepoRoot(env);
@@ -477,16 +616,7 @@ export async function installPlugins(
         console.log(
           `[agent] marketplace ${name} is registered at ${registered} with no marketplace.json — removing before re-adding ${dir}`,
         );
-        const remove = await execFn(
-          "claude",
-          ["plugin", "marketplace", "remove", name],
-          { cwd },
-        );
-        if (remove.exitCode !== 0) {
-          console.warn(
-            `[agent] claude plugin marketplace remove ${name} exited ${remove.exitCode}: ${remove.stdout}`,
-          );
-        }
+        await runMarketplaceCommand(execFn, cwd, ["remove", name]);
       }
       const extraAdd = await execFn(
         "claude",
@@ -524,6 +654,21 @@ export async function installPlugins(
           `[agent] claude plugin marketplace add exited ${add.exitCode}: ${add.stdout}`,
         );
       }
+    }
+
+    // Reconcile remote marketplaces (config bundle rows) after every local one
+    // is registered, before any plugin install.
+    const managedLocalNames = new Set(extraDirs.map((dir) => basename(dir)));
+    if (hasRepoMarketplace)
+      managedLocalNames.add(builtinMarketplaceName(shipwrightRepoRoot));
+    for (const row of remoteMarketplaces) {
+      await reconcileRemoteMarketplace(
+        row,
+        managedLocalNames,
+        registryPath,
+        execFn,
+        cwd,
+      );
     }
 
     const allSpecs = agentPlugins.map((p) => `${p.plugin}@${p.marketplace}`);

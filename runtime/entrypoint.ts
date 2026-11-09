@@ -20,6 +20,7 @@
 import { join } from "node:path";
 import type { AgentPlugin } from "@app-vitals/agent-admin";
 import type { AgentConfigClient } from "./agent-config-client.ts";
+import type { RemoteMarketplace } from "./setup.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,12 @@ export interface EntrypointDeps {
     execFn?: ExecFn,
     cwd?: string,
     plugins?: AgentPlugin[],
+    shipwrightRepoRootOverride?: string,
+    pluginManifestPath?: string,
+    extraMarketplaceDirs?: string[],
+    extraMarketplacesRoot?: string,
+    env?: Record<string, string | undefined>,
+    remoteMarketplaces?: RemoteMarketplace[],
   ) => Promise<void>;
   spawnAgentServer: (cmd: string, args: string[]) => void;
   exit: (code: number) => void;
@@ -130,7 +137,17 @@ export async function runEntrypoint(deps: EntrypointDeps): Promise<void> {
     await runMiseStartup(agentHome);
 
     // Step 7: Install plugins
-    await installPlugins(undefined, undefined, config.plugins);
+    await installPlugins(
+      undefined,
+      undefined,
+      config.plugins,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      config.marketplaces,
+    );
 
     // Step 8: Spawn agent server
     spawnAgentServer("bun", ["run", join(import.meta.dir, "..", "index.ts")]);
