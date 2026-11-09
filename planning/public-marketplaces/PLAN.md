@@ -79,7 +79,7 @@ push, so a human confirms the rebuild and pin (PMK-2.2).
 | PMK-2.1 | vitals-os | refactor: remove the specialists bake | 1.3 | |
 | PMK-2.2 | vitals-os | chore: confirm the bake-less specialists image is built, pinned and deployed | 2.1 | ⚠ HITL |
 
-PMK-1.1 and PMK-1.2 share a branch (`feat/pmk-marketplace-model-api`).
+Each task has its own branch. PMK-1.2 depends on PMK-1.1 being merged (they are not bundled: a blocked PMK-1.1 would otherwise hold the whole bundle).
 
 ## Dependency map
 
