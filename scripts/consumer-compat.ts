@@ -33,8 +33,17 @@
  * The migration-guard check needs DATABASE_URL_SHIPWRIGHT_ADMIN (a throwaway
  * Postgres; the workflow provides one as a service container).
  *
- * This script edits the shipwright checkout in place (package.json, bun.lock,
- * node_modules): point it at a scratch checkout, never a working copy.
+ * The admin-gen check regenerates shipwright's admin spec and types from the
+ * packed agent-admin BEFORE typecheck, so typecheck sees this PR's admin
+ * surface (a removed response field breaks the line that reads it). There is
+ * no drift assertion: a stale committed spec in shipwright is expected when
+ * this PR changes the admin surface. A missing-property typecheck error gets
+ * a one-line hint (make the member optional, or update the consumer first).
+ *
+ * Read-only toward shipwright: this script edits only the throwaway checkout
+ * (package.json, bun.lock, node_modules, regenerated admin files) and never
+ * pushes, opens PRs or uses credentials. Point it at a scratch checkout,
+ * never a working copy.
  */
 
 import {
@@ -227,23 +236,18 @@ export function buildShipwrightChecks(version: string): Check[] {
         ],
       ],
     },
-    { name: "typecheck", steps: [["bun", "run", "typecheck"]] },
     {
-      name: "admin-gen drift",
+      // Regenerate the admin spec/types from the packed agent-admin FIRST, in
+      // the scratch checkout only (nothing is committed or pushed), so the
+      // typecheck below sees this PR's admin surface. No drift assertion: it
+      // deadlocked PRs that change the admin surface.
+      name: "admin-gen",
       steps: [
         ["bun", "run", "generate:admin-spec"],
         ["bun", "run", "generate:admin-types"],
-        [
-          "git",
-          "diff",
-          "--exit-code",
-          "--",
-          "admin/openapi.json",
-          "admin/src/coding/openapi.coding.json",
-          "admin/src/coding/admin-types.ts",
-        ],
       ],
     },
+    { name: "typecheck", steps: [["bun", "run", "typecheck"]] },
     {
       name: "seed-dev-agent",
       env: { NODE_ENV: "test" },
@@ -296,7 +300,23 @@ export type CheckResult = {
   output: string;
   failedStep?: string;
   durationMs: number;
+  /** One-line remediation hint appended to the failing check's summary. */
+  hint?: string;
 };
+
+export const TYPECHECK_HINT =
+  "Hint: a required member was added that shipwright does not provide; make the new member optional, or update the consumer (shipwright) first.";
+
+/** TS2741 / "is missing in type": a new required member breaks the consumer. */
+export function hintForOutput(
+  name: string,
+  output: string,
+): string | undefined {
+  return name === "typecheck" &&
+    (/\bTS2741\b/.test(output) || output.includes("is missing in type"))
+    ? TYPECHECK_HINT
+    : undefined;
+}
 
 /** Readable one-line form of a step (inline scripts are elided). */
 export function stepLabel(argv: string[]): string {
@@ -354,6 +374,10 @@ export function runChecks(
         output,
         failedStep,
         durationMs: Date.now() - started,
+        hint:
+          failedStep === undefined
+            ? undefined
+            : hintForOutput(check.name, output),
       };
     }
     results.push(result);
@@ -426,6 +450,7 @@ export function renderMarkdownSummary(
       "~~~text",
       tail.replace(/^~~~/gm, "\\~~~"),
       "~~~",
+      ...(r.hint ? ["", r.hint] : []),
       "",
       "</details>",
     );
@@ -446,7 +471,7 @@ export function renderTable(results: CheckResult[]): string {
   const widths = [0, 1, 2].map((i) =>
     Math.max(...rows.map((row) => (row[i] ?? "").length)),
   );
-  return rows
+  const table = rows
     .map((row) =>
       row
         .map((c, i) => (i < 3 ? c.padEnd(widths[i] ?? 0) : c))
@@ -454,6 +479,10 @@ export function renderTable(results: CheckResult[]): string {
         .trimEnd(),
     )
     .join("\n");
+  const hints = results.flatMap((r) =>
+    r.hint ? [`${r.name}: ${r.hint}`] : [],
+  );
+  return hints.length > 0 ? `${table}\n\n${hints.join("\n")}` : table;
 }
 
 // ─── CLI ────────────────────────────────────────────────────────────────────

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { reconcileAgentAfterAccountChange } from "./agent-account-assignment.ts";
+import {
+  reconcileAgentAfterAccountChange,
+  reconcileAgentAfterSpecialtyChange,
+} from "./agent-account-assignment.ts";
 
 interface Result {
   recreated: string[];
@@ -95,5 +98,36 @@ describe("reconcileAgentAfterAccountChange", () => {
       throw new Error("boom");
     });
     expect(await reconcileAgentAfterAccountChange(p, agent)).toContain("boom");
+  });
+});
+
+describe("reconcileAgentAfterSpecialtyChange", () => {
+  it("reconciles the workload with the new specialty", async () => {
+    const p = makeProvisioner();
+    expect(
+      await reconcileAgentAfterSpecialtyChange(p, {
+        ...agent,
+        specialty: "specialist",
+      }),
+    ).toBeUndefined();
+    expect(p.calls[0]?.[0]).toMatchObject({
+      id: "a1",
+      specialty: "specialist",
+    });
+  });
+
+  it("skips self-hosted agents", async () => {
+    const p = makeProvisioner();
+    await reconcileAgentAfterSpecialtyChange(p, { ...agent, selfHosted: true });
+    expect(p.calls).toEqual([]);
+  });
+
+  it("returns a warning when the reconcile throws", async () => {
+    const p = makeProvisioner(async () => {
+      throw new Error("boom");
+    });
+    expect(await reconcileAgentAfterSpecialtyChange(p, agent)).toContain(
+      "specialty updated",
+    );
   });
 });

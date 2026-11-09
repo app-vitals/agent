@@ -140,6 +140,8 @@ export interface AgentDetail extends Partial<AgentAnthropicIdentity> {
 }
 
 interface UpdateSelfHostedInput {
+  /** SAL-1.2: the agent's specialty; callers validate it against the registry. */
+  specialty?: string;
   /** COS-49.1: pod ServiceAccount; null clears it. */
   podServiceAccountName?: string | null;
   /** SSP-5.3: owning account; null clears it (unassigned/platform agent). */
@@ -475,6 +477,9 @@ export class AgentService {
       where: { id },
       data: {
         selfHosted: input.selfHosted,
+        ...(input.specialty !== undefined
+          ? { specialty: input.specialty }
+          : {}),
         ...(input.accountId !== undefined
           ? { accountId: input.accountId }
           : {}),

@@ -25,6 +25,7 @@ import {
   SHIPWRIGHT_CHECKS,
   selectChecks,
   tailLines,
+  TYPECHECK_HINT,
 } from "./consumer-compat.ts";
 
 const TARBALLS = {
@@ -168,8 +169,8 @@ describe("SHIPWRIGHT_CHECKS / selectChecks", () => {
   test("install is the prerequisite, then the four named shipwright checks", () => {
     expect(SHIPWRIGHT_CHECKS.map((c) => c.name)).toEqual([
       "install",
+      "admin-gen",
       "typecheck",
-      "admin-gen drift",
       "seed-dev-agent",
       "migration-guard",
     ]);
@@ -182,19 +183,12 @@ describe("SHIPWRIGHT_CHECKS / selectChecks", () => {
       SHIPWRIGHT_CHECKS.map((c) => [c.name, c]),
     );
     expect(byName.typecheck?.steps).toEqual([["bun", "run", "typecheck"]]);
-    expect(byName["admin-gen drift"]?.steps).toEqual([
+    // Regenerate first (in the scratch checkout only), no drift assertion.
+    expect(byName["admin-gen"]?.steps).toEqual([
       ["bun", "run", "generate:admin-spec"],
       ["bun", "run", "generate:admin-types"],
-      [
-        "git",
-        "diff",
-        "--exit-code",
-        "--",
-        "admin/openapi.json",
-        "admin/src/coding/openapi.coding.json",
-        "admin/src/coding/admin-types.ts",
-      ],
     ]);
+    expect(JSON.stringify(byName["admin-gen"]?.steps)).not.toContain("diff");
     // A path, never `--filter` (not a real bun test flag).
     const seed = byName["seed-dev-agent"]?.steps.flat() ?? [];
     expect(seed).toContain("./scripts/seed-dev-agent.unit.test.ts");
@@ -234,14 +228,14 @@ describe("SHIPWRIGHT_CHECKS / selectChecks", () => {
 
 const CHECKS: Check[] = [
   { name: "install", steps: [["bun", "install"]], prerequisite: true },
-  { name: "typecheck", steps: [["bun", "run", "typecheck"]] },
   {
-    name: "admin-gen drift",
+    name: "admin-gen",
     steps: [
       ["bun", "run", "gen"],
-      ["git", "diff", "--exit-code"],
+      ["bun", "run", "gen2"],
     ],
   },
+  { name: "typecheck", steps: [["bun", "run", "typecheck"]] },
   { name: "seed-dev-agent", steps: [["bun", "test", "./seed.ts"]] },
 ];
 
@@ -268,20 +262,21 @@ describe("runChecks", () => {
     const results = runChecks(CHECKS, "/sw", exec, {});
     expect(results.map((r) => [r.name, r.status])).toEqual([
       ["install", "PASS"],
+      ["admin-gen", "PASS"],
       ["typecheck", "FAIL"],
-      ["admin-gen drift", "PASS"],
       ["seed-dev-agent", "PASS"],
     ]);
     expect(calls).toContain("bun test ./seed.ts");
-    expect(results[1]?.failedStep).toBe("bun run typecheck");
-    expect(results[1]?.output).toContain("TS2305");
+    expect(results[2]?.failedStep).toBe("bun run typecheck");
+    expect(results[2]?.output).toContain("TS2305");
   });
 
   test("within a check, steps stop at the first failure", () => {
     const { exec, calls } = fakeExec({ "bun run gen": "boom" });
     const results = runChecks(CHECKS, "/sw", exec, {});
-    expect(calls).not.toContain("git diff --exit-code");
-    expect(results[2]?.failedStep).toBe("bun run gen");
+    expect(calls).not.toContain("bun run gen2");
+    expect(results[1]?.status).toBe("FAIL");
+    expect(results[1]?.failedStep).toBe("bun run gen");
   });
 
   test("a failed prerequisite skips everything after it", () => {
@@ -325,6 +320,54 @@ describe("runChecks", () => {
   });
 });
 
+describe("missing-property hint", () => {
+  const hintFor = (out: string, code = 1) => {
+    const { exec } = fakeExec(code ? { "bun run typecheck": out } : {});
+    return runChecks(CHECKS, "/sw", exec, {}).find(
+      (r) => r.name === "typecheck",
+    );
+  };
+
+  test("TS2741 adds one hint line to the failing check", () => {
+    const r = hintFor(
+      "admin/src/a.ts(3,7): error TS2741: Property 'x' is missing in type 'A' but required in type 'B'.",
+    );
+    expect(r?.status).toBe("FAIL");
+    expect(r?.hint).toBe(TYPECHECK_HINT);
+    expect(TYPECHECK_HINT).toContain("optional");
+    expect(TYPECHECK_HINT).toContain("update the consumer");
+    expect(TYPECHECK_HINT).not.toContain("\n");
+  });
+
+  test("'is missing in type' without the code also hints", () => {
+    expect(hintFor("Property 'y' is missing in type '{}'")?.hint).toBe(
+      TYPECHECK_HINT,
+    );
+  });
+
+  test("other failures and passes get no hint", () => {
+    expect(hintFor("error TS2305: no exported member")?.hint).toBeUndefined();
+    expect(hintFor("", 0)?.hint).toBeUndefined();
+  });
+
+  test("the hint is rendered in the markdown summary and the table output", () => {
+    const failing: CheckResult[] = [
+      {
+        name: "typecheck",
+        status: "FAIL",
+        output: "error TS2741",
+        failedStep: "bun run typecheck",
+        hint: TYPECHECK_HINT,
+        durationMs: 1,
+      },
+    ];
+    expect(
+      renderMarkdownSummary(failing, { repo: "r", ref: "main" }),
+    ).toContain(TYPECHECK_HINT);
+    expect(renderTable(failing)).toContain(TYPECHECK_HINT);
+  });
+});
+
 const RESULTS: CheckResult[] = [
   { name: "install", status: "PASS", output: "", durationMs: 1200 },
   {
@@ -334,7 +377,7 @@ const RESULTS: CheckResult[] = [
     failedStep: "bun run typecheck",
     durationMs: 30_000,
   },
-  { name: "admin-gen drift", status: "PASS", output: "", durationMs: 5000 },
+  { name: "admin-gen", status: "PASS", output: "", durationMs: 5000 },
   { name: "seed-dev-agent", status: "SKIP", output: "", durationMs: 0 },
 ];
 

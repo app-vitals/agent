@@ -33,6 +33,12 @@ Tests ship in the same PR as the change, at the right layer:
 
 Everything in `runtime/`, `admin/`, `lib/` and `agent-types/` must resolve inside this repository. `bun run check:boundary` fails on any import that leaves it.
 
+### Additive-only exports
+
+Types, return shapes and dependency objects that `@app-vitals/agent-lib`, `agent-runtime` and `agent-admin` export to consumers only gain optional members. A new required member, a removed or renamed member, or a new required dependency is a breaking change, and the consumer (shipwright) must be migrated before the change lands here.
+
+The required `shipwright consumer compat` check (`scripts/consumer-compat.ts`) packs this PR's three packages, installs them into a scratch checkout of shipwright and runs four fast checks: `admin-gen` (regenerates shipwright's admin spec and types from the packed agent-admin), `typecheck` (shipwright's production and test code against them), `seed-dev-agent` and `migration-guard`. Additive changes pass. Removing or renaming something shipwright uses fails the typecheck where shipwright reads it. A missing-property typecheck error carries a hint: a required member was added that shipwright does not provide, so make it optional or update shipwright first. The check does not cover runtime behaviour changes with no type change, untyped access (raw SQL, hand-written fetches, env vars), or shipwright's full suite (e2e, chart and image checks). It is read-only toward shipwright: it edits only the throwaway checkout and never pushes, opens a PR or uses a credential.
+
 ## Development workflow
 
 1. Branch from `main`; never commit to `main` directly.
