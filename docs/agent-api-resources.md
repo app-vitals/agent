@@ -84,7 +84,7 @@ Plugins are Claude Code marketplace plugins installed for the agent.
 POST /agents/:id/plugins
 ```
 
-Body: `{ name: string, version?: string | null }`. The plugin is installed enabled. Returns `201`.
+Body: `{ name: string, version?: string | null }`. The plugin is installed enabled. `version` is advisory: the CLI cannot pin a plugin version, so plugins track latest and pinning is a `ref` on the marketplace row (see [agent-ops.md](./agent-ops.md#plugin-versions-and-ref)). Returns `201`.
 
 ### List plugins
 
