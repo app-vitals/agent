@@ -1,5 +1,6 @@
 // Shipwright — Admin Service Schema
 // Owns: Agent, AgentEnv, AgentCronJob, AgentTool, AgentToken, AgentPlugin,
+// AgentMarketplace,
 // plus the coding-owned models in coding.prisma (AgentWorkQueueSnapshot,
 // AgentPhaseMethodology, SessionFollow, SessionAlertState).
 // Agent is a first-class model (standalone, not embedded in a User model).
@@ -88,6 +89,7 @@ model Agent {
   tools            AgentTool[]
   tokens           AgentToken[]
   plugins          AgentPlugin[]
+  marketplaces     AgentMarketplace[]
   members          AgentMember[]
   chatTokenUsage   AgentChatTokenUsageDailyByModel[]
   workQueueSnapshot AgentWorkQueueSnapshot?
@@ -569,3 +571,20 @@ model UserNotificationPrefs {
   updatedAt          DateTime  @updatedAt
 }
 
+
+// ─── AgentMarketplace ─────────────────────────────────────────────────────────
+// Plugin marketplaces registered per agent. `name` is the marketplace name that
+// AgentPlugin specs reference after the `@` (e.g. "plugin@<name>").
+
+model AgentMarketplace {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  name      String
+  source    String
+  ref       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([agentId, name])
+}
