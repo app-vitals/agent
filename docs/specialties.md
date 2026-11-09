@@ -24,6 +24,20 @@ The built-in type is a small typed record, `SPECIALIST_TYPE` in `lib/specialist-
 - **`getType(specialty)`** never throws and resolves every stored value, including legacy ones such as `coding`, to the specialist floor. Required-env reporting uses it, so no stored specialty can break an agent read.
 - **`listTypes()`** feeds the new-agent picker; `withExtensionAgentTypes()` merges the types an extension declares through `agentTypes()`.
 
+## Images per specialty
+
+Agent images are resolved per specialty, not shared: with provisioning enabled, `resolveImage()` (`admin/src/agent-image-map.ts`) picks each agent's image from the `SHIPWRIGHT_AGENT_IMAGES` map (its own specialty entry, then a `default` entry, then the single `SHIPWRIGHT_AGENT_IMAGE`/`_IMAGE_TAG` fallback). Provisioning, drift detection and reconcile all use it, so an agent's pod image follows its stored `Agent.specialty`.
+
+## Changing an agent's specialty
+
+`PATCH /agents/:id` accepts `{"specialty": "<type>"}`. It is platform-admin only (403 for session members), returns 422 when the type is not known to the specialty registry, and is a no-op (no reconcile, no log) when the value equals the current specialty. On a real change it:
+
+1. writes `Agent.specialty`;
+2. runs `reconcileSystemCrons(agentId)` against the new type: system crons the new type does not declare are deleted (with their `AgentCronRun` history), and crons the type does declare are created or updated in place. Crons with `system=false` (user crons) are never touched, so a cron that already exists as a user cron survives the move;
+3. reconciles the in-cluster workload with the new specialty (self-hosted agents have none), so the pod is recreated on the image `resolveImage()` maps to the new specialty.
+
+A failure in step 2 or 3 does not fail the request: the row is already written, and the message is returned in the response `warning` field; the next full reconcile converges it. One audit line is logged per change (agent id, old and new specialty, caller name; never the key).
+
 ## Extension-registered types
 
 An `AdminExtension` (`admin/src/admin-extension.ts`) adds a type with two optional hooks:

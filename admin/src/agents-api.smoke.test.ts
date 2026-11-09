@@ -6287,3 +6287,201 @@ describe("chat-credentials routes", () => {
     expect(minted).toEqual([]);
   });
 });
+
+// ─── SAL-1.2: PATCH /agents/:id specialty ────────────────────────────────────
+
+describe("admin API — PATCH /agents/:id specialty (SAL-1.2)", () => {
+  const patch = (
+    app: ReturnType<typeof createAdminApp>,
+    body: unknown,
+    headers: Record<string, string>,
+  ) =>
+    app.request(`/agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+
+  function depsFor(opts: {
+    provisioner: RecordingProvisioner;
+    events: string[];
+    failCrons?: boolean;
+  }): AdminDeps {
+    const base = makeMockDeps();
+    return {
+      ...base,
+      provisioner: opts.provisioner,
+      specialtyRegistry: fakeSpecialtyTypes({
+        coding: CODING_TYPE,
+        specialist: CODING_TYPE,
+      }),
+      agentService: {
+        ...base.agentService,
+        updateSelfHosted: async (id, input) => {
+          opts.events.push("write");
+          return {
+            ...(await base.agentService.updateSelfHosted(id, input)),
+            specialty: (input as { specialty?: string }).specialty ?? "coding",
+          };
+        },
+      },
+      agentCronJobService: {
+        ...base.agentCronJobService,
+        reconcileSystemCrons: async () => {
+          opts.events.push("crons");
+          if (opts.failCrons) throw new Error("cron boom");
+          return { created: 0, updated: 0, deleted: 0 };
+        },
+      },
+    };
+  }
+
+  it("platform admin changes specialty: write, then crons, then workload reconcile", async () => {
+    const events: string[] = [];
+    const provisioner = new RecordingProvisioner();
+    const origReconcile = provisioner.reconcile.bind(provisioner);
+    provisioner.reconcile = async (agents, o) => {
+      events.push("workload");
+      return origReconcile(agents, o);
+    };
+    const app = createAdminApp(depsFor({ provisioner, events }));
+    const cookie = await makeSessionCookie();
+    const infos: string[] = [];
+    const origInfo = console.info;
+    console.info = (...a: unknown[]) => {
+      infos.push(a.join(" "));
+    };
+    let res: Response;
+    try {
+      res = await patch(
+        app,
+        { specialty: "specialist" },
+        { Cookie: `admin_session=${cookie}` },
+      );
+    } finally {
+      console.info = origInfo;
+    }
+    expect(res.status).toBe(200);
+    expect((await res.json()).specialty).toBe("specialist");
+    expect(events).toEqual(["write", "crons", "workload"]);
+    expect(provisioner.reconciled.map((r) => r.specialty)).toEqual([
+      "specialist",
+    ]);
+    const audit = infos.filter((l) => l.includes("specialty changed"));
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toContain(AGENT_ID);
+    expect(audit[0]).toContain("old=coding");
+    expect(audit[0]).toContain("new=specialist");
+    expect(audit[0]).toContain("caller=");
+  });
+
+  it("returns 403 for a non-admin session member and changes nothing", async () => {
+    const events: string[] = [];
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp({
+      ...depsFor({ provisioner, events }),
+      callerScopeResolver: async () => ({
+        kind: "scoped",
+        accountId: "acct-a",
+        agentIds: [AGENT_ID],
+      }),
+    });
+    const cookie = await sign(
+      {
+        isAdmin: false,
+        userId: "user-acct",
+        email: "owner@acct-a.example.com",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      SESSION_SECRET,
+      "HS256",
+    );
+    const res = await patch(
+      app,
+      { specialty: "specialist" },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(403);
+    expect(events).toEqual([]);
+    expect(provisioner.reconciled).toEqual([]);
+  });
+
+  it("returns 422 for an unknown specialty and changes nothing", async () => {
+    const events: string[] = [];
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp(depsFor({ provisioner, events }));
+    const cookie = await makeSessionCookie();
+    const res = await patch(
+      app,
+      { specialty: "no-such-type" },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(422);
+    expect(events).toEqual([]);
+    expect(provisioner.reconciled).toEqual([]);
+  });
+
+  it("is a no-op for the current specialty: 200, no reconcile, no log", async () => {
+    const events: string[] = [];
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp(depsFor({ provisioner, events }));
+    const cookie = await makeSessionCookie();
+    const infos: string[] = [];
+    const origInfo = console.info;
+    console.info = (...a: unknown[]) => {
+      infos.push(a.join(" "));
+    };
+    let res: Response;
+    try {
+      res = await patch(
+        app,
+        { specialty: "coding" },
+        { Cookie: `admin_session=${cookie}` },
+      );
+    } finally {
+      console.info = origInfo;
+    }
+    expect(res.status).toBe(200);
+    expect(events).not.toContain("crons");
+    expect(provisioner.reconciled).toEqual([]);
+    expect(infos.filter((l) => l.includes("specialty changed"))).toEqual([]);
+  });
+
+  it("returns a reconcile failure in `warning` instead of a 5xx", async () => {
+    const events: string[] = [];
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp(depsFor({ provisioner, events }));
+    const cookie = await makeSessionCookie();
+    provisioner.reconcileResult = {
+      ...provisioner.reconcileResult,
+      failed: [{ agentId: AGENT_ID, error: "k8s down" }],
+    };
+    const res = await patch(
+      app,
+      { specialty: "specialist" },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).warning).toContain("k8s down");
+  });
+
+  it("returns a cron reconcile failure in `warning` and still reconciles the workload", async () => {
+    const events: string[] = [];
+    const provisioner = new RecordingProvisioner();
+    const app = createAdminApp(
+      depsFor({ provisioner, events, failCrons: true }),
+    );
+    const cookie = await makeSessionCookie();
+    const res = await patch(
+      app,
+      { specialty: "specialist" },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).warning).toContain("cron boom");
+    expect(provisioner.reconciled.map((r) => r.specialty)).toEqual([
+      "specialist",
+    ]);
+  });
+});

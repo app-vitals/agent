@@ -52,6 +52,10 @@ export const PatchAgentBodySchema = z
       .optional()
       .openapi({ example: "U0AALR8M69X" }),
     selfHosted: z.boolean().optional().openapi({ example: false }),
+    /**
+     * SAL-1.2: platform-admin only. Must name a known specialty type.
+     */
+    specialty: z.string().min(1).optional().openapi({ example: "specialist" }),
     repos: z
       .array(
         z.string().refine(isOrgRepo, {
