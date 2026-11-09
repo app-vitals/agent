@@ -7,8 +7,8 @@ name: Consumer compat
 # Packs this PR's @app-vitals/agent-lib, -runtime and -admin, installs them
 # into a checkout of shipwright (the consumer), and runs shipwright's fast
 # checks (admin-gen, which regenerates the admin spec/types in the scratch
-# checkout, then typecheck against them, seed-dev-agent, migration-guard) so a
-# removed/renamed export or response field breaks this PR instead of
+# checkout, check-strings over that output, then typecheck against them,
+# seed-dev-agent, migration-guard) so a removed/renamed export or response field breaks this PR instead of
 # shipwright's post-publish bump PR. Read-only toward shipwright: only the
 # throwaway checkout is edited; nothing is pushed and no PR is opened. Not the
 # full shipwright suite. See scripts/consumer-compat.ts.

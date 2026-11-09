@@ -166,10 +166,11 @@ describe("rewriteConsumerManifests", () => {
 });
 
 describe("SHIPWRIGHT_CHECKS / selectChecks", () => {
-  test("install is the prerequisite, then the four named shipwright checks", () => {
+  test("install is the prerequisite, then the five named shipwright checks", () => {
     expect(SHIPWRIGHT_CHECKS.map((c) => c.name)).toEqual([
       "install",
       "admin-gen",
+      "check-strings",
       "typecheck",
       "seed-dev-agent",
       "migration-guard",
@@ -189,6 +190,10 @@ describe("SHIPWRIGHT_CHECKS / selectChecks", () => {
       ["bun", "run", "generate:admin-types"],
     ]);
     expect(JSON.stringify(byName["admin-gen"]?.steps)).not.toContain("diff");
+    // Runs after admin-gen so it scans the regenerated spec/types.
+    expect(byName["check-strings"]?.steps).toEqual([
+      ["bun", "plugins/shipwright/scripts/check-banned-strings.ts"],
+    ]);
     // A path, never `--filter` (not a real bun test flag).
     const seed = byName["seed-dev-agent"]?.steps.flat() ?? [];
     expect(seed).toContain("./scripts/seed-dev-agent.unit.test.ts");
