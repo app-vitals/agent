@@ -281,14 +281,14 @@ RUN bunx playwright install chromium-headless-shell
 # model MUST live at that exact path. amd64 only.
 USER root
 ARG PIPER_VERSION=2023.11.14-2
-RUN curl -fsSL -o /tmp/piper.tar.gz \
+RUN curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 15 -o /tmp/piper.tar.gz \
       "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_x86_64.tar.gz" \
     && tar -xzf /tmp/piper.tar.gz -C /opt \
     && rm /tmp/piper.tar.gz \
     && mkdir -p /app/agent/voices \
-    && curl -fsSL -o /app/agent/voices/en_US-hfc_female-medium.onnx \
+    && curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 15 -o /app/agent/voices/en_US-hfc_female-medium.onnx \
       "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx" \
-    && curl -fsSL -o /app/agent/voices/en_US-hfc_female-medium.onnx.json \
+    && curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 15 -o /app/agent/voices/en_US-hfc_female-medium.onnx.json \
       "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx.json" \
     && chown -R 1000:1000 /app/agent/voices
 ENV PATH="/opt/piper:${PATH}"
