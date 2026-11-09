@@ -113,6 +113,7 @@ if [ -n "$TARGET" ]; then
     RUNS_CRON_ID=$(echo "$TARGET" | jq -r '.id')
     PHASE_ID=""                               # no phase filter
   fi
+  TARGET_CRON_ID=$(echo "$TARGET" | jq -r '.id')  # id the runtime tags dispatches with
   echo "runsCronId: $RUNS_CRON_ID phaseId: ${PHASE_ID:-<none>}"
 else
   echo "No cron named \"$CRON_NAME\" found via the admin API - see the Fallback section."
@@ -341,7 +342,11 @@ import os, glob, json
 transcript_dir = '$TRANSCRIPT_DIR'
 lower = $LOWER
 upper = $UPPER
-cron_name = '$CRON_NAME'
+cron_name = '$CRON_NAME'.lower()
+# The runtime tags messages with the cron id, not its name, so match on the id
+# when it resolved (TARGET_CRON_ID, empty if the admin API was unreachable) and
+# on the lowercased name or the raw argument as a last resort.
+needles = [n.lower() for n in ('$TARGET_CRON_ID', '$CRON_NAME') if n]
 
 candidates = []
 for path in glob.glob(os.path.join(transcript_dir, '*.jsonl')):
@@ -365,7 +370,8 @@ for mtime, path in candidates:
             content = entry.get('message', {}).get('content', '')
             if not isinstance(content, str):
                 continue
-            if '[Cron job:' in content and cron_name in content.lower():
+            lowered = content.lower()
+            if '[cron job:' in lowered and any(n in lowered for n in needles):
                 session_id = os.path.basename(path).replace('.jsonl', '')
                 matches.append({'path': path, 'mtime': mtime, 'session_id': session_id,
                                  'prompt_preview': content[:200]})
