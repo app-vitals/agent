@@ -3127,6 +3127,143 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/marketplaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List marketplaces
+         * @description Returns every remote plugin marketplace configured for the agent.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description List of marketplaces */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketplacesWrapper"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Add or update a marketplace
+         * @description Upserts a remote plugin marketplace by `name`. `source` must be a GitHub `owner/repo` or an https git URL (no credentials); `ref` optionally pins a branch, tag or sha. 422 on an invalid `name`, `source` or `ref`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["UpsertAgentMarketplaceBody"];
+                };
+            };
+            responses: {
+                /** @description Marketplace added or updated */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketplaceWrapper"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Invalid name, source or ref */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/marketplaces/{marketplaceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a marketplace
+         * @description Removes the marketplace row by id. 404 when the id does not exist or belongs to a different agent.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    marketplaceId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Marketplace removed */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Marketplace not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4235,6 +4372,7 @@ export interface components {
              */
             allowedTools: string[];
             plugins: components["schemas"]["AgentConfigPlugin"][];
+            marketplaces?: components["schemas"]["AgentConfigMarketplace"][];
             /**
              * @example [
              *       "org/repo1",
@@ -4431,6 +4569,53 @@ export interface components {
             createdAt: string;
             /** @example null */
             repliedAt: string | null;
+        };
+        AgentMarketplace: {
+            /** @example clx1234567890 */
+            id: string;
+            /** @example clx1234567890 */
+            agentId: string;
+            /** @example shipwright */
+            name: string;
+            /** @example app-vitals/shipwright */
+            source: string;
+            /** @example main */
+            ref: string | null;
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            updatedAt: string;
+        };
+        UpsertAgentMarketplaceBody: {
+            /** @example shipwright */
+            name: string;
+            /**
+             * @description GitHub `owner/repo` or an https git URL
+             * @example app-vitals/shipwright
+             */
+            source: string;
+            /** @example main */
+            ref?: string | null;
+        };
+        MarketplaceWrapper: {
+            marketplace: components["schemas"]["AgentMarketplace"];
+        };
+        MarketplacesWrapper: {
+            marketplaces: components["schemas"]["AgentMarketplace"][];
+        };
+        AgentConfigMarketplace: {
+            /** @example shipwright */
+            name: string;
+            /** @example app-vitals/shipwright */
+            source: string;
+            /** @example main */
+            ref: string | null;
         };
     };
     responses: never;

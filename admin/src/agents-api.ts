@@ -41,8 +41,8 @@ import {
 } from "./account-agent-create.ts";
 import {
   reconcileAgentAfterAccountChange,
-  reconcileAgentAfterSpecialtyChange,
   reconcileAgentAfterPodServiceAccountChange,
+  reconcileAgentAfterSpecialtyChange,
 } from "./agent-account-assignment.ts";
 import {
   type AgentAskDeps,
@@ -60,6 +60,7 @@ import type { DeleteAgentFullyDeps } from "./agent-deletion.ts";
 import { deleteAgentFully } from "./agent-deletion.ts";
 import type { AgentEnvService } from "./agent-envs.ts";
 import type { AgentGitHubInstallationsService } from "./agent-github-installations.ts";
+import { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import type { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
 import {
@@ -116,6 +117,7 @@ import {
   AgentEnvResponseSchema,
   AgentGitHubInstallationsSnapshotSchema,
   AgentIdParamSchema,
+  AgentMarketplaceSchema,
   AgentPluginSchema,
   AgentRepoParamSchema,
   AgentSummarySchema,
@@ -143,6 +145,7 @@ import {
   EnvKeyParamSchema,
   ErrorSchema,
   ListCronRunsQuerySchema,
+  MarketplaceIdParamSchema,
   type ModelBreakdownEntry,
   OkSchema,
   PatchAgentBodySchema,
@@ -154,6 +157,7 @@ import {
   PutGitHubInstallationsBodySchema,
   TokenIdParamSchema,
   ToolIdParamSchema,
+  UpsertAgentMarketplaceBodySchema,
   UpsertChatTokenDailyBodySchema,
 } from "./openapi-schemas.ts";
 import type { SelfServeConfig } from "./self-serve-config.ts";
@@ -211,6 +215,14 @@ export interface AdminDeps {
   agentPluginService: Pick<
     AgentPluginService,
     "list" | "add" | "remove" | "removeByName"
+  >;
+  /**
+   * PMK-1.2: remote plugin marketplaces. Optional (additive to the exported
+   * AdminDeps): defaults to an AgentMarketplaceService over `prisma`.
+   */
+  agentMarketplaceService?: Pick<
+    AgentMarketplaceService,
+    "list" | "upsert" | "remove"
   >;
   agentMemberService: Pick<
     AgentMemberService,
@@ -491,6 +503,14 @@ const TokensWrapperSchema = z
 const PluginWrapperSchema = z
   .object({ plugin: AgentPluginSchema })
   .openapi("PluginWrapper");
+
+const MarketplaceWrapperSchema = z
+  .object({ marketplace: AgentMarketplaceSchema })
+  .openapi("MarketplaceWrapper");
+
+const MarketplacesWrapperSchema = z
+  .object({ marketplaces: z.array(AgentMarketplaceSchema) })
+  .openapi("MarketplacesWrapper");
 
 const PluginsWrapperSchema = z
   .object({ plugins: z.array(AgentPluginSchema) })
@@ -1208,6 +1228,58 @@ const deletePluginRoute = createRoute({
   responses: {
     204: { description: "Plugin removed" },
     400: { description: "Bad request", ...jsonError },
+  },
+});
+
+const listMarketplacesRoute = createRoute({
+  method: "get",
+  path: "/agents/{id}/marketplaces",
+  summary: "List marketplaces",
+  description:
+    "Returns every remote plugin marketplace configured for the agent.",
+  request: { params: AgentIdParamSchema },
+  responses: {
+    200: {
+      description: "List of marketplaces",
+      content: { "application/json": { schema: MarketplacesWrapperSchema } },
+    },
+  },
+});
+
+const upsertMarketplaceRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/marketplaces",
+  summary: "Add or update a marketplace",
+  description:
+    "Upserts a remote plugin marketplace by `name`. `source` must be a GitHub `owner/repo` or an https git URL (no credentials); `ref` optionally pins a branch, tag or sha. 422 on an invalid `name`, `source` or `ref`.",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      content: {
+        "application/json": { schema: UpsertAgentMarketplaceBodySchema },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Marketplace added or updated",
+      content: { "application/json": { schema: MarketplaceWrapperSchema } },
+    },
+    400: { description: "Bad request", ...jsonError },
+    422: { description: "Invalid name, source or ref", ...jsonError },
+  },
+});
+
+const deleteMarketplaceRoute = createRoute({
+  method: "delete",
+  path: "/agents/{id}/marketplaces/{marketplaceId}",
+  summary: "Remove a marketplace",
+  description:
+    "Removes the marketplace row by id. 404 when the id does not exist or belongs to a different agent.",
+  request: { params: MarketplaceIdParamSchema },
+  responses: {
+    204: { description: "Marketplace removed" },
+    404: { description: "Marketplace not found", ...jsonError },
   },
 });
 
@@ -2532,6 +2604,34 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     return c.body(null, 204);
   });
 
+  // ─── Marketplaces (PMK-1.2) ────────────────────────────────────────────────
+  // Auth is the shared /agents/* middleware: the agent's own key, a platform
+  // admin and authorised session members pass; other agents' keys get 403.
+  // No route here writes the runtime-reported baked-marketplace list (PMK-1.4).
+
+  const agentMarketplaceService =
+    deps.agentMarketplaceService ??
+    new AgentMarketplaceService(prisma as PrismaClient);
+
+  app.openapi(listMarketplacesRoute, async (c) => {
+    const { id: agentId } = c.req.valid("param");
+    const rows = await agentMarketplaceService.list(agentId);
+    return c.json({ marketplaces: rows.map(serializeMarketplace) }, 200);
+  });
+
+  app.openapi(upsertMarketplaceRoute, async (c) => {
+    const { id: agentId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    const row = await agentMarketplaceService.upsert(agentId, body);
+    return c.json({ marketplace: serializeMarketplace(row) }, 201);
+  });
+
+  app.openapi(deleteMarketplaceRoute, async (c) => {
+    const { id: agentId, marketplaceId } = c.req.valid("param");
+    await agentMarketplaceService.remove(agentId, marketplaceId);
+    return c.body(null, 204);
+  });
+
   // ─── Cron-run token stats ──────────────────────────────────────────────────
 
   // GET /agents/all/cron-runs/stats — aggregated token stats across all agents
@@ -2842,6 +2942,22 @@ function serializeTool(tool: {
     ...tool,
     createdAt: tool.createdAt.toISOString(),
   } as z.infer<typeof AgentToolSchema>;
+}
+
+function serializeMarketplace(row: {
+  id: string;
+  agentId: string;
+  name: string;
+  source: string;
+  ref: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): z.infer<typeof AgentMarketplaceSchema> {
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
 function serializePlugin(plugin: {
