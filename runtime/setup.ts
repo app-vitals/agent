@@ -20,7 +20,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { AgentPlugin } from "@app-vitals/agent-admin";
 import {
   resolveDefaultSpecialtyName,
@@ -383,6 +383,33 @@ export function findStalePluginSpecs(
 }
 
 /**
+ * Reads the Claude CLI's known-marketplaces registry
+ * (`known_marketplaces.json`, a sibling of `installed_plugins.json`) and
+ * returns the install location it records for `name`. Defensive: returns
+ * `undefined` for a missing or unparsable registry or an unknown name, and
+ * warns when the file exists but cannot be read.
+ */
+function readRegisteredMarketplaceLocation(
+  registryPath: string,
+  name: string,
+): string | undefined {
+  if (!existsSync(registryPath)) return undefined;
+  try {
+    const registry = JSON.parse(readFileSync(registryPath, "utf8")) as Record<
+      string,
+      { installLocation?: unknown } | null
+    >;
+    const location = registry?.[name]?.installLocation;
+    return typeof location === "string" ? location : undefined;
+  } catch (err) {
+    console.warn(
+      `[agent] could not read ${registryPath} (nothing to heal): ${(err as Error).message}`,
+    );
+    return undefined;
+  }
+}
+
+/**
  * Installs the plugins in the agent's own AgentPlugin rows (seeded from the
  * specialty manifest at create time). No plugin is installed by default. All commands are idempotent (exit 0 when already
  * present / already at latest), so reboots are a silent no-op.
@@ -432,7 +459,35 @@ export async function installPlugins(
 
     // Register extra baked marketplaces BEFORE the built-in shipwright marketplace.
     // Idempotent — safe to call on every startup.
+    const registryPath = join(
+      dirname(pluginManifestPath),
+      "known_marketplaces.json",
+    );
     for (const dir of extraDirs) {
+      // Heal a stale registration: a persistent ~/.claude may still map this
+      // marketplace name to a directory that no longer holds a marketplace
+      // (e.g. `shipwright` -> /app on the specialist image). Remove it so the
+      // add below registers the baked path.
+      const name = basename(dir);
+      const registered = readRegisteredMarketplaceLocation(registryPath, name);
+      if (
+        registered !== undefined &&
+        !existsSync(join(registered, ".claude-plugin", "marketplace.json"))
+      ) {
+        console.log(
+          `[agent] marketplace ${name} is registered at ${registered} with no marketplace.json — removing before re-adding ${dir}`,
+        );
+        const remove = await execFn(
+          "claude",
+          ["plugin", "marketplace", "remove", name],
+          { cwd },
+        );
+        if (remove.exitCode !== 0) {
+          console.warn(
+            `[agent] claude plugin marketplace remove ${name} exited ${remove.exitCode}: ${remove.stdout}`,
+          );
+        }
+      }
       const extraAdd = await execFn(
         "claude",
         ["plugin", "marketplace", "add", dir],
@@ -447,9 +502,18 @@ export async function installPlugins(
 
     // Register the local (built-in) shipwright marketplace so `claude plugin install`
     // can resolve plugins by name. Idempotent — safe to call on every startup.
+    const hasRepoMarketplace = existsSync(
+      join(shipwrightRepoRoot, ".claude-plugin", "marketplace.json"),
+    );
     if (
-      existsSync(join(shipwrightRepoRoot, ".claude-plugin", "marketplace.json"))
+      !hasRepoMarketplace &&
+      extraDirs.some((dir) => basename(dir) === "shipwright")
     ) {
+      console.log(
+        `[agent] ${shipwrightRepoRoot} has no marketplace.json — using baked shipwright marketplace`,
+      );
+    }
+    if (hasRepoMarketplace) {
       const add = await execFn(
         "claude",
         ["plugin", "marketplace", "add", shipwrightRepoRoot],

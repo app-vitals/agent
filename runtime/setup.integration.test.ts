@@ -1489,3 +1489,104 @@ describe("installPlugins — extra marketplace discovery", () => {
     expect(calls).toHaveLength(3);
   });
 });
+
+describe("installPlugins stale shipwright marketplace healing", () => {
+  type Exec = (
+    cmd: string,
+    args: string[],
+    opts: { cwd: string },
+  ) => Promise<{ stdout: string; exitCode: number }>;
+  const record = () => {
+    const calls: string[][] = [];
+    const exec: Exec = async (_cmd, args) => {
+      calls.push(args);
+      return { stdout: "", exitCode: 0 };
+    };
+    return { calls, exec };
+  };
+  const noMarketplaceRoot = () => join(testHome, "no-marketplace-here");
+  const bakedShipwright = () => {
+    const dir = join(testHome, "baked", "shipwright");
+    mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(dir, ".claude-plugin", "marketplace.json"), "{}");
+    return dir;
+  };
+  const writeRegistry = (content: string) => {
+    mkdirSync(join(testHome, "plugins"), { recursive: true });
+    writeFileSync(
+      join(testHome, "plugins", "known_marketplaces.json"),
+      content,
+    );
+  };
+  const run = (exec: Exec, root: string, dirs: string[]) =>
+    installPlugins(
+      exec,
+      testHome,
+      [],
+      root,
+      join(testHome, "plugins", "installed_plugins.json"),
+      dirs,
+    );
+
+  it("skips the repo-root add when only a baked shipwright marketplace exists", async () => {
+    const { calls, exec } = record();
+    const baked = bakedShipwright();
+    await run(exec, noMarketplaceRoot(), [baked]);
+    expect(calls).toEqual([["plugin", "marketplace", "add", baked]]);
+  });
+
+  it("removes a stale registration before adding the baked marketplace", async () => {
+    const { calls, exec } = record();
+    const baked = bakedShipwright();
+    const stale = join(testHome, "stale-app");
+    mkdirSync(stale, { recursive: true });
+    writeRegistry(JSON.stringify({ shipwright: { installLocation: stale } }));
+    await run(exec, noMarketplaceRoot(), [baked]);
+    expect(calls).toEqual([
+      ["plugin", "marketplace", "remove", "shipwright"],
+      ["plugin", "marketplace", "add", baked],
+    ]);
+  });
+
+  it("does not remove when the registered location still has a marketplace", async () => {
+    const { calls, exec } = record();
+    const baked = bakedShipwright();
+    writeRegistry(JSON.stringify({ shipwright: { installLocation: baked } }));
+    await run(exec, noMarketplaceRoot(), [baked]);
+    expect(calls).toEqual([["plugin", "marketplace", "add", baked]]);
+  });
+
+  it("attempts no remove and warns when the registry is malformed", async () => {
+    const { calls, exec } = record();
+    const baked = bakedShipwright();
+    writeRegistry("{not json");
+    const warn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (...a: unknown[]) => {
+      warnings.push(a.join(" "));
+    };
+    try {
+      await run(exec, noMarketplaceRoot(), [baked]);
+    } finally {
+      console.warn = warn;
+    }
+    expect(calls).toEqual([["plugin", "marketplace", "add", baked]]);
+    expect(warnings.some((w) => w.includes("known_marketplaces.json"))).toBe(
+      true,
+    );
+  });
+
+  it("attempts no remove when the registry is absent", async () => {
+    const { calls, exec } = record();
+    const baked = bakedShipwright();
+    await run(exec, noMarketplaceRoot(), [baked]);
+    expect(calls).toEqual([["plugin", "marketplace", "add", baked]]);
+  });
+
+  it("keeps the coding-image sequence unchanged when the repo root is a marketplace", async () => {
+    const { calls, exec } = record();
+    const root = repoRoot();
+    await run(exec, root, []);
+    expect(calls).toEqual([["plugin", "marketplace", "add", root]]);
+  });
+});
