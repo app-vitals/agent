@@ -3407,7 +3407,7 @@ export interface components {
             /** Format: date-time */
             trialExpiryWarnedAt?: string | null;
             /** @example [
-             *       "vitals-os",
+             *       "example-marketplace",
              *       "shipwright"
              *     ] */
             bakedMarketplaces?: string[];
@@ -4434,7 +4434,7 @@ export interface components {
         PutBakedMarketplacesBody: {
             /**
              * @example [
-             *       "vitals-os",
+             *       "example-marketplace",
              *       "shipwright"
              *     ]
              */
@@ -4443,7 +4443,7 @@ export interface components {
         BakedMarketplacesResult: {
             /**
              * @example [
-             *       "vitals-os"
+             *       "example-marketplace"
              *     ]
              */
             bakedMarketplaces: string[];

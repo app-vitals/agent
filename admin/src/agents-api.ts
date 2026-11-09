@@ -466,7 +466,7 @@ const GetAgentResultSchema = z
     bakedMarketplaces: z
       .array(z.string())
       .optional()
-      .openapi({ example: ["vitals-os", "shipwright"] }),
+      .openapi({ example: ["example-marketplace", "shipwright"] }),
     /** APM-1.3: the six real agent-policy fields (APM-1.1 DB columns). */
     autoPostReviews: z.boolean().openapi({ example: true }),
     allowSelfReview: z.boolean().openapi({ example: false }),
