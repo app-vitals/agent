@@ -39,6 +39,7 @@ import {
 } from "./agent-slack-membership-ref.ts";
 import { agentTrialExpiryRef } from "./agent-trial-expiry-ref.ts";
 import { applyEnvToProcess } from "./anthropic-federation-guard.ts";
+import { reportBakedMarketplaces } from "./baked-marketplaces-reporter.ts";
 import { createChatPoller } from "./chat-poller.ts";
 import {
   HttpChatTokenReporter,
@@ -258,6 +259,20 @@ export async function startAgent(
           }),
         })
       : new NoopGitHubInstallationsReporter();
+
+  // PMK-1.4: report the image's baked marketplace names to admin once at boot
+  // (overwrite, read-only visibility). Never throws; skipped when not wired.
+  if (
+    config.shipwright.apiUrl &&
+    config.shipwright.apiKey &&
+    config.shipwright.agentId
+  ) {
+    void reportBakedMarketplaces({
+      apiUrl: config.shipwright.apiUrl,
+      agentId: config.shipwright.agentId,
+      apiKey: config.shipwright.apiKey,
+    });
+  }
 
   // Always-loaded-context stamp (context-stamp.ts): fingerprints the workspace
   // CLAUDE.md + its imports + no-`paths` rules + the plugin version, read once

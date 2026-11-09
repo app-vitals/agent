@@ -6485,3 +6485,117 @@ describe("admin API — PATCH /agents/:id specialty (SAL-1.2)", () => {
     ]);
   });
 });
+
+// ─── PUT /agents/:id/baked-marketplaces (PMK-1.4) ─────────────────────────────
+
+describe("admin API — baked marketplaces report", () => {
+  const BAKED_URL = `/agents/${AGENT_ID}/baked-marketplaces`;
+  let cookie: string;
+
+  beforeAll(async () => {
+    cookie = await makeSessionCookie();
+  });
+
+  /** Deps whose agentService stores/serves the baked list in memory. */
+  function makeBakedDeps(tokenAgentId: string) {
+    let baked: string[] = [];
+    const base = makeDepsWithTokenValidation(async () => ({
+      agentId: tokenAgentId,
+    }));
+    const deps: AdminDeps = {
+      ...base,
+      agentService: {
+        ...base.agentService,
+        getDetail: async (id: string) => {
+          const d = await base.agentService.getDetail(id);
+          return d ? { ...d, bakedMarketplaces: baked } : null;
+        },
+        setBakedMarketplaces: async (_id: string, names: string[]) => {
+          baked = names;
+          return names;
+        },
+      },
+    };
+    return { deps, stored: () => baked };
+  }
+
+  const bearerPut = (app: ReturnType<typeof createAdminApp>, body: unknown) =>
+    app.request(BAKED_URL, {
+      method: "PUT",
+      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${VALID_BEARER_TOKEN}`,
+      },
+    });
+  const bearerGet = (app: ReturnType<typeof createAdminApp>) =>
+    app.request(`/agents/${AGENT_ID}`, {
+      headers: { Cookie: `admin_session=${cookie}` },
+    });
+
+  it("stores the names for the agent's own key and GET shows them", async () => {
+    const app = createAdminApp(makeBakedDeps(AGENT_ID).deps);
+    const res = await bearerPut(app, { names: ["vitals-os", "shipwright"] });
+    expect(res.status).toBe(200);
+    expect((await res.json()).bakedMarketplaces).toEqual([
+      "vitals-os",
+      "shipwright",
+    ]);
+    expect((await (await bearerGet(app)).json()).bakedMarketplaces).toEqual([
+      "vitals-os",
+      "shipwright",
+    ]);
+  });
+
+  it("overwrites rather than appends", async () => {
+    const app = createAdminApp(makeBakedDeps(AGENT_ID).deps);
+    await bearerPut(app, { names: ["vitals-os", "shipwright"] });
+    await bearerPut(app, { names: ["vitals-os"] });
+    expect((await (await bearerGet(app)).json()).bakedMarketplaces).toEqual([
+      "vitals-os",
+    ]);
+  });
+
+  it("another agent's key is rejected (403) and stores nothing", async () => {
+    const { deps, stored } = makeBakedDeps("other-agent");
+    const res = await bearerPut(createAdminApp(deps), { names: ["x"] });
+    expect(res.status).toBe(403);
+    expect(stored()).toEqual([]);
+  });
+
+  it("an admin session is rejected (403): only the agent's own key reports", async () => {
+    const { deps, stored } = makeBakedDeps(AGENT_ID);
+    const res = await createAdminApp(deps).request(BAKED_URL, {
+      method: "PUT",
+      body: JSON.stringify({ names: ["x"] }),
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `admin_session=${cookie}`,
+      },
+    });
+    expect(res.status).toBe(403);
+    expect(stored()).toEqual([]);
+  });
+
+  it("rejects unknown body fields (400)", async () => {
+    const { deps } = makeBakedDeps(AGENT_ID);
+    const res = await bearerPut(createAdminApp(deps), {
+      names: [],
+      extra: 1,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH /agents/:id cannot set the baked list", async () => {
+    const { deps, stored } = makeBakedDeps(AGENT_ID);
+    await createAdminApp(deps).request(`/agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify({ bakedMarketplaces: ["evil"] }),
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `admin_session=${cookie}`,
+      },
+    });
+    expect(stored()).toEqual([]);
+  });
+});

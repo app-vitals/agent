@@ -1078,6 +1078,26 @@ export const AgentGitHubInstallationsSnapshotSchema = z
 
 // ─── Path param schemas ───────────────────────────────────────────────────────
 
+/**
+ * PUT /agents/:id/baked-marketplaces body (PMK-1.4). Runtime-only report:
+ * `names` overwrites the stored list.
+ */
+export const PutBakedMarketplacesBodySchema = z
+  .object({
+    names: z
+      .array(z.string().min(1).max(255))
+      .max(100)
+      .openapi({ example: ["vitals-os", "shipwright"] }),
+  })
+  .strict()
+  .openapi("PutBakedMarketplacesBody");
+
+export const BakedMarketplacesResultSchema = z
+  .object({
+    bakedMarketplaces: z.array(z.string()).openapi({ example: ["vitals-os"] }),
+  })
+  .openapi("BakedMarketplacesResult");
+
 export const AgentIdParamSchema = z.object({
   id: z.string().openapi({ example: "clx1234567890" }),
 });
