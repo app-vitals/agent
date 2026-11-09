@@ -308,7 +308,10 @@ export const TYPECHECK_HINT =
   "Hint: a required member was added that shipwright does not provide; make the new member optional, or update the consumer (shipwright) first.";
 
 /** TS2741 / "is missing in type": a new required member breaks the consumer. */
-export function hintForOutput(name: string, output: string): string | undefined {
+export function hintForOutput(
+  name: string,
+  output: string,
+): string | undefined {
   return name === "typecheck" &&
     (/\bTS2741\b/.test(output) || output.includes("is missing in type"))
     ? TYPECHECK_HINT
@@ -371,9 +374,10 @@ export function runChecks(
         output,
         failedStep,
         durationMs: Date.now() - started,
-        ...(failedStep !== undefined && hintForOutput(check.name, output)
-          ? { hint: hintForOutput(check.name, output) }
-          : {}),
+        hint:
+          failedStep === undefined
+            ? undefined
+            : hintForOutput(check.name, output),
       };
     }
     results.push(result);
@@ -475,7 +479,9 @@ export function renderTable(results: CheckResult[]): string {
         .trimEnd(),
     )
     .join("\n");
-  const hints = results.flatMap((r) => (r.hint ? [`${r.name}: ${r.hint}`] : []));
+  const hints = results.flatMap((r) =>
+    r.hint ? [`${r.name}: ${r.hint}`] : [],
+  );
   return hints.length > 0 ? `${table}\n\n${hints.join("\n")}` : table;
 }
 

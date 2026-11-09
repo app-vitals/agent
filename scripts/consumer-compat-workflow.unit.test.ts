@@ -83,7 +83,8 @@ describe("consumer compat workflow", () => {
       ["scripts/consumer-compat.ts", scriptCode],
       ["consumer-compat.yml", code],
     ] as const)
-      for (const re of forbidden) expect([label, re.test(src)]).toEqual([label, false]);
+      for (const re of forbidden)
+        expect([label, re.test(src)]).toEqual([label, false]);
     expect(scriptCode).not.toContain('"push"');
     expect(scriptCode).not.toContain("git diff");
   });
