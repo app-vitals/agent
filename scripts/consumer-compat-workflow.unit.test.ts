@@ -16,6 +16,14 @@ const code = raw
   .split("\n")
   .filter((l) => !l.trim().startsWith("#"))
   .join("\n");
+const script = readFileSync(join(root, "scripts/consumer-compat.ts"), "utf8");
+const stripComments = (src: string) =>
+  src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("//"))
+    .join("\n");
+const scriptCode = stripComments(script);
 const job = wf.jobs["consumer-compat"];
 const steps: Step[] = job.steps;
 
@@ -59,5 +67,25 @@ describe("consumer compat workflow", () => {
       "utf8",
     );
     expect(release).not.toContain(job.name);
+  });
+
+  test("the guard is read-only toward shipwright: no push, gh, or credentials", () => {
+    const forbidden = [
+      /git\s+push/,
+      /["'`\s]gh\s/,
+      /["']gh["']/,
+      /GH_TOKEN/,
+      /GITHUB_TOKEN/,
+      /secrets\./,
+      /\btoken:/,
+    ];
+    for (const [label, src] of [
+      ["scripts/consumer-compat.ts", scriptCode],
+      ["consumer-compat.yml", code],
+    ] as const)
+      for (const re of forbidden)
+        expect([label, re.test(src)]).toEqual([label, false]);
+    expect(scriptCode).not.toContain('"push"');
+    expect(scriptCode).not.toContain("git diff");
   });
 });
