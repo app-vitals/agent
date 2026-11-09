@@ -84,6 +84,29 @@ const MOCK_TOKEN = {
   revokedAt: null,
 };
 
+// In-memory AgentMarketplace rows (PMK-1.5): one seeded remote row, mutated by
+// the add/remove routes so marketplaces-section.e2e.ts sees real round trips.
+// Each spec file spawns its own server process, so state never leaks across files.
+const marketplaceRows: Array<{
+  id: string;
+  agentId: string;
+  name: string;
+  source: string;
+  ref: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}> = [
+  {
+    id: "mk-e2e-1",
+    agentId: ADMIN_E2E_AGENT.id,
+    name: "seeded-remote",
+    source: "app-vitals/seeded",
+    ref: "v1.2.3",
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  },
+];
+
 // ─── Chat fixtures (CFB-1.3 — chat thread page e2e) ──────────────────────────
 
 const MOCK_CHAT_THREAD: ChatThread = {
@@ -306,6 +329,35 @@ function buildMockDeps(chatClient: ChatClient | undefined): AdminUIDeps {
         updatedAt: new Date("2024-01-01"),
       }),
     },
+    agentMarketplaceService: {
+      list: async () => [...marketplaceRows],
+      upsert: async (
+        agentId: string,
+        input: { name: string; source: string; ref?: string | null },
+      ) => {
+        const existing = marketplaceRows.find((m) => m.name === input.name);
+        if (existing) {
+          existing.source = input.source;
+          existing.ref = input.ref ?? null;
+          return existing;
+        }
+        const row = {
+          id: `mk-e2e-${marketplaceRows.length + 1}-${input.name}`,
+          agentId,
+          name: input.name,
+          source: input.source,
+          ref: input.ref ?? null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        marketplaceRows.push(row);
+        return row;
+      },
+      remove: async (_agentId: string, marketplaceId: string) => {
+        const i = marketplaceRows.findIndex((m) => m.id === marketplaceId);
+        if (i >= 0) marketplaceRows.splice(i, 1);
+      },
+    },
     agentMemberService: {
       listByEmail: async () => [],
       exists: async () => false,
@@ -355,6 +407,7 @@ function buildMockDeps(chatClient: ChatClient | undefined): AdminUIDeps {
         repos: [],
         reviewAuthorAllowlist: [],
         missingRequiredEnv: [],
+        bakedMarketplaces: ["baked-e2e"],
       }),
       updateFields: async () => ({
         id: ADMIN_E2E_AGENT.id,

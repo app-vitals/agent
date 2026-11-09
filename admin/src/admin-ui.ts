@@ -70,6 +70,7 @@ import { deleteAgentFully } from "./agent-deletion.ts";
 import type { ManualStep } from "./agent-deletion-checklist.ts";
 import type { AgentEnvService } from "./agent-envs.ts";
 import type { AgentMemberService } from "./agent-members.ts";
+import type { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
 import type { AgentProvisioner } from "./agent-provisioner.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
@@ -304,6 +305,15 @@ export interface AdminUIDeps {
     "listForAgent" | "create" | "revoke"
   >;
   agentPluginService: Pick<AgentPluginService, "list" | "add">;
+  /**
+   * PMK-1.5: remote marketplaces for the agent page. Optional (additive to the
+   * exported AdminUIDeps); absent hides the add/remove routes' effect and
+   * lists no remote rows.
+   */
+  agentMarketplaceService?: Pick<
+    AgentMarketplaceService,
+    "list" | "upsert" | "remove"
+  >;
   agentMemberService: Pick<
     AgentMemberService,
     "listByEmail" | "exists" | "add" | "remove" | "listByAgentId"
@@ -776,6 +786,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     agentToolService,
     agentTokenService,
     agentPluginService,
+    agentMarketplaceService,
     agentMemberService,
     agentService,
     provisioner,
@@ -1753,6 +1764,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       anthropicIdentityName: agent.anthropicIdentityName ?? null,
       anthropicServiceAccountId: agent.anthropicServiceAccountId ?? null,
       anthropicFederationRuleId: agent.anthropicFederationRuleId ?? null,
+      bakedMarketplaces: agent.bakedMarketplaces ?? [],
     };
 
     if (!(await assertAgentAccess(agentId, c.var.userEmail, c.var.isAdmin))) {
@@ -1778,7 +1790,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           // verbatim rather than mapped to a fixed key.
           (warningParam ?? undefined);
 
-    const [envResult, crons, tools, tokens, plugins, members] =
+    const [envResult, crons, tools, tokens, plugins, members, marketplaces] =
       await Promise.all([
         agentEnvService
           .getByAgentId(agentId)
@@ -1790,6 +1802,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         canManageAgents(c.var.isAdmin)
           ? agentMemberService.listByAgentId(agentId)
           : Promise.resolve([]),
+        agentMarketplaceService?.list(agentId) ?? Promise.resolve([]),
       ]);
 
     // Extension card slots (AEP-2.1/AEP-3.2), grouped by placement; a failing
@@ -1826,6 +1839,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           extensionCardsHtml: cards.header,
           configurationCardsHtml: cards.configuration,
           queueActivityLinks: deps.queueActivityLinks,
+          marketplaces,
         },
       ),
     );
@@ -2401,6 +2415,65 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     return c.redirect(`/admin/agents/${agentId}`, 302);
   });
 
+  // ─── Marketplace mutations (PMK-1.5) ──────────────────────────────────────
+  // Same access rule as the tool routes (and the /agents/:id/marketplaces API):
+  // an admin or a member of the agent. The baked list has no route here.
+
+  app.post("/admin/agents/:id/marketplaces", requireAuth, async (c) => {
+    const agentId = c.req.param("id");
+    if (!(await assertAgentAccess(agentId, c.var.userEmail, c.var.isAdmin))) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    let name: string | undefined;
+    let source: string | undefined;
+    let ref: string | undefined;
+    try {
+      const formData = await c.req.formData();
+      name = formData.get("name")?.toString().trim();
+      source = formData.get("source")?.toString().trim();
+      ref = formData.get("ref")?.toString().trim() || undefined;
+    } catch {
+      return c.redirect(`/admin/agents/${agentId}`, 302);
+    }
+    if (!name || !source) {
+      return c.redirect(`/admin/agents/${agentId}?error=missing_fields`, 302);
+    }
+    try {
+      await agentMarketplaceService?.upsert(agentId, { name, source, ref });
+    } catch (err) {
+      if (err instanceof UnprocessableEntityError) {
+        return c.redirect(
+          `/admin/agents/${agentId}?error=${encodeURIComponent(err.message)}`,
+          302,
+        );
+      }
+      // other errors — redirect back silently, like the tool routes
+    }
+    return c.redirect(`/admin/agents/${agentId}`, 302);
+  });
+
+  app.post("/admin/agents/:id/marketplaces/delete", requireAuth, async (c) => {
+    const agentId = c.req.param("id");
+    if (!(await assertAgentAccess(agentId, c.var.userEmail, c.var.isAdmin))) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    let marketplaceId: string | undefined;
+    try {
+      const formData = await c.req.formData();
+      marketplaceId = formData.get("marketplaceId")?.toString();
+    } catch {
+      return c.redirect(`/admin/agents/${agentId}`, 302);
+    }
+    if (marketplaceId) {
+      try {
+        await agentMarketplaceService?.remove(agentId, marketplaceId);
+      } catch {
+        // already gone, ignore
+      }
+    }
+    return c.redirect(`/admin/agents/${agentId}`, 302);
+  });
+
   // ─── Token mutations ──────────────────────────────────────────────────────
 
   app.post("/admin/agents/:id/tokens", requireAuth, async (c) => {
@@ -2442,12 +2515,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       anthropicIdentityName: agent.anthropicIdentityName ?? null,
       anthropicServiceAccountId: agent.anthropicServiceAccountId ?? null,
       anthropicFederationRuleId: agent.anthropicFederationRuleId ?? null,
+      bakedMarketplaces: agent.bakedMarketplaces ?? [],
     };
     try {
       const { rawToken } = await agentTokenService.create(agentId, label);
       // Render the page directly (200) rather than redirecting with the token in the URL.
       // A redirect would expose the raw token in server access logs and browser history.
-      const [envResult, crons, tools, tokens, plugins, members] =
+      const [envResult, crons, tools, tokens, plugins, members, marketplaces] =
         await Promise.all([
           agentEnvService
             .getByAgentId(agentId)
@@ -2459,6 +2533,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           canManageAgents(c.var.isAdmin)
             ? agentMemberService.listByAgentId(agentId)
             : Promise.resolve([]),
+          agentMarketplaceService?.list(agentId) ?? Promise.resolve([]),
         ]);
       // The token page renders only the Configuration-group extension cards;
       // header cards keep their place empty, as before the slot split.
@@ -2491,6 +2566,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             extensionCardsHtml: cards.header,
             configurationCardsHtml: cards.configuration,
             queueActivityLinks: deps.queueActivityLinks,
+            marketplaces,
           },
         ),
       );

@@ -555,6 +555,7 @@ export async function startAdmin(
     agentToolService,
     agentTokenService,
     agentPluginService,
+    agentMarketplaceService,
     agentMemberService,
     callerScopeResolver,
     agentService,
