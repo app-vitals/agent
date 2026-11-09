@@ -1,6 +1,6 @@
 {
   "name": "agent-platform",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Platform skills baked into the agent image: progress pings to Slack and other runtime-level helpers.",
   "author": {
     "name": "App Vitals",
