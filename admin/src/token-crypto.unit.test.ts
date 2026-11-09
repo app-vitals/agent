@@ -6,7 +6,11 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { decrypt, encrypt, isValidKeyHex } from "./crypto.ts";
-import { identityCrypto, makeTokenCrypto } from "./token-crypto.ts";
+import {
+  identityCrypto,
+  makeStrictTokenCrypto,
+  makeTokenCrypto,
+} from "./token-crypto.ts";
 
 // ─── Test key ─────────────────────────────────────────────────────────────────
 // A known 64-char hex key (32 bytes) for deterministic tests.
@@ -178,5 +182,24 @@ describe("identityCrypto", () => {
 
   it("decrypt returns input unchanged", () => {
     expect(identityCrypto.decrypt("hello")).toBe("hello");
+  });
+});
+
+describe("makeStrictTokenCrypto", () => {
+  const KEY = "c".repeat(64);
+
+  it("returns null when no key is configured (no identity fallback)", () => {
+    expect(makeStrictTokenCrypto(undefined)).toBeNull();
+    expect(makeStrictTokenCrypto("")).toBeNull();
+  });
+
+  it("throws on a malformed key", () => {
+    expect(() => makeStrictTokenCrypto("short")).toThrow(/64-character/);
+  });
+
+  it("round-trips and throws on non-ciphertext instead of passing it through", () => {
+    const c = makeStrictTokenCrypto(KEY);
+    expect(c?.decrypt(c.encrypt("secret"))).toBe("secret");
+    expect(() => c?.decrypt("legacy-plain-text")).toThrow();
   });
 });

@@ -116,6 +116,24 @@ model AgentEnv {
   @@unique([agentId, key])
 }
 
+// ─── GitHub Enterprise Apps ───────────────────────────────────────────────────
+// Optional admin-level GitHub Apps, one per role ('installer' | 'lookup'), at most
+// two rows per deployment; no rows means the feature is off. Deliberately NOT in
+// AgentEnv so the private key can never reach the agent config bundle.
+
+model GitHubEnterpriseApp {
+  role                  String    @id // 'installer' | 'lookup'
+  appId                 String
+  slug                  String
+  enterpriseSlug        String?   // installer only
+  privateKeyEncrypted   String    // AES-256-GCM (iv:ciphertext:authTag); never returned by any read path
+  lastValidationStatus  String?
+  lastValidatedAt       DateTime?
+  lastValidationError   String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
 // ─── Agent Cron Jobs ──────────────────────────────────────────────────────────
 // Scheduled prompts per agent.
 // Delivery target is either a Slack channel ID or a Slack user ID (DM).
