@@ -178,7 +178,7 @@ function makeService(opts?: {
     agentCronJobService: {
       reconcileSystemCrons: async (agentId: string) => {
         reconcileCalls.push(agentId);
-        return { created: 3, updated: 0, deleted: 0, converted: 0 };
+        return { created: 3, updated: 0, deleted: 0 };
       },
     },
     sessionSecret: SESSION_SECRET,

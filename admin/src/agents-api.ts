@@ -809,7 +809,7 @@ const reconcileCronsRoute = createRoute({
   path: "/agents/{id}/crons/reconcile",
   summary: "Reconcile system crons",
   description:
-    "Reconciles the agent's system crons against the cron list supplied by the AdminExtension for its specialty. Runs in three passes within a single transaction: create-or-update matched-by-name system crons (preserving IDs so run history survives), link/unlink parent-child cron relationships, and handle orphaned system crons no longer in the defaults (enabled ones are converted to user crons, disabled ones deleted). Called automatically on agent startup; returns created/updated/deleted/converted counts.",
+    "Reconciles the agent's system crons against the cron list supplied by the AdminExtension for its specialty. Runs in three passes within a single transaction: create-or-update matched-by-name system crons (preserving IDs so run history survives), link/unlink parent-child cron relationships, and delete orphaned system crons no longer in the defaults. Called automatically on agent startup; returns created/updated/deleted counts.",
   request: { params: AgentIdParamSchema },
   responses: {
     200: {

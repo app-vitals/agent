@@ -1342,7 +1342,6 @@ describe("admin UI — authenticated pages", () => {
             created: 0,
             updated: 0,
             deleted: 0,
-            converted: 0,
           }),
         },
       }),
@@ -1547,7 +1546,6 @@ describe("admin UI — authenticated pages", () => {
               created: 0,
               updated: 0,
               deleted: 0,
-              converted: 0,
             }),
           },
         }),
@@ -1684,7 +1682,6 @@ describe("admin UI — authenticated pages", () => {
               created: 0,
               updated: 0,
               deleted: 0,
-              converted: 0,
             }),
           },
         }),
@@ -4305,7 +4302,7 @@ describe("admin UI — POST /admin/agents/:id/connect-slack/app-token", () => {
           delete: async () => {},
           reconcileSystemCrons: async (agentId: string) => {
             reconcileCalls.push(agentId);
-            return { created: 3, updated: 0, deleted: 0, converted: 0 };
+            return { created: 3, updated: 0, deleted: 0 };
           },
         },
       }),
@@ -5002,7 +4999,7 @@ describe("admin UI — GET /admin/agents/:id/connect-github/installed", () => {
           delete: async () => {},
           reconcileSystemCrons: async (agentId: string) => {
             reconcileCalls.push(agentId);
-            return { created: 2, updated: 0, deleted: 0, converted: 0 };
+            return { created: 2, updated: 0, deleted: 0 };
           },
         },
       }),

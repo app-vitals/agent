@@ -316,7 +316,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
     const registry = fakeRegistry({ coding: [loopCron] });
     const { prisma, rows } = makeFakePrisma({
       specialty: "coding",
-      existing: [{ id: "orphan", name: "removed-cron", enabled: false }],
+      existing: [{ id: "orphan", name: "removed-cron" }],
     });
     const service = new AgentCronJobService(
       prisma as unknown as PrismaClient,
@@ -382,12 +382,7 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
       console.error = original;
     }
 
-    expect(result).toEqual({
-      created: 0,
-      updated: 0,
-      deleted: 0,
-      converted: 0,
-    });
+    expect(result).toEqual({ created: 0, updated: 0, deleted: 0 });
     expect(Array.from(rows.keys()).sort()).toEqual(["sys-1", "user-1"]);
     expect(errors).toHaveLength(1);
     expect(String(errors[0]?.[0])).toContain("specialist");
@@ -413,7 +408,6 @@ describe("reconcileSystemCrons (unit, injected registry)", () => {
         created: 0,
         updated: 0,
         deleted: 0,
-        converted: 0,
       });
     } finally {
       console.error = original;
@@ -518,7 +512,7 @@ describe("reconcileSystemCrons (specialtyDefaults hook)", () => {
       specialty: "coding",
       existing: [
         { id: "stable-id", name: "ext-cron", enabled: true },
-        { id: "orphan", name: "removed-cron", enabled: false },
+        { id: "orphan", name: "removed-cron" },
       ],
     });
     const service = new AgentCronJobService(
@@ -540,12 +534,7 @@ describe("reconcileSystemCrons (specialtyDefaults hook)", () => {
 
     const result = await service.reconcileSystemCrons("agent-1");
 
-    expect(result).toEqual({
-      created: 1,
-      updated: 1,
-      deleted: 1,
-      converted: 0,
-    });
+    expect(result).toEqual({ created: 1, updated: 1, deleted: 1 });
     expect(rows.get("stable-id")?.enabled).toBe(true);
     expect(rows.has("orphan")).toBe(false);
     const child = Array.from(rows.values()).find((r) => r.name === "ext-child");
