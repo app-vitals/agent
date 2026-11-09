@@ -3362,6 +3362,117 @@
           "transcriptUpload",
           "repoAccessCheck"
         ]
+      },
+      "SpecialtyChangePreviewResult": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "imageBefore": {
+            "type": "string",
+            "example": "ghcr.io/x/agent:1.0.0"
+          },
+          "imageAfter": {
+            "type": "string",
+            "example": "ghcr.io/x/agent:2.0.0"
+          },
+          "templatesDir": {
+            "type": "string",
+            "description": "The target type's workspace template directory."
+          },
+          "crons": {
+            "type": "object",
+            "properties": {
+              "kept": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "enabled"
+                  ]
+                }
+              },
+              "deleted": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "kept",
+              "deleted"
+            ]
+          },
+          "toolsUnchanged": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "pluginsUnchanged": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "rollbackNote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "agentId",
+          "from",
+          "to",
+          "imageBefore",
+          "imageAfter",
+          "templatesDir",
+          "crons",
+          "toolsUnchanged",
+          "pluginsUnchanged",
+          "rollbackNote"
+        ]
       }
     },
     "parameters": {}
@@ -3704,6 +3815,77 @@
           },
           "404": {
             "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}/specialty-change-preview": {
+      "get": {
+        "summary": "Preview a specialty change",
+        "description": "Platform-admin only. Read-only dry run of `PATCH /agents/{id}` with `specialty`: reports the image before and after, the target type's `templatesDir`, and which system crons reconcile would keep (name in the target manifest) or delete (every other system cron, enabled or not). User crons (`system=false`) never appear in `crons`; `rollbackNote` is non-null when one shares a name with a cron in the target manifest. Tools and plugins are never changed by a specialty change. Writes nothing. 404 unknown agent, 422 unknown `to`, 403 non-admin.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx1234567890"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Target specialty to preview.",
+              "example": "specialist"
+            },
+            "required": true,
+            "description": "Target specialty to preview.",
+            "name": "to",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the specialty change would do",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecialtyChangePreviewResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unknown target specialty",
             "content": {
               "application/json": {
                 "schema": {

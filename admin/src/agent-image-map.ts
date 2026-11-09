@@ -72,3 +72,22 @@ export function resolveImage(
     ? (images[DEFAULT_IMAGE_KEY] as AgentImageRef)
     : fallback;
 }
+
+/**
+ * The image configuration admin reads from env: the single-image fallback and
+ * the optional per-specialty map. Shared by the provisioner and the
+ * specialty-change preview (SAL-1.3) so both resolve images identically.
+ * A malformed map throws.
+ */
+export function readAgentImageConfig(env: NodeJS.ProcessEnv): {
+  fallback: AgentImageRef;
+  images: AgentImageMap | undefined;
+} {
+  return {
+    fallback: {
+      repository: env.SHIPWRIGHT_AGENT_IMAGE ?? "",
+      tag: env.SHIPWRIGHT_AGENT_IMAGE_TAG ?? "latest",
+    },
+    images: parseAgentImageMap(env.SHIPWRIGHT_AGENT_IMAGES),
+  };
+}

@@ -260,6 +260,11 @@ function makeMockDeps(): AdminDeps {
       deleteKey: async () => {},
     },
     agentCronJobService: {
+      previewSystemCrons: async () => ({
+        kept: [],
+        deleted: [],
+        userCronNameCollisions: [],
+      }),
       list: async () => [],
       listWithRunSummary: async () => [],
       create: async () => ({

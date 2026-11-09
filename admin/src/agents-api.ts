@@ -39,6 +39,7 @@ import {
   getSelfServeSpecialty,
   isAccountCreateErrorCode,
 } from "./account-agent-create.ts";
+import { readAgentImageConfig, resolveImage } from "./agent-image-map.ts";
 import {
   reconcileAgentAfterAccountChange,
   reconcileAgentAfterSpecialtyChange,
@@ -146,6 +147,8 @@ import {
   type ModelBreakdownEntry,
   OkSchema,
   PatchAgentBodySchema,
+  SpecialtyChangePreviewQuerySchema,
+  SpecialtyChangePreviewResultSchema,
   PatchAgentCronJobBodySchema,
   PatchAgentCronRunBodySchema,
   PatchAgentPluginBodySchema,
@@ -191,6 +194,7 @@ export interface AdminDeps {
     | "update"
     | "delete"
     | "reconcileSystemCrons"
+    | "previewSystemCrons"
     | "get"
     | "setEnabled"
     | "updatePreCheck"
@@ -251,6 +255,12 @@ export interface AdminDeps {
    * behavior without a cluster). See `agent-provisioner.ts`.
    */
   provisioner: AgentProvisioner;
+  /**
+   * SAL-1.3: the image configuration the provisioner resolves images from
+   * (readAgentImageConfig). Unset → the env-less default (empty repository,
+   * `latest`), as the no-op provisioner would report.
+   */
+  agentImages?: ReturnType<typeof readAgentImageConfig>;
   /**
    * Cleanup deps for the full delete-agent orchestration (DELETE /agents/:id
    * → deleteAgentFully()). Matches DeleteAgentFullyDeps's shapes exactly so
@@ -616,6 +626,29 @@ const getAgentRoute = createRoute({
     },
     403: { description: "Forbidden", ...jsonError },
     404: { description: "Agent not found", ...jsonError },
+  },
+});
+
+const specialtyChangePreviewRoute = createRoute({
+  method: "get",
+  path: "/agents/{id}/specialty-change-preview",
+  summary: "Preview a specialty change",
+  description:
+    "Platform-admin only. Read-only dry run of `PATCH /agents/{id}` with `specialty`: reports the image before and after, the target type's `templatesDir`, and which system crons reconcile would keep (name in the target manifest) or delete (every other system cron, enabled or not). User crons (`system=false`) never appear in `crons`; `rollbackNote` is non-null when one shares a name with a cron in the target manifest. Tools and plugins are never changed by a specialty change. Writes nothing. 404 unknown agent, 422 unknown `to`, 403 non-admin.",
+  request: {
+    params: AgentIdParamSchema,
+    query: SpecialtyChangePreviewQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "What the specialty change would do",
+      content: {
+        "application/json": { schema: SpecialtyChangePreviewResultSchema },
+      },
+    },
+    403: { description: "Forbidden", ...jsonError },
+    404: { description: "Agent not found", ...jsonError },
+    422: { description: "Unknown target specialty", ...jsonError },
   },
 });
 
@@ -1531,6 +1564,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     agentGitHubInstallationsService,
     prisma,
     provisioner,
+    agentImages,
     serviceIntegrations,
     chatService,
     slack,
@@ -1666,6 +1700,49 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       throw new NotFoundError(`agent ${agentId} not found`);
     }
     return c.json(serializeAgent(agent), 200);
+  });
+
+  // GET /agents/:id/specialty-change-preview?to= — SAL-1.3 read-only dry run.
+  app.openapi(specialtyChangePreviewRoute, async (c) => {
+    if (c.get("isAdmin") !== true) {
+      throw new ForbiddenError(
+        "Admin access required to preview a specialty change",
+      );
+    }
+    const { id: agentId } = c.req.valid("param");
+    const { to } = c.req.valid("query");
+    const agent = await agentService.getDetail(agentId);
+    if (!agent) {
+      throw new NotFoundError(`agent ${agentId} not found`);
+    }
+    const target = specialtyRegistry.tryGetType(to);
+    if (!target) {
+      throw new UnprocessableEntityError(`unknown specialty "${to}"`);
+    }
+    const { fallback, images } = agentImages ?? readAgentImageConfig({});
+    const ref = (specialty: string) => {
+      const { repository, tag } = resolveImage(fallback, images, specialty);
+      return `${repository}:${tag}`;
+    };
+    const crons = await agentCronJobService.previewSystemCrons(agentId, to);
+    return c.json(
+      {
+        agentId,
+        from: agent.specialty,
+        to,
+        imageBefore: ref(agent.specialty),
+        imageAfter: ref(to),
+        templatesDir: target.templatesDir,
+        crons: { kept: crons.kept, deleted: crons.deleted },
+        toolsUnchanged: true as const,
+        pluginsUnchanged: true as const,
+        rollbackNote:
+          crons.userCronNameCollisions.length > 0
+            ? `User cron(s) ${crons.userCronNameCollisions.map((n) => `"${n}"`).join(", ")} share a name with a cron in the "${to}" manifest. A later reconcile creates a separate system cron of that name; the user cron is never converted or removed, so rolling back to "${agent.specialty}" does not restore deleted system crons from this agent's history.`
+            : null,
+      },
+      200,
+    );
   });
 
   // PATCH /agents/:id — update agent fields (selfHosted, repos)

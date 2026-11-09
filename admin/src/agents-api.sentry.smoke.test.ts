@@ -184,6 +184,11 @@ function makeBaseDeps(
     },
     agentEnvService,
     agentCronJobService: {
+      previewSystemCrons: async () => ({
+        kept: [],
+        deleted: [],
+        userCronNameCollisions: [],
+      }),
       list: async () => [],
       listWithRunSummary: async () => [],
       create: async () => ({}) as never,

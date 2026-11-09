@@ -93,6 +93,7 @@ function buildComposedApp() {
       create: notImplemented,
       update: notImplemented,
       delete: notImplemented,
+      previewSystemCrons: notImplemented,
       reconcileSystemCrons: notImplemented,
       get: notImplemented,
       setEnabled: notImplemented,

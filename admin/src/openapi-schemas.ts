@@ -1045,6 +1045,43 @@ export const AgentIdParamSchema = z.object({
   id: z.string().openapi({ example: "clx1234567890" }),
 });
 
+export const SpecialtyChangePreviewQuerySchema = z
+  .object({
+    to: z.string().min(1).openapi({
+      description: "Target specialty to preview.",
+      example: "specialist",
+    }),
+  })
+  .openapi("SpecialtyChangePreviewQuery");
+
+export const SpecialtyChangePreviewResultSchema = z
+  .object({
+    agentId: z.string(),
+    from: z.string(),
+    to: z.string(),
+    imageBefore: z.string().openapi({ example: "ghcr.io/x/agent:1.0.0" }),
+    imageAfter: z.string().openapi({ example: "ghcr.io/x/agent:2.0.0" }),
+    templatesDir: z.string().openapi({
+      description: "The target type's workspace template directory.",
+    }),
+    crons: z.object({
+      kept: z.array(
+        z.object({
+          id: z.string(),
+          name: z.string().nullable(),
+          enabled: z.boolean(),
+        }),
+      ),
+      deleted: z.array(
+        z.object({ id: z.string(), name: z.string().nullable() }),
+      ),
+    }),
+    toolsUnchanged: z.literal(true),
+    pluginsUnchanged: z.literal(true),
+    rollbackNote: z.string().nullable(),
+  })
+  .openapi("SpecialtyChangePreviewResult");
+
 export const AddAgentReposBodySchema = z
   .object({
     repos: z

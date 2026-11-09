@@ -215,3 +215,94 @@ describeOrSkip("PATCH /agents/:id specialty (integration)", () => {
     expect(provisioner.reconciled[0]?.specialty).toBe("specialist");
   });
 });
+
+describeOrSkip("GET /agents/:id/specialty-change-preview (integration)", () => {
+  let prisma: PrismaClient;
+
+  beforeEach(async () => {
+    prisma = createAdminPrismaClient(TEST_DB as string);
+    await prisma.agentCronJob.deleteMany();
+    await prisma.agent.deleteMany();
+  });
+
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+
+  it("reports a Saul-shaped agent and writes nothing", async () => {
+    const agent = await prisma.agent.create({
+      data: { name: "Saul", specialty: "saul" },
+    });
+    const systemNames = [
+      "shipwright-dev-loop",
+      "shipwright-dev-task",
+      "shipwright-review",
+      "shipwright-patch",
+      "shipwright-deploy",
+      "shipwright-entropy-scan",
+      "shipwright-security-scan",
+      "shipwright-error-scan",
+      "shipwright-learn-dream-sys",
+    ];
+    for (const name of systemNames) {
+      await prisma.agentCronJob.create({
+        data: {
+          agentId: agent.id,
+          name,
+          system: true,
+          schedule: "0 * * * *",
+          prompt: `/${name}`,
+          enabled: false,
+        },
+      });
+    }
+    await prisma.agentCronJob.create({
+      data: {
+        agentId: agent.id,
+        name: "learn-dream",
+        system: false,
+        schedule: "0 3 * * *",
+        prompt: "/learn-dream",
+        enabled: true,
+      },
+    });
+
+    const snapshot = async () =>
+      JSON.stringify({
+        agent: await prisma.agent.findMany({ orderBy: { id: "asc" } }),
+        crons: await prisma.agentCronJob.findMany({ orderBy: { id: "asc" } }),
+      });
+    const before = await snapshot();
+
+    const provisioner = new RecordingProvisioner();
+    const coding = { repository: "ghcr.io/x/coding", tag: "1.0.0" };
+    const fallbackDefault = { repository: "ghcr.io/x/default", tag: "2.0.0" };
+    const app = createAdminApp({
+      ...makeDeps(prisma, provisioner),
+      agentImages: {
+        fallback: { repository: "ghcr.io/x/single", tag: "0.0.1" },
+        images: { saul: coding, default: fallbackDefault },
+      },
+    });
+    const cookie = await makeSessionCookie();
+    const res = await app.request(
+      `/agents/${agent.id}/specialty-change-preview?to=specialist`,
+      { headers: { Cookie: `admin_session=${cookie}` } },
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.from).toBe("saul");
+    expect(body.to).toBe("specialist");
+    expect(body.imageBefore).toBe("ghcr.io/x/coding:1.0.0");
+    expect(body.imageAfter).toBe("ghcr.io/x/default:2.0.0");
+    expect(body.crons.kept).toEqual([]);
+    expect(
+      body.crons.deleted.map((c: { name: string }) => c.name).sort(),
+    ).toEqual([...systemNames].sort());
+    expect(JSON.stringify(body.crons)).not.toContain(`"learn-dream"`);
+    expect(body.rollbackNote).toBeNull();
+    expect(await snapshot()).toBe(before);
+    expect(provisioner.reconciled).toEqual([]);
+  });
+});
