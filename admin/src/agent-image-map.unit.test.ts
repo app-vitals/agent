@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  parseAgentImageMap,
-  readAgentImageConfig,
-  resolveImage,
-} from "./agent-image-map.ts";
+import { parseAgentImageMap, resolveImage } from "./agent-image-map.ts";
 
 const fallback = { repository: "ghcr.io/x/agent", tag: "1.0.0" };
 const json = JSON.stringify({
@@ -68,36 +64,5 @@ describe("resolveImage", () => {
       repository: "d",
       tag: "9",
     });
-  });
-});
-
-describe("readAgentImageConfig (SAL-1.3)", () => {
-  it("defaults to an empty repository and the latest tag", () => {
-    expect(readAgentImageConfig({})).toEqual({
-      fallback: { repository: "", tag: "latest" },
-      images: undefined,
-    });
-  });
-
-  it("reads the single image, tag and the per-specialty map", () => {
-    const cfg = readAgentImageConfig({
-      SHIPWRIGHT_AGENT_IMAGE: "ghcr.io/x/agent",
-      SHIPWRIGHT_AGENT_IMAGE_TAG: "1.2.3",
-      SHIPWRIGHT_AGENT_IMAGES: json,
-    });
-    expect(cfg.fallback).toEqual({
-      repository: "ghcr.io/x/agent",
-      tag: "1.2.3",
-    });
-    expect(resolveImage(cfg.fallback, cfg.images, "reviewer")).toEqual({
-      repository: "ghcr.io/x/reviewer",
-      tag: "2.0.0",
-    });
-  });
-
-  it("throws on a malformed map", () => {
-    expect(() =>
-      readAgentImageConfig({ SHIPWRIGHT_AGENT_IMAGES: "{nope" }),
-    ).toThrow(/SHIPWRIGHT_AGENT_IMAGES is malformed/);
   });
 });

@@ -489,77 +489,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{id}/specialty-change-preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Preview a specialty change
-         * @description Platform-admin only. Read-only dry run of `PATCH /agents/{id}` with `specialty`: reports the image before and after, the target type's `templatesDir`, and which system crons reconcile would keep (name in the target manifest) or delete (every other system cron, enabled or not). User crons (`system=false`) never appear in `crons`; `rollbackNote` is non-null when one shares a name with a cron in the target manifest. Tools and plugins are never changed by a specialty change. Writes nothing. 404 unknown agent, 422 unknown `to`, 403 non-admin.
-         */
-        get: {
-            parameters: {
-                query: {
-                    /** @description Target specialty to preview. */
-                    to: string;
-                };
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description What the specialty change would do */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["SpecialtyChangePreviewResult"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Agent not found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Unknown target specialty */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/agents": {
         parameters: {
             query?: never;
@@ -4502,33 +4431,6 @@ export interface components {
             createdAt: string;
             /** @example null */
             repliedAt: string | null;
-        };
-        SpecialtyChangePreviewResult: {
-            agentId: string;
-            from: string;
-            to: string;
-            /** @example ghcr.io/x/agent:1.0.0 */
-            imageBefore: string;
-            /** @example ghcr.io/x/agent:2.0.0 */
-            imageAfter: string;
-            /** @description The target type's workspace template directory. */
-            templatesDir: string;
-            crons: {
-                kept: {
-                    id: string;
-                    name: string | null;
-                    enabled: boolean;
-                }[];
-                deleted: {
-                    id: string;
-                    name: string | null;
-                }[];
-            };
-            /** @enum {boolean} */
-            toolsUnchanged: true;
-            /** @enum {boolean} */
-            pluginsUnchanged: true;
-            rollbackNote: string | null;
         };
     };
     responses: never;

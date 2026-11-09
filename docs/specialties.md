@@ -30,8 +30,6 @@ Agent images are resolved per specialty, not shared: with provisioning enabled, 
 
 ## Changing an agent's specialty
 
-Before issuing the PATCH, preview it: `GET /agents/:id/specialty-change-preview?to=<type>` (platform-admin only; 404 unknown agent, 422 unknown `to`). It is a read-only dry run that writes nothing and returns `{agentId, from, to, imageBefore, imageAfter, templatesDir, crons: {kept, deleted}, toolsUnchanged, pluginsUnchanged, rollbackNote}`. `kept` lists the system crons whose name the target type declares; `deleted` lists every other system cron, enabled or not, because reconcile deletes orphans (both come from the same classification `reconcileSystemCrons` uses). User crons (`system=false`) never appear in `crons`; `rollbackNote` is non-null when one shares a name with a cron in the target type's manifest. Images come from `resolveImage()` with the same `SHIPWRIGHT_AGENT_IMAGES` map the provisioner uses.
-
 `PATCH /agents/:id` accepts `{"specialty": "<type>"}`. It is platform-admin only (403 for session members), returns 422 when the type is not known to the specialty registry, and is a no-op (no reconcile, no log) when the value equals the current specialty. On a real change it:
 
 1. writes `Agent.specialty`;

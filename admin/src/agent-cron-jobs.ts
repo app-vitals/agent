@@ -21,32 +21,6 @@ import {
 
 export type { AgentCronJob };
 
-/**
- * Reconcile's orphan rule (SAL-1.3: shared with the specialty-change preview).
- * A system cron is kept when its name is in the target manifest; every other
- * one (nameless rows included, enabled or not) is an orphan reconcile deletes.
- */
-export function classifySystemCrons<T extends { name: string | null }>(
-  existingSystemCrons: readonly T[],
-  targetNames: ReadonlySet<string>,
-): { kept: T[]; orphaned: T[] } {
-  const kept: T[] = [];
-  const orphaned: T[] = [];
-  for (const cron of existingSystemCrons) {
-    if (cron.name && targetNames.has(cron.name)) kept.push(cron);
-    else orphaned.push(cron);
-  }
-  return { kept, orphaned };
-}
-
-/** What changing an agent to another specialty does to its crons (read-only). */
-export interface SystemCronPreview {
-  kept: { id: string; name: string | null; enabled: boolean }[];
-  deleted: { id: string; name: string | null }[];
-  /** Names of user crons (system=false) that share a name with a target-manifest cron. */
-  userCronNameCollisions: string[];
-}
-
 interface CronRunSummary {
   startedAt: Date;
   completedAt: Date | null;
@@ -498,34 +472,6 @@ export class AgentCronJobService {
    *
    * Returns a summary { created, updated, deleted }.
    */
-  /**
-   * SAL-1.3: dry run of reconcileSystemCrons against `targetSpecialty`
-   * (the agent's own specialty is ignored). Writes nothing. Only system crons
-   * are bucketed; user crons appear solely via `userCronNameCollisions`.
-   */
-  async previewSystemCrons(
-    agentId: string,
-    targetSpecialty: string,
-  ): Promise<SystemCronPreview> {
-    const targetCrons = this.specialtyDefaults(targetSpecialty)?.crons ?? [];
-    const targetNames = new Set(targetCrons.map((c) => c.name));
-    const crons = await this.prisma.agentCronJob.findMany({
-      where: { agentId },
-      orderBy: { createdAt: "asc" },
-    });
-    const { kept, orphaned } = classifySystemCrons(
-      crons.filter((c) => c.system),
-      targetNames,
-    );
-    return {
-      kept: kept.map((c) => ({ id: c.id, name: c.name, enabled: c.enabled })),
-      deleted: orphaned.map((c) => ({ id: c.id, name: c.name })),
-      userCronNameCollisions: crons
-        .filter((c) => !c.system && c.name && targetNames.has(c.name))
-        .map((c) => c.name as string),
-    };
-  }
-
   async reconcileSystemCrons(
     agentId: string,
   ): Promise<{ created: number; updated: number; deleted: number }> {
@@ -568,10 +514,6 @@ export class AgentCronJobService {
 
     // Build set of valid default cron names for orphan detection
     const systemCronNames = new Set(defaultCrons.map((c) => c.name));
-    const { orphaned } = classifySystemCrons(
-      existingSystemCrons,
-      systemCronNames,
-    );
 
     let created = 0;
     let updated = 0;
@@ -649,9 +591,11 @@ export class AgentCronJobService {
       }
 
       // Orphan pass: delete any system cron whose name is not in the defaults.
-      for (const cron of orphaned) {
-        await tx.agentCronJob.delete({ where: { id: cron.id } });
-        deleted++;
+      for (const cron of existingSystemCrons) {
+        if (!cron.name || !systemCronNames.has(cron.name)) {
+          await tx.agentCronJob.delete({ where: { id: cron.id } });
+          deleted++;
+        }
       }
     });
 

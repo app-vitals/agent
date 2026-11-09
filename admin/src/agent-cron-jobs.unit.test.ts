@@ -10,11 +10,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { AgentCronJob, PrismaClient } from "../prisma/client/client.ts";
-import {
-  AgentCronJobService,
-  classifySystemCrons,
-  isValidCron,
-} from "./agent-cron-jobs.ts";
+import { AgentCronJobService, isValidCron } from "./agent-cron-jobs.ts";
 import type {
   SpecialtyDefaultCron,
   SpecialtyDefaultsResolver,
@@ -544,110 +540,5 @@ describe("reconcileSystemCrons (specialtyDefaults hook)", () => {
     const child = Array.from(rows.values()).find((r) => r.name === "ext-child");
     expect(child?.parentCronId).toBe("stable-id");
     expect(child?.enabled).toBe(true);
-  });
-});
-
-// ─── SAL-1.3: shared orphan classification + previewSystemCrons() ───────────
-
-describe("classifySystemCrons (SAL-1.3)", () => {
-  test("keeps names in the target set; every other cron, nameless included, is orphaned", () => {
-    const rows = [
-      { id: "a", name: "keep-me" },
-      { id: "b", name: "drop-me" },
-      { id: "c", name: null },
-    ];
-    const { kept, orphaned } = classifySystemCrons(rows, new Set(["keep-me"]));
-    expect(kept.map((r) => r.id)).toEqual(["a"]);
-    expect(orphaned.map((r) => r.id)).toEqual(["b", "c"]);
-  });
-
-  test("an empty target set orphans everything", () => {
-    const { kept, orphaned } = classifySystemCrons(
-      [{ name: "x" }],
-      new Set<string>(),
-    );
-    expect(kept).toEqual([]);
-    expect(orphaned).toHaveLength(1);
-  });
-});
-
-describe("previewSystemCrons (SAL-1.3)", () => {
-  const sysRows = [
-    { id: "s1", name: "shipwright-loop", enabled: false },
-    { id: "s2", name: "shipwright-gone", enabled: true },
-    { id: "s3", name: "shipwright-off", enabled: false },
-  ];
-
-  function setup(target: Record<string, DefaultCron[]>) {
-    const registry = fakeRegistry(target);
-    const fake = makeFakePrisma({
-      specialty: "saul",
-      existing: [
-        ...sysRows,
-        {
-          id: "u1",
-          name: "learn-dream",
-          system: false,
-          enabled: true,
-        },
-        { id: "u2", name: "shipwright-loop", system: false },
-      ],
-    });
-    const service = new AgentCronJobService(
-      fake.prisma as unknown as PrismaClient,
-      undefined,
-      registry,
-      registry.defaults,
-    );
-    return { service, rows: fake.rows };
-  }
-
-  test("buckets system crons against the target manifest, enabled or not", async () => {
-    const { service } = setup({ saul: [], other: [loopCron] });
-    const preview = await service.previewSystemCrons("agent-1", "other");
-    expect(preview.kept).toEqual([
-      { id: "s1", name: "shipwright-loop", enabled: false },
-    ]);
-    expect(preview.deleted.map((d) => d.id)).toEqual(["s2", "s3"]);
-  });
-
-  test("never lists user crons in kept/deleted; reports same-name collisions", async () => {
-    const { service } = setup({ other: [loopCron] });
-    const preview = await service.previewSystemCrons("agent-1", "other");
-    const ids = [...preview.kept, ...preview.deleted].map((c) => c.id);
-    expect(ids).not.toContain("u1");
-    expect(ids).not.toContain("u2");
-    expect(preview.userCronNameCollisions).toEqual(["shipwright-loop"]);
-  });
-
-  test("a target with no crons deletes every system cron and has no collisions", async () => {
-    const { service } = setup({ specialist: [] });
-    const preview = await service.previewSystemCrons("agent-1", "specialist");
-    expect(preview.kept).toEqual([]);
-    expect(preview.deleted).toHaveLength(3);
-    expect(preview.userCronNameCollisions).toEqual([]);
-  });
-
-  test("writes nothing and agrees with what reconcileSystemCrons then deletes", async () => {
-    const { service, rows } = setup({ saul: [], other: [loopCron] });
-    const before = JSON.stringify(Array.from(rows.values()));
-    const preview = await service.previewSystemCrons("agent-1", "other");
-    expect(JSON.stringify(Array.from(rows.values()))).toBe(before);
-
-    // Same classification as the real reconcile for the same manifest.
-    const registry = fakeRegistry({ other: [loopCron] });
-    const fake = makeFakePrisma({
-      specialty: "other",
-      existing: [...sysRows, { id: "u1", name: "learn-dream", system: false }],
-    });
-    const real = new AgentCronJobService(
-      fake.prisma as unknown as PrismaClient,
-      undefined,
-      registry,
-      registry.defaults,
-    );
-    await real.reconcileSystemCrons("agent-1");
-    for (const d of preview.deleted) expect(fake.rows.has(d.id)).toBe(false);
-    for (const k of preview.kept) expect(fake.rows.has(k.id)).toBe(true);
   });
 });

@@ -49,7 +49,6 @@ import { AccountMemberService } from "./account-members.ts";
 import { AccountOnboardingService } from "./account-onboarding.ts";
 import { AccountTrialExpirySweeper } from "./account-trial-expiry-sweeper.ts";
 import { AccountTrialWarningSweeper } from "./account-trial-warning-sweeper.ts";
-import { readAgentImageConfig } from "./agent-image-map.ts";
 import { AccountService } from "./accounts.ts";
 import { createAccountsApp } from "./accounts-api.ts";
 import {
@@ -470,7 +469,6 @@ export async function startAdmin(
     agentGitHubInstallationsService,
     prisma,
     provisioner,
-    agentImages: readAgentImageConfig(process.env),
     serviceIntegrations,
     chatService: deletionChatService,
     slack: slackClient,
