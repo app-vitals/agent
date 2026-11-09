@@ -458,6 +458,34 @@ export class AgentCronJobService {
   }
 
   /**
+   * SAL-1.3: dry run of reconcileSystemCrons against `targetSpecialty`
+   * (the agent's own specialty is ignored). Writes nothing. Only system crons
+   * are bucketed; user crons appear solely via `userCronNameCollisions`.
+   */
+  async previewSystemCrons(
+    agentId: string,
+    targetSpecialty: string,
+  ): Promise<SystemCronPreview> {
+    const targetCrons = this.specialtyDefaults(targetSpecialty)?.crons ?? [];
+    const targetNames = new Set(targetCrons.map((c) => c.name));
+    const crons = await this.prisma.agentCronJob.findMany({
+      where: { agentId },
+      orderBy: { createdAt: "asc" },
+    });
+    const { kept, orphaned } = classifySystemCrons(
+      crons.filter((c) => c.system),
+      targetNames,
+    );
+    return {
+      kept: kept.map((c) => ({ id: c.id, name: c.name, enabled: c.enabled })),
+      deleted: orphaned.map((c) => ({ id: c.id, name: c.name })),
+      userCronNameCollisions: crons
+        .filter((c) => !c.system && c.name && targetNames.has(c.name))
+        .map((c) => c.name as string),
+    };
+  }
+
+  /**
    * Reconcile system crons for the given agent.
    *
    * The cron list comes from the extension's specialtyDefaults() for the
@@ -498,34 +526,6 @@ export class AgentCronJobService {
    *
    * Returns a summary { created, updated, deleted }.
    */
-  /**
-   * SAL-1.3: dry run of reconcileSystemCrons against `targetSpecialty`
-   * (the agent's own specialty is ignored). Writes nothing. Only system crons
-   * are bucketed; user crons appear solely via `userCronNameCollisions`.
-   */
-  async previewSystemCrons(
-    agentId: string,
-    targetSpecialty: string,
-  ): Promise<SystemCronPreview> {
-    const targetCrons = this.specialtyDefaults(targetSpecialty)?.crons ?? [];
-    const targetNames = new Set(targetCrons.map((c) => c.name));
-    const crons = await this.prisma.agentCronJob.findMany({
-      where: { agentId },
-      orderBy: { createdAt: "asc" },
-    });
-    const { kept, orphaned } = classifySystemCrons(
-      crons.filter((c) => c.system),
-      targetNames,
-    );
-    return {
-      kept: kept.map((c) => ({ id: c.id, name: c.name, enabled: c.enabled })),
-      deleted: orphaned.map((c) => ({ id: c.id, name: c.name })),
-      userCronNameCollisions: crons
-        .filter((c) => !c.system && c.name && targetNames.has(c.name))
-        .map((c) => c.name as string),
-    };
-  }
-
   async reconcileSystemCrons(
     agentId: string,
   ): Promise<{ created: number; updated: number; deleted: number }> {
