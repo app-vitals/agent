@@ -113,6 +113,27 @@ describe.skipIf(!BASE_IMAGE)("agent base-image contract", () => {
     expect(adds).toContain(`${CONVENTION_ROOT}/${MARKETPLACE_NAME}`);
   }, 60_000);
 
+  test("image bakes the app-vitals-agent marketplace and agent-platform plugin manifests", () => {
+    const base = `${CONVENTION_ROOT}/app-vitals-agent`;
+    const run = docker([
+      "run",
+      "--rm",
+      "--entrypoint",
+      "bash",
+      DERIVED_TAG,
+      "-c",
+      `cat ${base}/.claude-plugin/marketplace.json && echo ::SPLIT:: && cat ${base}/agent-platform/.claude-plugin/plugin.json && test -f ${base}/agent-platform/scripts/slack-say.ts && test -f ${base}/agent-platform/skills/slack-say/SKILL.md`,
+    ]);
+    expect(run.exitCode, run.stderr).toBe(0);
+    const [marketplaceJson, pluginJson] = run.stdout.split("::SPLIT::");
+    const marketplace = JSON.parse(marketplaceJson as string);
+    const plugin = JSON.parse(pluginJson as string);
+    expect(marketplace.name).toBe("app-vitals-agent");
+    expect(marketplace.plugins.map((p: { name: string }) => p.name)).toContain(
+      plugin.name,
+    );
+  }, 60_000);
+
   test("entrypoint-main.ts exists and runs under `bun run`", () => {
     // No agent id/url/key: runEntrypoint() reports the missing vars and exits 1.
     // A missing file or broken import graph fails differently ("Module not
@@ -170,10 +191,7 @@ describe.skipIf(!BASE_IMAGE)("agent base-image contract", () => {
 // Static guard (no Docker needed): the runtime stage must take node_modules
 // from the production-only stage, never the build stage's full install.
 describe("runtime Dockerfile", () => {
-  const dockerfile = readFileSync(
-    join(import.meta.dir, "Dockerfile"),
-    "utf8",
-  );
+  const dockerfile = readFileSync(join(import.meta.dir, "Dockerfile"), "utf8");
 
   test("copies node_modules from the production-only stage", () => {
     expect(dockerfile).toMatch(

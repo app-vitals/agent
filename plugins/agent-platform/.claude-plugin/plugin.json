@@ -1,0 +1,12 @@
+{
+  "name": "agent-platform",
+  "version": "0.1.0",
+  "description": "Platform skills baked into the agent image: progress pings to Slack and other runtime-level helpers.",
+  "author": {
+    "name": "App Vitals",
+    "url": "https://github.com/app-vitals"
+  },
+  "repository": "https://github.com/app-vitals/agent",
+  "license": "MIT",
+  "keywords": ["agent", "platform", "slack"]
+}

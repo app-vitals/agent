@@ -1,0 +1,15 @@
+{
+  "name": "app-vitals-agent",
+  "description": "App Vitals agent platform plugins baked into the agent image",
+  "owner": {
+    "name": "app-vitals",
+    "url": "https://github.com/app-vitals"
+  },
+  "plugins": [
+    {
+      "name": "agent-platform",
+      "description": "Platform skills baked into the agent image: progress pings to Slack and other runtime-level helpers.",
+      "source": "./agent-platform"
+    }
+  ]
+}

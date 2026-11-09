@@ -69,6 +69,17 @@ jobs:
       - name: Config-docs gate
         run: bun run check:config-docs
 
+      # Changes under plugins/agent-platform/ need a plugin.json version bump
+      # (installed plugins only refresh when the version changes). PR-only:
+      # needs the base ref.
+      - name: Plugin version-bump gate
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          bun scripts/check-plugin-version.ts "origin/$BASE_REF"
+
       - name: Sync test DB schema
         run: cd admin && bunx prisma migrate deploy --schema=prisma/schema
 
