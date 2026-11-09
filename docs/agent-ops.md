@@ -109,9 +109,30 @@ Directories without `.claude-plugin/marketplace.json` are skipped silently, and 
 
 ### Runtime reporting (PMK-1.4)
 
-At boot, the runtime discovers the baked marketplaces and reports their directory basenames to admin with `PUT /agents/:id/baked-marketplaces` (agent-own-key only; fire-and-forget, never blocks startup). Admin stores them in the `bakedMarketplaces` column, which is exposed read-only on `GET /agents/:id`. The UI can show operators which plugin marketplaces are available in each deployed image.
+At boot, the runtime discovers the baked marketplaces and reports their directory basenames to admin with `PUT /agents/:id/baked-marketplaces` (agent-own-key only; fire-and-forget, never blocks startup). Admin stores them in the `bakedMarketplaces` column, which is exposed read-only on `GET /agents/:id`. The agent page in the admin lists them read-only, marked "from image": only an image update changes that list, so there is no add or remove action for a baked row. The list reflects what the agent last reported at boot, so it can lag a freshly deployed image until the agent restarts.
 
 ## Remote marketplaces (config bundle)
+
+### Lifecycle
+
+Each time `installPlugins()` runs (entrypoint boot and each config-sync tick) it works in this order:
+
+1. **Add baked.** `claude plugin marketplace add <dir>` for each directory under the baked root, then the built-in marketplace when present.
+2. **Add and update remote.** For each `AgentMarketplace` row, `claude plugin marketplace add <source>[#<ref>]` when it is not registered, then `claude plugin marketplace update <name>`.
+3. **Plugin install.** `claude plugin install <plugin>@<marketplace>` for every `AgentPlugin` row.
+4. **Plugin update.** `claude plugin update <plugin>@<marketplace>` for the same specs.
+
+Every step warns and continues on failure.
+
+### Row shape
+
+An `AgentMarketplace` row is `id`, `agentId`, `name`, `source`, `ref` (nullable), `createdAt`, `updatedAt`, unique on `(agentId, name)` and deleted with the agent. `name` is the marketplace name that `AgentPlugin` specs reference after the `@`. The CRUD routes are under `/agents/:id/marketplaces` ([agent-api-resources.md](./agent-api-resources.md#marketplaces)), and the rows reach the runtime as the optional `marketplaces` field of `GET /agents/:id/config`.
+
+### Plugin versions and `ref`
+
+The Claude CLI cannot pin a plugin version: `plugin install` takes `plugin[@marketplace]` and `plugin update` moves to the latest. `AgentPlugin.version` is therefore advisory and the runtime does not honor it. To hold plugins at a known state, pin the marketplace instead by setting `ref` (a branch, tag or commit) on its row; changing `ref` makes the runtime remove and re-add the marketplace.
+
+### Reconciliation
 
 An agent's config bundle can declare remote plugin marketplaces (via database, `POST /agents/:id/marketplaces` in [agent-api-resources.md](./agent-api-resources.md#marketplaces)). The runtime reconciles these at entrypoint startup and during each 60-second config-sync tick via `installPlugins()`.
 

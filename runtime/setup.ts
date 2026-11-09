@@ -286,7 +286,10 @@ export function isNewWorkspace(home: string): boolean {
  * marketplace. Plugin selection is still controlled by the AgentPlugin table —
  * adding a marketplace makes its plugins available but does not install them.
  *
- * No env var, no DB table: marketplace availability is an IMAGE property.
+ * Baked marketplaces need no env var or DB row: they are an IMAGE property, and
+ * the admin lists them read-only (reported at boot). Remote marketplaces are
+ * separate: they live in the `AgentMarketplace` table and arrive in the config
+ * bundle. A baked marketplace of the same name wins over a remote row.
  */
 export const BAKED_MARKETPLACES_ROOT = "/opt/shipwright/marketplaces";
 
