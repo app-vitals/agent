@@ -32,6 +32,18 @@ export function reconcileAgentAfterAccountChange(
 }
 
 /**
+ * SAL-1.2: reconciles the workload after the agent's specialty changed, so the
+ * pod is recreated on the image mapped to the new specialty (the target
+ * carries `agent.specialty`, which must be the post-update value).
+ */
+export function reconcileAgentAfterSpecialtyChange(
+  provisioner: Pick<AgentProvisioner, "reconcile">,
+  agent: ReconcilableAgent,
+): Promise<string | undefined> {
+  return reconcileAgentWorkload(provisioner, agent, "specialty updated");
+}
+
+/**
  * COS-49.1: reconciles the workload after podServiceAccountName changed.
  * `previous` is the column value before the update; the provisioner uses it to
  * clear the live ServiceAccount only when it is still the one it applied.

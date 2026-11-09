@@ -41,6 +41,7 @@ import {
 } from "./account-agent-create.ts";
 import {
   reconcileAgentAfterAccountChange,
+  reconcileAgentAfterSpecialtyChange,
   reconcileAgentAfterPodServiceAccountChange,
 } from "./agent-account-assignment.ts";
 import {
@@ -623,7 +624,7 @@ const patchAgentRoute = createRoute({
   path: "/agents/{id}",
   summary: "Update an agent",
   description:
-    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `specialty` and `trialExpiryWarnedAt` are not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
+    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `specialty` (platform admin only — 403 otherwise; 422 when the type is unknown; a no-op when unchanged; otherwise persists the new type, reconciles the agent's system crons against it — system crons the new type does not declare are deleted, user crons survive — and reconciles the workload of in-cluster agents so the pod runs the image mapped to the new specialty). `trialExpiryWarnedAt` is not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
   request: {
     params: AgentIdParamSchema,
     body: {
@@ -645,7 +646,7 @@ const patchAgentRoute = createRoute({
     },
     422: {
       description:
-        "podServiceAccountName supplied for an agent with a per-agent federated identity",
+        "podServiceAccountName supplied for an agent with a per-agent federated identity, or `specialty` naming an unknown type",
       ...jsonError,
     },
   },
@@ -1688,6 +1689,25 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         throw new ForbiddenError("Admin access required to change accountId");
       }
     }
+    // SAL-1.2: specialty change — platform-admin only, known type only.
+    let previousSpecialty: string | undefined;
+    if (body.specialty !== undefined) {
+      if (c.get("isAdmin") !== true) {
+        throw new ForbiddenError("Admin access required to change specialty");
+      }
+      if (!specialtyRegistry.tryGetType(body.specialty)) {
+        throw new UnprocessableEntityError(
+          `unknown specialty "${body.specialty}"`,
+        );
+      }
+      const current = await agentService.getDetail(agentId);
+      if (!current) {
+        throw new NotFoundError(`agent ${agentId} not found`);
+      }
+      if (current.specialty !== body.specialty) {
+        previousSpecialty = current.specialty;
+      }
+    }
     // COS-49.1: pod ServiceAccount — platform-admin only, flag-gated, and not
     // for agents whose federated identity owns the ServiceAccount.
     let previousPodServiceAccountName: string | null = null;
@@ -1733,6 +1753,9 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
           ? { podServiceAccountName: body.podServiceAccountName }
           : {}),
         ...(body.accountId !== undefined ? { accountId: body.accountId } : {}),
+        ...(previousSpecialty !== undefined
+          ? { specialty: body.specialty }
+          : {}),
         ...(body.repos !== undefined ? { repos: body.repos } : {}),
         ...(body.reviewAuthorAllowlist !== undefined
           ? { reviewAuthorAllowlist: body.reviewAuthorAllowlist }
@@ -1786,6 +1809,28 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       body.accountId !== undefined
         ? await reconcileAgentAfterAccountChange(provisioner, agent)
         : undefined;
+    let specialtyWarning: string | undefined;
+    if (previousSpecialty !== undefined) {
+      // Audit: ids and names only — never the caller's key.
+      console.info(
+        `[agents-api] specialty changed: agent=${agentId} old=${previousSpecialty} new=${agent.specialty} caller=${c.get("caller")?.name ?? "anonymous"}`,
+      );
+      const warnings: string[] = [];
+      try {
+        await agentCronJobService.reconcileSystemCrons(agentId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        warnings.push(
+          `specialty updated, but reconciling system crons failed: ${message}`,
+        );
+      }
+      const workloadWarning = await reconcileAgentAfterSpecialtyChange(
+        provisioner,
+        agent,
+      );
+      if (workloadWarning) warnings.push(workloadWarning);
+      specialtyWarning = warnings.join("; ") || undefined;
+    }
     let podSaWarning: string | undefined;
     if (body.podServiceAccountName !== undefined) {
       // Audit: ids and names only — never the caller's key.
@@ -1801,7 +1846,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       }
     }
     const warning =
-      [slackWarning, reconcileWarning, podSaWarning]
+      [slackWarning, reconcileWarning, specialtyWarning, podSaWarning]
         .filter(Boolean)
         .join("; ") || undefined;
     return c.json(serializeAgent(agent, warning), 200);
