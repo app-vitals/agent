@@ -13,6 +13,7 @@ import { dirname, join, resolve } from "node:path";
 const DOCS = [
   "specialties.md",
   "github-multi-org.md",
+  "github-enterprise-apps.md",
   "agent-api.md",
   "agent-api-ops.md",
   "agent-api-resources.md",
