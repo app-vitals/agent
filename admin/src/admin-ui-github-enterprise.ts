@@ -15,7 +15,6 @@ import {
   type GheStatus,
   renderGithubEnterpriseSettingsPage,
 } from "./admin-ui-github-enterprise-pages.ts";
-import { GITHUB_ENTERPRISE_APP_ROLES } from "./github-enterprise-apps.ts";
 
 export interface AdminGithubEnterpriseRouteDeps {
   requireAuth: MiddlewareHandler<AdminUIEnv>;
@@ -32,9 +31,11 @@ const NOTICES: Record<string, string> = {
   already: "The agent app was already installed on that organization.",
 };
 
-type Role = (typeof GITHUB_ENTERPRISE_APP_ROLES)[number];
-const isRole = (v: string): v is Role =>
-  (GITHUB_ENTERPRISE_APP_ROLES as readonly string[]).includes(v);
+// Deliberately not imported from the enterprise credential service: that
+// key-bearing module stays out of the UI layer (see the isolation test).
+const ROLES = ["installer", "lookup"] as const;
+const isRole = (v: string): v is (typeof ROLES)[number] =>
+  (ROLES as readonly string[]).includes(v);
 
 interface ApiResult<T> {
   ok: boolean;
