@@ -606,5 +606,70 @@
     "body": {
       "message": "Service Unavailable"
     }
+  },
+  "public_app_success": {
+    "status": 200,
+    "body": {
+      "id": 777,
+      "slug": "example-agent-app",
+      "client_id": "Iv1.targetapp0001",
+      "name": "Example Agent App",
+      "permissions": {
+        "contents": "read",
+        "metadata": "read"
+      }
+    }
+  },
+  "public_app_private_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/rest/apps/apps#get-an-app"
+    }
+  },
+  "public_app_no_client_id": {
+    "status": 200,
+    "body": {
+      "id": 777,
+      "slug": "example-agent-app"
+    }
+  },
+  "app_get_success": {
+    "status": 200,
+    "body": {
+      "id": 555,
+      "slug": "example-lookup-app",
+      "permissions": {
+        "metadata": "read"
+      }
+    }
+  },
+  "app_get_no_metadata": {
+    "status": 200,
+    "body": {
+      "id": 555,
+      "slug": "example-lookup-app",
+      "permissions": {
+        "issues": "read"
+      }
+    }
+  },
+  "app_get_401": {
+    "status": 401,
+    "body": {
+      "message": "A JSON web token could not be decoded",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "access_token_no_installer_permission": {
+    "status": 201,
+    "body": {
+      "token": "ghs_cassetteInstallationToken0000000000",
+      "expires_at": "2026-11-09T13:00:00Z",
+      "permissions": {
+        "metadata": "read"
+      },
+      "repository_selection": "all"
+    }
   }
 }

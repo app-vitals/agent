@@ -124,6 +124,7 @@ describe("getInstallationToken", () => {
       token: "ghs_cassetteInstallationToken0000000000",
       expiresAt: "2026-11-09T13:00:00Z",
       installationId: 4242,
+      permissions: { enterprise_organization_installations: "write", metadata: "read" },
     });
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([ENT, MINT]);
     for (const c of calls) {
