@@ -6756,3 +6756,147 @@ describe("admin API — PATCH /agents/:id githubUsername (GHE-2.1)", () => {
     }
   });
 });
+
+// ─── GHE-2.4: GET /agents/:id/github-access ──────────────────────────────────
+
+describe("admin API — GET /agents/:id/github-access (GHE-2.4)", () => {
+  const OPS = "gha-ops-token";
+  const READER = "gha-read-token";
+  const AGENT_KEY = "gha-agent-token";
+  const ACCESS = {
+    username: "octocat",
+    outcome: "ok" as const,
+    userVerified: true,
+    orgs: [
+      {
+        org: "acme-eng",
+        status: "ok" as const,
+        repos: [
+          { fullName: "acme-eng/api", level: "write" as const, canPush: true },
+        ],
+        unresolved: 0,
+      },
+    ],
+    unresolved: 0,
+    complete: true,
+    checkedAt: "2026-11-09T12:00:00.000Z",
+  };
+
+  function setup(opts: {
+    githubUsername?: string | null;
+    preview?: AdminDeps["githubAccessPreview"];
+  }) {
+    const base = makeMockDeps();
+    const calls: string[] = [];
+    const deps: AdminDeps = {
+      ...base,
+      adminApiKeys: parseAdminApiKeys(
+        `root:${ADMIN_API_KEY}:*,operator:${OPS}:platform.ops,reader:${READER}:platform.read`,
+      ),
+      agentTokenService: {
+        ...base.agentTokenService,
+        validate: async (t: string) =>
+          t === AGENT_KEY ? { agentId: AGENT_ID } : null,
+      },
+      agentService: {
+        ...base.agentService,
+        getDetail: async (id: string) => {
+          const d = await base.agentService.getDetail(id);
+          return d ? { ...d, githubUsername: opts.githubUsername ?? null } : d;
+        },
+      },
+      githubAccessPreview:
+        opts.preview ??
+        (async (u) => {
+          calls.push(u);
+          return { status: "ok", access: ACCESS };
+        }),
+    };
+    return { app: createAdminApp(deps), calls };
+  }
+
+  const get = (
+    app: ReturnType<typeof createAdminApp>,
+    headers: Record<string, string>,
+    id = AGENT_ID,
+  ) => app.request(`/agents/${id}/github-access`, { headers });
+  const asAdmin = { Authorization: `Bearer ${ADMIN_API_KEY}` };
+
+  it("platform admin gets the resolver output unchanged", async () => {
+    const { app, calls } = setup({ githubUsername: "octocat" });
+    const res = await get(app, asAdmin);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "ok", access: ACCESS });
+    expect(calls).toEqual(["octocat"]);
+  });
+
+  it("403 for a session member, ops key, read key and agent key", async () => {
+    const { app, calls } = setup({ githubUsername: "octocat" });
+    const memberApp = createAdminApp({
+      ...makeMockDeps(),
+      callerScopeResolver: async () => ({
+        kind: "scoped",
+        accountId: "acct-a",
+        agentIds: [AGENT_ID],
+      }),
+    });
+    const cookie = await sign(
+      {
+        isAdmin: false,
+        userId: "user-acct",
+        email: "owner@acct-a.example.com",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      SESSION_SECRET,
+      "HS256",
+    );
+    expect(
+      (await get(memberApp, { Cookie: `admin_session=${cookie}` })).status,
+    ).toBe(403);
+    for (const key of [OPS, READER, AGENT_KEY]) {
+      const res = await get(app, { Authorization: `Bearer ${key}` });
+      expect(res.status).toBe(403);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("404 for an unknown agent", async () => {
+    const { app, calls } = setup({ githubUsername: "octocat" });
+    expect((await get(app, asAdmin, "no-such-agent")).status).toBe(404);
+    expect(calls).toEqual([]);
+  });
+
+  it("422 with a clear message when no githubUsername is bound", async () => {
+    const { app, calls } = setup({ githubUsername: null });
+    const res = await get(app, asAdmin);
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toContain(
+      "githubUsername",
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("unconfigured is a 200 status, not an error", async () => {
+    const { app } = setup({
+      githubUsername: "octocat",
+      preview: async () => ({ status: "unconfigured" }),
+    });
+    const res = await get(app, asAdmin);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "unconfigured" });
+  });
+
+  it("user_not_found is passed through", async () => {
+    const access = { ...ACCESS, outcome: "user_not_found" as const, orgs: [] };
+    const { app } = setup({
+      githubUsername: "ghost",
+      preview: async () => ({ status: "user_not_found", access }),
+    });
+    const res = await get(app, asAdmin);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe(
+      "user_not_found",
+    );
+  });
+});

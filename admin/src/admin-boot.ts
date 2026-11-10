@@ -99,7 +99,10 @@ import { CronRunNowService } from "./cron-run-now.ts";
 import { parseCronRunNowConfig } from "./cron-run-now-config.ts";
 import { CronRunTranscriptService } from "./cron-run-transcripts.ts";
 import { isDevAuthAllowed } from "./dev-auth-guard.ts";
-import { createGithubEnterpriseApp } from "./github-enterprise-api.ts";
+import {
+  createGithubAccessPreview,
+  createGithubEnterpriseApp,
+} from "./github-enterprise-api.ts";
 import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-client.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
@@ -457,7 +460,16 @@ export async function startAdmin(
   // 3. Admin CRUD API — /agents/:id/* — admin key | per-agent bearer | session JWT
   //    Routes are now at /agents/:id/* (same prefix as runtime, different sub-paths).
   //    MUST be mounted before admin-ui (/admin/*) to avoid shadowing.
+  // Built before the admin API: GHE-2.4's access preview reads the same Apps.
+  // Strict crypto: no plain-text key storage.
+  const githubEnterpriseAppService = new GitHubEnterpriseAppService(
+    prisma,
+    makeStrictTokenCrypto(),
+  );
   const adminApiApp = createAdminApp({
+    githubAccessPreview: createGithubAccessPreview({
+      appService: githubEnterpriseAppService,
+    }),
     agentService,
     agentEnvService,
     agentCronJobService,
@@ -536,7 +548,7 @@ export async function startAdmin(
   //      optional (GHE-1.3). With no rows configured it reports unconfigured
   //      and does nothing else. Strict crypto: no plain-text key storage.
   const githubEnterpriseApp = createGithubEnterpriseApp({
-    appService: new GitHubEnterpriseAppService(prisma, makeStrictTokenCrypto()),
+    appService: githubEnterpriseAppService,
     agentService,
     agentEnvService,
     sessionSecret,

@@ -2794,6 +2794,120 @@
         ],
         "additionalProperties": false
       },
+      "GithubAccessPreview": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "user_not_found",
+              "unconfigured"
+            ],
+            "description": "`unconfigured` when the installer or lookup App is not set (no GitHub call was made)."
+          },
+          "access": {
+            "type": "object",
+            "properties": {
+              "username": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "user_not_found"
+                ]
+              },
+              "userVerified": {
+                "type": "boolean"
+              },
+              "orgs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "org": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "lookup_app_not_installed",
+                        "rate_limited",
+                        "partial",
+                        "error"
+                      ]
+                    },
+                    "repos": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "fullName": {
+                            "type": "string"
+                          },
+                          "level": {
+                            "type": "string",
+                            "enum": [
+                              "admin",
+                              "maintain",
+                              "write",
+                              "triage",
+                              "read",
+                              "none"
+                            ]
+                          },
+                          "canPush": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "fullName",
+                          "level",
+                          "canPush"
+                        ]
+                      }
+                    },
+                    "unresolved": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "org",
+                    "status",
+                    "repos",
+                    "unresolved"
+                  ]
+                }
+              },
+              "unresolved": {
+                "type": "integer"
+              },
+              "complete": {
+                "type": "boolean"
+              },
+              "checkedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "username",
+              "outcome",
+              "userVerified",
+              "orgs",
+              "unresolved",
+              "complete",
+              "checkedAt"
+            ],
+            "description": "Resolver output; absent when unconfigured."
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
       "AgentConfigResponse": {
         "type": "object",
         "properties": {
@@ -6211,6 +6325,85 @@
           },
           "404": {
             "description": "No snapshot reported yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}/github-access": {
+      "get": {
+        "summary": "Preview the repos the agent's bound GitHub user can reach",
+        "description": "Platform-admin only (session members, ops keys and agent keys get 403): the response lists repo names the bound user can reach. Read-only; nothing is stored. 404 for an unknown agent; 422 when no githubUsername is bound. Returns `status: unconfigured` (not an error, no GitHub call) when the enterprise Apps are not configured, and `status: user_not_found` when the user does not exist on GitHub; otherwise `access` is the resolver output (per-org status, repos with level and canPush, unresolved count, complete flag).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "clx1234567890"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Access preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubAccessPreview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Platform admin required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Agent has no githubUsername",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHub unavailable or refused",
             "content": {
               "application/json": {
                 "schema": {
