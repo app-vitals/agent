@@ -3,7 +3,10 @@ import {
   renderShipwrightToolbar,
   baseStyles as toolbarBaseStyles,
 } from "@app-vitals/agent-lib/web/toolbar.ts";
-import { shouldShowAccountNav } from "./admin-ui-account-nav.ts";
+import {
+  shouldShowAccountNav,
+  shouldShowSettingsNav,
+} from "./admin-ui-account-nav.ts";
 
 export { escapeHtml };
 
@@ -652,5 +655,6 @@ export function renderAdminToolbar(userName: string, activePath = ""): string {
     logoutAction: "/admin/logout",
     metricsUrl: process.env.METRICS_DASHBOARD_URL ?? "/dashboard",
     showAccount: shouldShowAccountNav(),
+    showSettings: shouldShowSettingsNav(),
   });
 }

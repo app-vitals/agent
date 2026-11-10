@@ -45,9 +45,13 @@ import {
   renderAgentDetailCardSlots,
 } from "./admin-extension.ts";
 import { registerAccountRoutes } from "./admin-ui-account.ts";
-import { runWithAccountNav } from "./admin-ui-account-nav.ts";
+import {
+  runWithAccountNav,
+  runWithSettingsNav,
+} from "./admin-ui-account-nav.ts";
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
+import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
 import {
   type AgentDetail,
   type AgentOption,
@@ -407,6 +411,15 @@ export interface AdminUIDeps {
    * callback only, and only when selfServe.enabled; absent → no auto-create.
    */
   accountOnboarding?: Pick<AccountOnboardingService, "provisionForEmail">;
+  /**
+   * GHE-1.4: the GHE-1.3 /github-enterprise API app's `request`. Optional
+   * (additive): when absent the Settings page and its nav entry are not
+   * registered.
+   */
+  githubEnterpriseApi?: (
+    path: string,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
   /** Best-effort operator push on auto-created accounts (SSP-3.3). */
   accountCreatedNotifier?: AccountCreatedNotifier;
   /**
@@ -795,6 +808,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     accountOnboarding,
     accountCreatedNotifier,
     accountServices,
+    githubEnterpriseApi,
     specialtyRegistry = new SpecialtyTypes(),
     specialtyDefaults,
     callerScopeResolver = memberOnlyCallerScopeResolver(agentMemberService),
@@ -836,6 +850,16 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     secureCookie: appBaseUrl.startsWith("https://"),
     devAuthEnabled,
   });
+
+  // GHE-1.4: the admin-only "Settings" toolbar entry. Registered before the
+  // Account middleware; the two merge their flags in the shared store.
+  if (githubEnterpriseApi) {
+    app.use("/admin/*", async (c, next) => {
+      const token = getCookie(c, SESSION_COOKIE);
+      const user = token ? await getSessionUser(token, sessionSecret) : null;
+      return runWithSettingsNav(user?.isAdmin === true, () => next());
+    });
+  }
 
   // SSP-3.2: show the toolbar's "Account" entry only for signed-in users who
   // belong to an account, and only while self-serve is on. The flag is carried
@@ -3181,6 +3205,16 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     }
     return c.redirect(`/admin/agents/${agentId}`, 302);
   });
+
+  // ─── Enterprise GitHub apps settings (GHE-1.4) ───────────────────────────
+
+  if (githubEnterpriseApi) {
+    registerAdminGithubEnterpriseRoutes(app, {
+      requireAuth,
+      api: githubEnterpriseApi,
+      html,
+    });
+  }
 
   // ─── Account page (SSP-3.2) ───────────────────────────────────────────────
 
