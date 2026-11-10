@@ -1,0 +1,499 @@
+{
+  "org_installation_success": {
+    "status": 200,
+    "body": {
+      "id": 7001,
+      "app_id": 555,
+      "app_slug": "example-lookup",
+      "target_type": "Organization",
+      "account": {
+        "login": "acme-eng",
+        "id": 11,
+        "type": "Organization"
+      },
+      "repository_selection": "all",
+      "permissions": {
+        "metadata": "read"
+      }
+    }
+  },
+  "org_installation_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "org_installation_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "org_installation_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "org_installation_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "org_installation_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "org_installation_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "lookup_token_success": {
+    "status": 201,
+    "body": {
+      "token": "ghs_lookupInstallationTokenSecret",
+      "expires_at": "2026-11-09T13:00:00Z",
+      "permissions": {
+        "metadata": "read"
+      },
+      "repository_selection": "all"
+    }
+  },
+  "lookup_token_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "lookup_token_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "lookup_token_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "lookup_token_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "lookup_token_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "lookup_token_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "repos_success": {
+    "status": 200,
+    "body": {
+      "total_count": 2,
+      "repositories": [
+        {
+          "id": 1,
+          "name": "api",
+          "full_name": "acme-eng/api",
+          "private": false,
+          "archived": false
+        },
+        {
+          "id": 2,
+          "name": "web",
+          "full_name": "acme-eng/web",
+          "private": true,
+          "archived": false
+        }
+      ]
+    }
+  },
+  "repos_page_1": {
+    "status": 200,
+    "headers": {
+      "link": "<https://ghe.test/installation/repositories?per_page=100&page=2>; rel=\"next\""
+    },
+    "body": {
+      "total_count": 3,
+      "repositories": [
+        {
+          "id": 1,
+          "name": "api",
+          "full_name": "acme-eng/api",
+          "private": false,
+          "archived": false
+        },
+        {
+          "id": 2,
+          "name": "web",
+          "full_name": "acme-eng/web",
+          "private": true,
+          "archived": false
+        }
+      ]
+    }
+  },
+  "repos_page_2": {
+    "status": 200,
+    "body": {
+      "total_count": 3,
+      "repositories": [
+        {
+          "id": 3,
+          "name": "infra",
+          "full_name": "acme-eng/infra",
+          "private": false,
+          "archived": false
+        }
+      ]
+    }
+  },
+  "repos_empty": {
+    "status": 200,
+    "body": {
+      "total_count": 0,
+      "repositories": []
+    }
+  },
+  "repos_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "repos_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "repos_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "repos_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "repos_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "repos_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "permission_admin": {
+    "status": 200,
+    "body": {
+      "permission": "admin",
+      "role_name": "admin",
+      "user": {
+        "login": "octocat",
+        "id": 583231,
+        "type": "User"
+      }
+    }
+  },
+  "permission_maintain": {
+    "status": 200,
+    "body": {
+      "permission": "write",
+      "role_name": "maintain",
+      "user": {
+        "login": "octocat",
+        "id": 583231,
+        "type": "User"
+      }
+    }
+  },
+  "permission_write": {
+    "status": 200,
+    "body": {
+      "permission": "write",
+      "role_name": "write",
+      "user": {
+        "login": "octocat",
+        "id": 583231,
+        "type": "User"
+      }
+    }
+  },
+  "permission_triage": {
+    "status": 200,
+    "body": {
+      "permission": "read",
+      "role_name": "triage",
+      "user": {
+        "login": "octocat",
+        "id": 583231,
+        "type": "User"
+      }
+    }
+  },
+  "permission_read": {
+    "status": 200,
+    "body": {
+      "permission": "read",
+      "role_name": "read",
+      "user": {
+        "login": "octocat",
+        "id": 583231,
+        "type": "User"
+      }
+    }
+  },
+  "permission_none": {
+    "status": 200,
+    "body": {
+      "permission": "none",
+      "role_name": "none",
+      "user": {
+        "login": "octocat",
+        "id": 583231,
+        "type": "User"
+      }
+    }
+  },
+  "permission_legacy_only": {
+    "status": 200,
+    "body": {
+      "permission": "write",
+      "user": {
+        "login": "octocat",
+        "id": 583231,
+        "type": "User"
+      }
+    }
+  },
+  "permission_unknown_role": {
+    "status": 200,
+    "body": {
+      "permission": "write",
+      "role_name": "custom-release-manager",
+      "user": {
+        "login": "octocat",
+        "id": 583231,
+        "type": "User"
+      }
+    }
+  },
+  "permission_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "permission_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "permission_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "permission_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "permission_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "permission_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "user_success": {
+    "status": 200,
+    "body": {
+      "login": "octocat",
+      "id": 583231,
+      "type": "User",
+      "name": "The Octocat"
+    }
+  },
+  "user_nonexistent": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "user_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "user_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "user_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "user_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "user_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "user_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "member_yes": {
+    "status": 204,
+    "body": null
+  },
+  "member_no": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "member_redirect": {
+    "status": 302,
+    "headers": {
+      "location": "https://api.github.com/orgs/acme-eng/public_members/octocat"
+    },
+    "body": null
+  },
+  "member_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "member_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "member_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "member_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "member_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  },
+  "member_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable",
+      "documentation_url": "https://docs.github.com/rest"
+    }
+  }
+}
