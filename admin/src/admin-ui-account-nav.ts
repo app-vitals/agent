@@ -9,12 +9,29 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
-const storage = new AsyncLocalStorage<{ showAccount: boolean }>();
+interface NavFlags {
+  showAccount: boolean;
+  /** GHE-1.4: the admin-only "Settings" entry. */
+  showSettings: boolean;
+}
+
+const storage = new AsyncLocalStorage<NavFlags>();
 
 export function runWithAccountNav<T>(showAccount: boolean, fn: () => T): T {
-  return storage.run({ showAccount }, fn);
+  const showSettings = storage.getStore()?.showSettings === true;
+  return storage.run({ showAccount, showSettings }, fn);
 }
 
 export function shouldShowAccountNav(): boolean {
   return storage.getStore()?.showAccount === true;
+}
+
+/** Wrap a request so the toolbar shows (or hides) the admin Settings entry. */
+export function runWithSettingsNav<T>(showSettings: boolean, fn: () => T): T {
+  const showAccount = storage.getStore()?.showAccount === true;
+  return storage.run({ showAccount, showSettings }, fn);
+}
+
+export function shouldShowSettingsNav(): boolean {
+  return storage.getStore()?.showSettings === true;
 }

@@ -535,20 +535,15 @@ export async function startAdmin(
   // 3b'. GitHub Enterprise Apps API — /github-enterprise/* — admin-only,
   //      optional (GHE-1.3). With no rows configured it reports unconfigured
   //      and does nothing else. Strict crypto: no plain-text key storage.
-  root.route(
-    "/",
-    createGithubEnterpriseApp({
-      appService: new GitHubEnterpriseAppService(
-        prisma,
-        makeStrictTokenCrypto(),
-      ),
-      agentService,
-      agentEnvService,
-      sessionSecret,
-      adminApiKeys,
-      agentTokenService,
-    }),
-  );
+  const githubEnterpriseApp = createGithubEnterpriseApp({
+    appService: new GitHubEnterpriseAppService(prisma, makeStrictTokenCrypto()),
+    agentService,
+    agentEnvService,
+    sessionSecret,
+    adminApiKeys,
+    agentTokenService,
+  });
+  root.route("/", githubEnterpriseApp);
 
   // 3c. Extension API routes — after every platform API, before the admin UI
   //     (same no-shadowing rule as the admin CRUD API above).
@@ -614,6 +609,8 @@ export async function startAdmin(
       });
       return accountCreatedNotifier ? { accountCreatedNotifier } : {};
     })(),
+    githubEnterpriseApi: (path, init) =>
+      githubEnterpriseApp.request(path, init),
     accountServices: {
       accounts: new AccountService(prisma),
       members: new AccountMemberService(prisma),

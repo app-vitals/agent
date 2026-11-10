@@ -241,3 +241,25 @@ describe("renderShipwrightToolbar Account entry (SSP-3.2)", () => {
     expect(html).not.toContain("/admin/account");
   });
 });
+
+describe("renderShipwrightToolbar Settings entry (GHE-1.4)", () => {
+  const base = {
+    userName: "a@x.com",
+    activePath: "/admin/settings/github-enterprise",
+    logoutAction: "/admin/logout",
+  };
+  test("omitted by default", () => {
+    expect(renderShipwrightToolbar(base)).not.toContain("/admin/settings");
+  });
+  test("rendered and active when showSettings is true", () => {
+    const html = renderShipwrightToolbar({ ...base, showSettings: true });
+    expect(html).toContain(
+      'href="/admin/settings/github-enterprise" class="vos-nav-link active">Settings</a>',
+    );
+  });
+  test("readOnly never renders it", () => {
+    expect(
+      renderShipwrightToolbar({ ...base, readOnly: true, showSettings: true }),
+    ).not.toContain("/admin/settings");
+  });
+});
