@@ -56,8 +56,9 @@ agent. It is meant to be specialized after creation through the admin API.
 ## Default plugins
 
 Every agent created through the platform (admin form, API, self-serve) is seeded with
-`agent-platform@app-vitals-agent`, the platform's own baked-marketplace plugin (progress
-pings to Slack and other runtime helpers). This is not per-specialty: it comes from
+`agent-platform@app-vitals-agent`, the platform's own baked-marketplace plugin (the
+`slack-say` progress-ping, `agent-admin` and `investigate-cron` skills under
+`plugins/agent-platform/skills/`). This is not per-specialty: it comes from
 `resolveDefaultPlugins()` in `lib/default-plugins.ts`, which prepends it to any plugins an
 extension's `specialtyDefaults()` supplies (deduped), so derived images get it without
 per-agent setup. Seeding happens at create time only; existing agents are unchanged.
