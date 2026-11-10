@@ -2156,7 +2156,7 @@ describe("admin UI — owner and Anthropic identity section (PAI-2.5)", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain(
-      '<div class="card-title">Owner &amp; Anthropic identity</div>',
+      '<div class="card-title">Owner &amp; identities</div>',
     );
     expect(html).toContain("Owner email");
     expect(html).toContain("jane.doe@example.com");
@@ -2194,7 +2194,7 @@ describe("admin UI — owner and Anthropic identity section (PAI-2.5)", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     const start = html.indexOf(
-      '<div class="card-title">Owner &amp; Anthropic identity</div>',
+      '<div class="card-title">Owner &amp; identities</div>',
     );
     expect(start).toBeGreaterThan(-1);
     const sectionHtml = html.slice(start, html.indexOf("</table>", start));

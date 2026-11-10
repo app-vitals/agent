@@ -51,6 +51,11 @@ import {
 } from "./admin-ui-account-nav.ts";
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
+import {
+  type GithubAccessPreviewView,
+  renderGithubAccessError,
+  renderGithubAccessResult,
+} from "./admin-ui-github-identity-pages.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
 import {
   type AgentDetail,
@@ -417,6 +422,15 @@ export interface AdminUIDeps {
    * registered.
    */
   githubEnterpriseApi?: (
+    path: string,
+    init?: RequestInit,
+  ) => Response | Promise<Response>;
+  /**
+   * GHE-2.5: the admin API app's `request` (PATCH /agents/:id and
+   * GET /agents/:id/github-access). Optional (additive): absent hides the
+   * GitHub username row and the access preview.
+   */
+  agentsApi?: (
     path: string,
     init?: RequestInit,
   ) => Response | Promise<Response>;
@@ -809,6 +823,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     accountCreatedNotifier,
     accountServices,
     githubEnterpriseApi,
+    agentsApi,
     specialtyRegistry = new SpecialtyTypes(),
     specialtyDefaults,
     callerScopeResolver = memberOnlyCallerScopeResolver(agentMemberService),
@@ -1759,6 +1774,117 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     );
   });
 
+  // GHE-2.5: forward the caller's session cookie so the API's own admin check
+  // applies. Never throws.
+  const callApi = async (
+    c: Context<AdminUIEnv>,
+    api: NonNullable<typeof agentsApi>,
+    path: string,
+    init: RequestInit = {},
+  ): Promise<Response | null> => {
+    const cookie = c.req.header("cookie");
+    try {
+      return await api(path, {
+        ...init,
+        headers: {
+          ...(init.headers as Record<string, string> | undefined),
+          ...(cookie ? { cookie } : {}),
+        },
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  // True only for a platform admin when the enterprise GitHub apps are
+  // configured (GHE-1.3 status) and the agents API seam is wired.
+  const githubEnterpriseConfigured = async (
+    c: Context<AdminUIEnv>,
+  ): Promise<boolean> => {
+    if (!c.var.isAdmin || !githubEnterpriseApi || !agentsApi) return false;
+    const res = await callApi(
+      c,
+      githubEnterpriseApi,
+      "/github-enterprise/apps",
+    );
+    if (!res?.ok) return false;
+    try {
+      return (
+        ((await res.json()) as { configured?: unknown }).configured === true
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  app.post("/admin/agents/:id/github-username", requireAuth, async (c) => {
+    const agentId = c.req.param("id");
+    if (!c.var.isAdmin || !agentsApi) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    let raw = "";
+    try {
+      raw = (await c.req.formData()).get("githubUsername")?.toString() ?? "";
+    } catch {
+      // treated as empty (clear)
+    }
+    const username = raw.trim();
+    const res = await callApi(
+      c,
+      agentsApi,
+      `/agents/${encodeURIComponent(agentId)}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          githubUsername: username === "" ? null : username,
+        }),
+      },
+    );
+    const base = `/admin/agents/${agentId}`;
+    if (res?.ok) {
+      return c.redirect(
+        `${base}?success=${username === "" ? "github_username_cleared" : "github_username_saved"}`,
+        302,
+      );
+    }
+    let message = "Could not save the GitHub username.";
+    try {
+      const j = (await res?.json()) as { error?: unknown };
+      if (typeof j.error === "string" && j.error) message = j.error;
+    } catch {
+      // keep the generic message
+    }
+    return c.redirect(`${base}?error=${encodeURIComponent(message)}`, 302);
+  });
+
+  app.get("/admin/agents/:id/github-access", requireAuth, async (c) => {
+    const agentId = c.req.param("id");
+    if (!c.var.isAdmin || !agentsApi) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const res = await callApi(
+      c,
+      agentsApi,
+      `/agents/${encodeURIComponent(agentId)}/github-access`,
+    );
+    if (!res?.ok) {
+      let message = "Could not load the access preview.";
+      try {
+        const j = (await res?.json()) as { error?: unknown };
+        if (typeof j.error === "string" && j.error) message = j.error;
+      } catch {
+        // keep the generic message
+      }
+      return html(renderGithubAccessError(message), {
+        status: res && res.status >= 400 ? res.status : 502,
+      });
+    }
+    return html(
+      renderGithubAccessResult((await res.json()) as GithubAccessPreviewView),
+    );
+  });
+
   app.get("/admin/agents/:id", requireAuth, async (c) => {
     const agentId = c.req.param("id");
     const agent = await agentService.getDetail(agentId);
@@ -1785,6 +1911,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       cleanupMergedWorktrees: agent.cleanupMergedWorktrees ?? true,
       cleanupAfterDays: agent.cleanupAfterDays ?? 14,
       ownerEmail: agent.ownerEmail ?? null,
+      githubUsername: agent.githubUsername ?? null,
       anthropicIdentityName: agent.anthropicIdentityName ?? null,
       anthropicServiceAccountId: agent.anthropicServiceAccountId ?? null,
       anthropicFederationRuleId: agent.anthropicFederationRuleId ?? null,
@@ -1804,7 +1931,11 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         ? "Manifest synced successfully."
         : successParam === "reinstalled"
           ? "Slack app reinstalled successfully."
-          : undefined;
+          : successParam === "github_username_saved"
+            ? "GitHub username saved."
+            : successParam === "github_username_cleared"
+              ? "GitHub username cleared."
+              : undefined;
     const warningParam = c.req.query("warning");
     const warning =
       warningParam === "restrict_slack_no_members"
@@ -1864,6 +1995,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           configurationCardsHtml: cards.configuration,
           queueActivityLinks: deps.queueActivityLinks,
           marketplaces,
+          githubEnterpriseConfigured: await githubEnterpriseConfigured(c),
         },
       ),
     );
@@ -2536,6 +2668,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       cleanupMergedWorktrees: agent.cleanupMergedWorktrees ?? true,
       cleanupAfterDays: agent.cleanupAfterDays ?? 14,
       ownerEmail: agent.ownerEmail ?? null,
+      githubUsername: agent.githubUsername ?? null,
       anthropicIdentityName: agent.anthropicIdentityName ?? null,
       anthropicServiceAccountId: agent.anthropicServiceAccountId ?? null,
       anthropicFederationRuleId: agent.anthropicFederationRuleId ?? null,
@@ -2591,6 +2724,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             configurationCardsHtml: cards.configuration,
             queueActivityLinks: deps.queueActivityLinks,
             marketplaces,
+            githubEnterpriseConfigured: await githubEnterpriseConfigured(c),
           },
         ),
       );
