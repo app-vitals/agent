@@ -122,6 +122,7 @@ login/OAuth, agents, provisioning, chat, session cookie `admin_session`) with
 route modules `admin-ui-account.ts` (`/admin/account`) and `admin-ui-accounts.ts`
 (`/admin/accounts`, platform admin). Rendering is pure string functions in
 `admin-ui-pages.ts`, `admin-ui-account-pages.ts`, `admin-ui-accounts-pages.ts`,
+`admin-ui-github-identity-pages.ts` (GHE-2.5 GitHub username and access preview),
 `admin-ui-layout.ts`, `admin-ui-styles.ts`; `admin-ui-account-nav.ts` carries a
 per-request nav flag. `pwa.ts` builds the manifest and service worker (austere
 caching: nothing authenticated is cached); icons come from `admin/pwa-assets/`.
