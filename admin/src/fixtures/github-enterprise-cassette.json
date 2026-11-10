@@ -1,0 +1,610 @@
+{
+  "enterprise_installation_success": {
+    "status": 200,
+    "body": {
+      "id": 4242,
+      "client_id": "Iv1.targetapp0001",
+      "account": {
+        "login": "acme-enterprise",
+        "id": 99,
+        "type": "Enterprise"
+      },
+      "repository_selection": "all",
+      "access_tokens_url": "https://api.github.com/app/installations/4242/access_tokens",
+      "repositories_url": "https://api.github.com/installation/repositories",
+      "html_url": "https://github.com/organizations/acme-enterprise/settings/installations/4242",
+      "app_id": 12345,
+      "app_slug": "shipwright-installer",
+      "target_id": 42420,
+      "target_type": "Enterprise",
+      "permissions": {
+        "contents": "write",
+        "metadata": "read"
+      },
+      "events": [],
+      "created_at": "2026-10-01T00:00:00Z",
+      "updated_at": "2026-10-01T00:00:00Z",
+      "single_file_name": null,
+      "suspended_at": null,
+      "suspended_by": null
+    }
+  },
+  "enterprise_installation_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "enterprise_installation_403_secondary_rate_limit": {
+    "status": 403,
+    "headers": {
+      "retry-after": "60"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
+  },
+  "enterprise_installation_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "enterprise_installation_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "errors": [
+        {
+          "resource": "Installation",
+          "code": "invalid",
+          "field": "client_id"
+        }
+      ],
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "enterprise_installation_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30",
+      "x-ratelimit-remaining": "0"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"
+    }
+  },
+  "enterprise_installation_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error"
+    }
+  },
+  "enterprise_installation_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable"
+    }
+  },
+  "access_token_success": {
+    "status": 201,
+    "body": {
+      "token": "ghs_cassetteInstallationToken0000000000",
+      "expires_at": "2026-11-09T13:00:00Z",
+      "permissions": {
+        "enterprise_organization_installations": "write",
+        "metadata": "read"
+      },
+      "repository_selection": "all"
+    }
+  },
+  "access_token_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "access_token_403_secondary_rate_limit": {
+    "status": 403,
+    "headers": {
+      "retry-after": "60"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
+  },
+  "access_token_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "access_token_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "errors": [
+        {
+          "resource": "Installation",
+          "code": "invalid",
+          "field": "client_id"
+        }
+      ],
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "access_token_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30",
+      "x-ratelimit-remaining": "0"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"
+    }
+  },
+  "access_token_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error"
+    }
+  },
+  "access_token_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable"
+    }
+  },
+  "installable_orgs_success": {
+    "status": 200,
+    "body": [
+      {
+        "id": 1,
+        "login": "org-1"
+      },
+      {
+        "id": 2,
+        "login": "org-2"
+      }
+    ]
+  },
+  "installable_orgs_page_1": {
+    "status": 200,
+    "headers": {
+      "link": "<https://api.github.com/enterprises/acme/apps/installable_organizations?per_page=100&page=2>; rel=\"next\", <https://api.github.com/enterprises/acme/apps/installable_organizations?per_page=100&page=2>; rel=\"last\""
+    },
+    "body": [
+      {
+        "id": 1,
+        "login": "org-1"
+      },
+      {
+        "id": 2,
+        "login": "org-2"
+      }
+    ]
+  },
+  "installable_orgs_page_2": {
+    "status": 200,
+    "headers": {
+      "link": "<https://api.github.com/enterprises/acme/apps/installable_organizations?per_page=100&page=1>; rel=\"prev\", <https://api.github.com/enterprises/acme/apps/installable_organizations?per_page=100&page=1>; rel=\"first\""
+    },
+    "body": [
+      {
+        "id": 3,
+        "login": "org-3"
+      }
+    ]
+  },
+  "installable_orgs_empty": {
+    "status": 200,
+    "body": []
+  },
+  "installable_orgs_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "installable_orgs_403_secondary_rate_limit": {
+    "status": 403,
+    "headers": {
+      "retry-after": "60"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
+  },
+  "installable_orgs_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "installable_orgs_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "errors": [
+        {
+          "resource": "Installation",
+          "code": "invalid",
+          "field": "client_id"
+        }
+      ],
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "installable_orgs_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30",
+      "x-ratelimit-remaining": "0"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"
+    }
+  },
+  "installable_orgs_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error"
+    }
+  },
+  "installable_orgs_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable"
+    }
+  },
+  "org_installations_success": {
+    "status": 200,
+    "body": [
+      {
+        "id": 501,
+        "client_id": "Iv1.targetapp0001",
+        "account": {
+          "login": "acme-eng",
+          "id": 5010,
+          "type": "Organization"
+        },
+        "repository_selection": "all",
+        "access_tokens_url": "https://api.github.com/app/installations/501/access_tokens",
+        "repositories_url": "https://api.github.com/installation/repositories",
+        "html_url": "https://github.com/organizations/acme-eng/settings/installations/501",
+        "app_id": 777,
+        "app_slug": "target-app",
+        "target_id": 5010,
+        "target_type": "Organization",
+        "permissions": {
+          "contents": "write",
+          "metadata": "read"
+        },
+        "events": [],
+        "created_at": "2026-10-01T00:00:00Z",
+        "updated_at": "2026-10-01T00:00:00Z",
+        "single_file_name": null,
+        "suspended_at": null,
+        "suspended_by": null
+      },
+      {
+        "id": 502,
+        "client_id": "Iv1.targetapp0001",
+        "account": {
+          "login": "acme-eng",
+          "id": 5020,
+          "type": "Organization"
+        },
+        "repository_selection": "selected",
+        "access_tokens_url": "https://api.github.com/app/installations/502/access_tokens",
+        "repositories_url": "https://api.github.com/installation/repositories",
+        "html_url": "https://github.com/organizations/acme-eng/settings/installations/502",
+        "app_id": 777,
+        "app_slug": "target-app",
+        "target_id": 5020,
+        "target_type": "Organization",
+        "permissions": {
+          "contents": "write",
+          "metadata": "read"
+        },
+        "events": [],
+        "created_at": "2026-10-01T00:00:00Z",
+        "updated_at": "2026-10-01T00:00:00Z",
+        "single_file_name": null,
+        "suspended_at": null,
+        "suspended_by": null
+      }
+    ]
+  },
+  "org_installations_page_1": {
+    "status": 200,
+    "headers": {
+      "link": "<https://api.github.com/enterprises/acme/apps/organizations/acme-eng/installations?per_page=100&page=2>; rel=\"next\""
+    },
+    "body": [
+      {
+        "id": 501,
+        "client_id": "Iv1.targetapp0001",
+        "account": {
+          "login": "acme-eng",
+          "id": 5010,
+          "type": "Organization"
+        },
+        "repository_selection": "all",
+        "access_tokens_url": "https://api.github.com/app/installations/501/access_tokens",
+        "repositories_url": "https://api.github.com/installation/repositories",
+        "html_url": "https://github.com/organizations/acme-eng/settings/installations/501",
+        "app_id": 777,
+        "app_slug": "target-app",
+        "target_id": 5010,
+        "target_type": "Organization",
+        "permissions": {
+          "contents": "write",
+          "metadata": "read"
+        },
+        "events": [],
+        "created_at": "2026-10-01T00:00:00Z",
+        "updated_at": "2026-10-01T00:00:00Z",
+        "single_file_name": null,
+        "suspended_at": null,
+        "suspended_by": null
+      }
+    ]
+  },
+  "org_installations_page_2": {
+    "status": 200,
+    "body": [
+      {
+        "id": 502,
+        "client_id": "Iv1.targetapp0001",
+        "account": {
+          "login": "acme-eng",
+          "id": 5020,
+          "type": "Organization"
+        },
+        "repository_selection": "selected",
+        "access_tokens_url": "https://api.github.com/app/installations/502/access_tokens",
+        "repositories_url": "https://api.github.com/installation/repositories",
+        "html_url": "https://github.com/organizations/acme-eng/settings/installations/502",
+        "app_id": 777,
+        "app_slug": "target-app",
+        "target_id": 5020,
+        "target_type": "Organization",
+        "permissions": {
+          "contents": "write",
+          "metadata": "read"
+        },
+        "events": [],
+        "created_at": "2026-10-01T00:00:00Z",
+        "updated_at": "2026-10-01T00:00:00Z",
+        "single_file_name": null,
+        "suspended_at": null,
+        "suspended_by": null
+      }
+    ]
+  },
+  "org_installations_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "org_installations_403_secondary_rate_limit": {
+    "status": 403,
+    "headers": {
+      "retry-after": "60"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
+  },
+  "org_installations_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "org_installations_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "errors": [
+        {
+          "resource": "Installation",
+          "code": "invalid",
+          "field": "client_id"
+        }
+      ],
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "org_installations_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30",
+      "x-ratelimit-remaining": "0"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"
+    }
+  },
+  "org_installations_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error"
+    }
+  },
+  "org_installations_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable"
+    }
+  },
+  "install_created": {
+    "status": 201,
+    "body": {
+      "id": 601,
+      "client_id": "Iv1.targetapp0001",
+      "account": {
+        "login": "acme-eng",
+        "id": 6010,
+        "type": "Organization"
+      },
+      "repository_selection": "all",
+      "access_tokens_url": "https://api.github.com/app/installations/601/access_tokens",
+      "repositories_url": "https://api.github.com/installation/repositories",
+      "html_url": "https://github.com/organizations/acme-eng/settings/installations/601",
+      "app_id": 777,
+      "app_slug": "target-app",
+      "target_id": 6010,
+      "target_type": "Organization",
+      "permissions": {
+        "contents": "write",
+        "metadata": "read"
+      },
+      "events": [],
+      "created_at": "2026-10-01T00:00:00Z",
+      "updated_at": "2026-10-01T00:00:00Z",
+      "single_file_name": null,
+      "suspended_at": null,
+      "suspended_by": null
+    }
+  },
+  "install_already_installed": {
+    "status": 200,
+    "body": {
+      "id": 601,
+      "client_id": "Iv1.targetapp0001",
+      "account": {
+        "login": "acme-eng",
+        "id": 6010,
+        "type": "Organization"
+      },
+      "repository_selection": "all",
+      "access_tokens_url": "https://api.github.com/app/installations/601/access_tokens",
+      "repositories_url": "https://api.github.com/installation/repositories",
+      "html_url": "https://github.com/organizations/acme-eng/settings/installations/601",
+      "app_id": 777,
+      "app_slug": "target-app",
+      "target_id": 6010,
+      "target_type": "Organization",
+      "permissions": {
+        "contents": "write",
+        "metadata": "read"
+      },
+      "events": [],
+      "created_at": "2026-10-01T00:00:00Z",
+      "updated_at": "2026-10-01T00:00:00Z",
+      "single_file_name": null,
+      "suspended_at": null,
+      "suspended_by": null
+    }
+  },
+  "install_selected_created": {
+    "status": 201,
+    "body": {
+      "id": 602,
+      "client_id": "Iv1.targetapp0001",
+      "account": {
+        "login": "acme-eng",
+        "id": 6020,
+        "type": "Organization"
+      },
+      "repository_selection": "selected",
+      "access_tokens_url": "https://api.github.com/app/installations/602/access_tokens",
+      "repositories_url": "https://api.github.com/installation/repositories",
+      "html_url": "https://github.com/organizations/acme-eng/settings/installations/602",
+      "app_id": 777,
+      "app_slug": "target-app",
+      "target_id": 6020,
+      "target_type": "Organization",
+      "permissions": {
+        "contents": "write",
+        "metadata": "read"
+      },
+      "events": [],
+      "created_at": "2026-10-01T00:00:00Z",
+      "updated_at": "2026-10-01T00:00:00Z",
+      "single_file_name": null,
+      "suspended_at": null,
+      "suspended_by": null
+    }
+  },
+  "install_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_403_secondary_rate_limit": {
+    "status": 403,
+    "headers": {
+      "retry-after": "60"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
+  },
+  "install_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "errors": [
+        {
+          "resource": "Installation",
+          "code": "invalid",
+          "field": "client_id"
+        }
+      ],
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30",
+      "x-ratelimit-remaining": "0"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"
+    }
+  },
+  "install_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error"
+    }
+  },
+  "install_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable"
+    }
+  }
+}
