@@ -18,6 +18,9 @@ path into another package.
 - `admin-types.ts`: `openapi-typescript` output for the admin API. Regenerate with `bun run generate:admin-types`; the
   pinned `openapi-typescript` version lives in that one script (run via `bunx`, not a dependency). The spec
   (`admin/openapi.platform.json`) is the source of truth for routes and schemas.
+  CI enforces this twice: a unit test (`admin-types.unit.test.ts`) checks every spec path is a key of `paths`, and the
+  `Admin types drift gate` step in the required `ci` job regenerates the file and fails on any diff. Bumping the pinned
+  version needs a regeneration in the same PR.
 
 ## Modules
 
