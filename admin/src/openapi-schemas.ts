@@ -115,6 +115,16 @@ export const PatchAgentBodySchema = z
       .optional()
       .openapi({ example: "agent-pod-sa" }),
     /**
+     * GHE-2.1: GitHub account whose repo access caps the agent (cap applied
+     * later). Platform admin only; `null` clears it. Lower-cased on save;
+     * syntax-checked (422) with no GitHub call.
+     */
+    githubUsername: z
+      .string()
+      .nullable()
+      .optional()
+      .openapi({ example: "octocat" }),
+    /**
      * ATE-1.1: trial expiry timestamp. Nullable so it can also be explicitly
      * cleared. trialExpiryWarnedAt is intentionally NOT part of this schema —
      * it is written internally by ATE-2.1's warning check, not user-editable
