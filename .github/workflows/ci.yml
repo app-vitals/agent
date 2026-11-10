@@ -80,6 +80,17 @@ jobs:
           git fetch --no-tags --depth=1 origin "$BASE_REF"
           bun scripts/check-plugin-version.ts "origin/$BASE_REF"
 
+      # lib/admin-types.ts is generated from admin/openapi.platform.json by a
+      # pinned bunx openapi-typescript (needs network; not a dependency). A
+      # stale file fails here instead of surfacing at release.
+      - name: Admin types drift gate
+        run: |
+          bun run generate:admin-types
+          if ! git diff --exit-code lib/admin-types.ts; then
+            echo "::error file=lib/admin-types.ts::lib/admin-types.ts is out of date with admin/openapi.platform.json. Run 'bun run generate:admin-types' and commit the result."
+            exit 1
+          fi
+
       - name: Sync test DB schema
         run: cd admin && bunx prisma migrate deploy --schema=prisma/schema
 
