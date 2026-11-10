@@ -15,8 +15,9 @@ path into another package.
 
 ## Generated files (do not edit)
 
-- `admin-types.ts`: `openapi-typescript` output for the admin API. Regenerate from the OpenAPI spec; the spec is the
-  source of truth for routes and schemas.
+- `admin-types.ts`: `openapi-typescript` output for the admin API. Regenerate with `bun run generate:admin-types`; the
+  pinned `openapi-typescript` version lives in that one script (run via `bunx`, not a dependency). The spec
+  (`admin/openapi.platform.json`) is the source of truth for routes and schemas.
 
 ## Modules
 
