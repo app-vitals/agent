@@ -107,6 +107,7 @@ import {
   NotFoundError,
   UnprocessableEntityError,
 } from "./errors.ts";
+import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import { normalizeGithubUsername } from "./github-username.ts";
 import {
   AddAgentReposBodySchema,
@@ -255,6 +256,11 @@ export interface AdminDeps {
     AgentGitHubInstallationsService,
     "push" | "get"
   >;
+  /**
+   * GHE-2.4: backs GET /agents/:id/github-access. Optional (additive); absent
+   * means the enterprise Apps are not wired, reported as `unconfigured`.
+   */
+  githubAccessPreview?: GithubAccessPreviewFn;
   /**
    * Retained solely as a pass-through to deleteAgentFully() (DELETE /agents/:id),
    * which has its own internal prisma.agent/prisma.agentEnv access — out of
@@ -544,6 +550,46 @@ const jsonError = {
 const GitHubInstallationsSnapshotWrapperSchema = z
   .object({ snapshot: AgentGitHubInstallationsSnapshotSchema })
   .openapi("GitHubInstallationsSnapshotWrapper");
+
+const GithubAccessOrgSchema = z.object({
+  org: z.string(),
+  status: z.enum([
+    "ok",
+    "lookup_app_not_installed",
+    "rate_limited",
+    "partial",
+    "error",
+  ]),
+  repos: z.array(
+    z.object({
+      fullName: z.string(),
+      level: z.enum(["admin", "maintain", "write", "triage", "read", "none"]),
+      canPush: z.boolean(),
+    }),
+  ),
+  unresolved: z.number().int(),
+});
+
+const GithubAccessPreviewSchema = z
+  .object({
+    status: z.enum(["ok", "user_not_found", "unconfigured"]).openapi({
+      description:
+        "`unconfigured` when the installer or lookup App is not set (no GitHub call was made).",
+    }),
+    access: z
+      .object({
+        username: z.string(),
+        outcome: z.enum(["ok", "user_not_found"]),
+        userVerified: z.boolean(),
+        orgs: z.array(GithubAccessOrgSchema),
+        unresolved: z.number().int(),
+        complete: z.boolean(),
+        checkedAt: z.string(),
+      })
+      .optional()
+      .openapi({ description: "Resolver output; absent when unconfigured." }),
+  })
+  .openapi("GithubAccessPreview");
 
 // ─── Route definitions ──────────────────────────────────────────────────────────
 
@@ -1415,6 +1461,26 @@ const getGitHubInstallationsRoute = createRoute({
       ...jsonError,
     },
     404: { description: "No snapshot reported yet", ...jsonError },
+  },
+});
+
+const getGithubAccessRoute = createRoute({
+  method: "get",
+  path: "/agents/{id}/github-access",
+  summary: "Preview the repos the agent's bound GitHub user can reach",
+  description:
+    "Platform-admin only (session members, ops keys and agent keys get 403): the response lists repo names the bound user can reach. Read-only; nothing is stored. 404 for an unknown agent; 422 when no githubUsername is bound. Returns `status: unconfigured` (not an error, no GitHub call) when the enterprise Apps are not configured, and `status: user_not_found` when the user does not exist on GitHub; otherwise `access` is the resolver output (per-org status, repos with level and canPush, unresolved count, complete flag).",
+  request: { params: AgentIdParamSchema },
+  responses: {
+    200: {
+      description: "Access preview",
+      content: { "application/json": { schema: GithubAccessPreviewSchema } },
+    },
+    401: { description: "Unauthorized", ...jsonError },
+    403: { description: "Platform admin required", ...jsonError },
+    404: { description: "Agent not found", ...jsonError },
+    422: { description: "Agent has no githubUsername", ...jsonError },
+    502: { description: "GitHub unavailable or refused", ...jsonError },
   },
 });
 
@@ -2847,6 +2913,28 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     ]);
     if (!stored) throw new NotFoundError(`agent ${agentId} not found`);
     return c.json({ bakedMarketplaces: stored }, 200);
+  });
+
+  // GET /agents/:id/github-access — GHE-2.4 read-only preview. Platform admin
+  // only: never session members, ops/read keys or agent keys.
+  app.openapi(getGithubAccessRoute, async (c) => {
+    if (c.get("isAdmin") !== true) {
+      throw new ForbiddenError(
+        "Admin access required to preview GitHub access",
+      );
+    }
+    const { id: agentId } = c.req.valid("param");
+    const agent = await agentService.getDetail(agentId);
+    if (!agent) throw new NotFoundError(`agent ${agentId} not found`);
+    if (!agent.githubUsername) {
+      throw new UnprocessableEntityError(
+        "agent has no githubUsername bound; set one with PATCH /agents/{id}",
+      );
+    }
+    if (!deps.githubAccessPreview)
+      return c.json({ status: "unconfigured" as const }, 200);
+    const preview = await deps.githubAccessPreview(agent.githubUsername);
+    return c.json(preview, 200);
   });
 
   // GET /agents/:id/github-installations — latest snapshot, 404 if none yet

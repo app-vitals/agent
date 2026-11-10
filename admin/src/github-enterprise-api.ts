@@ -29,6 +29,7 @@ import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AgentService } from "./agents.ts";
 import {
   ApiError,
+  BadGatewayError,
   ConflictError,
   ForbiddenError,
   NotFoundError,
@@ -47,7 +48,10 @@ import {
   type GitHubEnterpriseAppRole,
   type GitHubEnterpriseAppService,
 } from "./github-enterprise-apps.ts";
+import { GithubLookupClient } from "./github-lookup-client.ts";
+import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import { ErrorSchema } from "./openapi-schemas.ts";
+import { UserRepoAccessResolver } from "./user-repo-access-resolver.ts";
 
 // ─── Deps ─────────────────────────────────────────────────────────────────────
 
@@ -420,6 +424,66 @@ function serializeApp(m: GitHubEnterpriseAppMetadata) {
     lastValidationError: m.lastValidationError,
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
+  };
+}
+
+// ─── Access preview (GHE-2.4) ─────────────────────────────────────────────────
+
+/**
+ * Backs GET /agents/:id/github-access. Unconfigured (either App missing, or a
+ * stored App without its key / enterprise slug) returns before any GitHub
+ * call. A GitHub failure while listing orgs is rethrown as a 502 carrying only
+ * the mapped, non-leaky message.
+ */
+export function createGithubAccessPreview(
+  deps: Pick<
+    GithubEnterpriseApiDeps,
+    "appService" | "fetchFn" | "apiBase" | "now"
+  >,
+): GithubAccessPreviewFn {
+  return async (username) => {
+    const [installer, lookup] = await Promise.all([
+      deps.appService.get("installer"),
+      deps.appService.get("lookup"),
+    ]);
+    if (!installer || !lookup || !installer.enterpriseSlug) {
+      return { status: "unconfigured" };
+    }
+    const [installerKey, lookupKey] = await Promise.all([
+      deps.appService.getPrivateKey("installer"),
+      deps.appService.getPrivateKey("lookup"),
+    ]);
+    if (!installerKey || !lookupKey) return { status: "unconfigured" };
+
+    const common = {
+      apiBase: deps.apiBase,
+      fetchFn: deps.fetchFn,
+      now: deps.now,
+    };
+    const resolver = new UserRepoAccessResolver({
+      installer: new GithubEnterpriseClient({
+        appId: installer.appId,
+        enterprise: installer.enterpriseSlug,
+        privateKey: installerKey,
+        ...common,
+      }),
+      lookup: new GithubLookupClient({
+        appId: lookup.appId,
+        privateKey: lookupKey,
+        ...common,
+      }),
+      now: deps.now,
+    });
+    try {
+      const access = await resolver.resolve(username);
+      return { status: access.outcome, access };
+    } catch (err) {
+      if (err instanceof GithubEnterpriseError) {
+        throw new BadGatewayError(mapEnterpriseFailure(err.kind).message);
+      }
+      // Anything else (e.g. JWT signing): generic, no detail.
+      throw new BadGatewayError("GitHub access could not be resolved.");
+    }
   };
 }
 

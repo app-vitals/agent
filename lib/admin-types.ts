@@ -2719,6 +2719,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/github-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview the repos the agent's bound GitHub user can reach
+         * @description Platform-admin only (session members, ops keys and agent keys get 403): the response lists repo names the bound user can reach. Read-only; nothing is stored. 404 for an unknown agent; 422 when no githubUsername is bound. Returns `status: unconfigured` (not an error, no GitHub call) when the enterprise Apps are not configured, and `status: user_not_found` when the user does not exist on GitHub; otherwise `access` is the resolver output (per-org status, repos with level and canPush, unresolved count, complete flag).
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Access preview */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubAccessPreview"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Platform admin required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent has no githubUsername */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or refused */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/config": {
         parameters: {
             query?: never;
@@ -4461,6 +4547,35 @@ export interface components {
             installations: components["schemas"]["GitHubInstallation"][];
             /** @description Per-repo access probe result (COS-44.1). Omit to leave the stored result unchanged; send [] to clear it. */
             repos?: components["schemas"]["RepoAccessEntry"][];
+        };
+        GithubAccessPreview: {
+            /**
+             * @description `unconfigured` when the installer or lookup App is not set (no GitHub call was made).
+             * @enum {string}
+             */
+            status: "ok" | "user_not_found" | "unconfigured";
+            /** @description Resolver output; absent when unconfigured. */
+            access?: {
+                username: string;
+                /** @enum {string} */
+                outcome: "ok" | "user_not_found";
+                userVerified: boolean;
+                orgs: {
+                    org: string;
+                    /** @enum {string} */
+                    status: "ok" | "lookup_app_not_installed" | "rate_limited" | "partial" | "error";
+                    repos: {
+                        fullName: string;
+                        /** @enum {string} */
+                        level: "admin" | "maintain" | "write" | "triage" | "read" | "none";
+                        canPush: boolean;
+                    }[];
+                    unresolved: number;
+                }[];
+                unresolved: number;
+                complete: boolean;
+                checkedAt: string;
+            };
         };
         AgentConfigResponse: {
             /**
