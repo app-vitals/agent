@@ -145,9 +145,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json":
-                            | components["schemas"]["ProvisionAgentResult"]
-                            | components["schemas"]["ProvisionSkippedResult"];
+                        "application/json": components["schemas"]["ProvisionAgentResult"] | components["schemas"]["ProvisionSkippedResult"];
                     };
                 };
                 /** @description Forbidden */
@@ -185,7 +183,7 @@ export interface paths {
         };
         /**
          * Get an agent
-         * @description Admin-only. Returns the full agent record including `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `specialty`, `accountId` (null for unassigned agents), and `missingRequiredEnv` — required env keys declared by the agent's type manifest with no corresponding AgentEnv row yet (informational only).
+         * @description Admin-only. Returns the full agent record including `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `specialty`, `accountId` (null for unassigned agents), and `missingRequiredEnv` — required env keys declared by the agent's type with no corresponding AgentEnv row yet (informational only).
          */
         get: {
             parameters: {
@@ -532,7 +530,7 @@ export interface paths {
         put?: never;
         /**
          * Create an agent
-         * @description Admin-only. Validates name/specialty, creates the Agent row, seeds AgentTool/AgentPlugin rows from the resolved type manifest, attaches repos/allowlists/members, patches Claude credentials, and provisions Kubernetes when `runtime` is "in-cluster" — the same createAgent() implementation (APA-1.1) the web UI form at /admin/agents/new uses. Transactional: on any failure zero rows persist, and this route never returns a partial-success 200. Returns the created agent in the same shape as GET /agents/:id.
+         * @description Admin-only. Validates name/specialty, creates the Agent row, seeds AgentTool/AgentPlugin rows from the resolved type, attaches repos/allowlists/members, patches Claude credentials, and provisions Kubernetes when `runtime` is "in-cluster" — the same createAgent() implementation (APA-1.1) the web UI form at /admin/agents/new uses. Transactional: on any failure zero rows persist, and this route never returns a partial-success 200. Returns the created agent in the same shape as GET /agents/:id.
          */
         post: {
             parameters: {
@@ -847,7 +845,7 @@ export interface paths {
         put?: never;
         /**
          * Reconcile system crons
-         * @description Reconciles the agent's system crons against the cron list declared by its Specialty manifest. Runs in three passes within a single transaction: create-or-update matched-by-name system crons (preserving IDs so run history survives), link/unlink parent-child cron relationships, and delete orphaned system crons no longer in the manifest. Called automatically on agent startup; returns created/updated/deleted counts.
+         * @description Reconciles the agent's system crons against the cron list supplied by the AdminExtension for its specialty. Runs in three passes within a single transaction: create-or-update matched-by-name system crons (preserving IDs so run history survives), link/unlink parent-child cron relationships, and delete orphaned system crons no longer in the defaults. Called automatically on agent startup; returns created/updated/deleted counts.
          */
         post: {
             parameters: {
@@ -1452,6 +1450,436 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/chat-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List chat credentials
+         * @description Lists the chat-service tokens scoped to the agent (id and label only — raw values are never returned). `*` or `platform.ops` callers only.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Chat credential metadata */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatCredentialsWrapper"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found, or chat-credential minting disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Chat service not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Mint a chat credential
+         * @description Mints a chat-service token scoped to the agent in the path. `*` or `platform.ops` callers only — never the agent's own key. The body is closed: an `agentId` field is rejected with 400, so an unrestricted chat admin token cannot be minted here. The raw token is returned once and is never logged or stored by admin. 404 unless SHIPWRIGHT_CHAT_TOKEN_MINT_ENABLED is `enabled`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CreateChatCredentialBody"];
+                };
+            };
+            responses: {
+                /** @description Credential minted (raw token returned once) */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreateChatCredentialResponse"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found, or chat-credential minting disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Chat service not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/chat-credentials/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a chat credential
+         * @description Revokes a chat-service token. 404 when the token is not scoped to the agent in the path. `*` or `platform.ops` callers only.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    tokenId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Credential revoked */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found, or chat-credential minting disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Chat service not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask another agent a question
+         * @description Posts `question` from agent `from` into a new `kind: ask` chat thread of agent `{id}` (always created with `askDepth: 1`), then, when `waitMs > 0`, polls once per second until the agent replies or the budget ends. Callers: `*`, `platform.ops`, or the agent key whose id equals `from` (never impersonation). The `from>{id}` pair must be on SHIPWRIGHT_AGENT_ASK_ALLOWLIST. Every ask writes an AgentAsk audit row (no question text). 404 unless SHIPWRIGHT_AGENT_ASK_ENABLED is `enabled`; 503 when the chat service is not configured.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["AgentAskBody"];
+                };
+            };
+            responses: {
+                /** @description Ask posted; `replied` with the reply, or `pending` */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentAskResponse"];
+                    };
+                };
+                /** @description Bad request (including depth other than 1) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Caller not allowed, or the pair is not allowlisted */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found, or agent ask disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Chat service not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/asks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List agent asks
+         * @description Lists the AgentAsk audit rows the agent sent or received, newest first. `*`, `platform.read` and `platform.ops` callers only. 404 unless SHIPWRIGHT_AGENT_ASK_ENABLED is `enabled`.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                    offset?: number | null;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Audit rows */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentAskList"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent ask disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/crons/{cronId}/run-now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request an immediate run of a cron job
+         * @description Asks the agent's runtime to run the cron job once, now, with the job's own stored prompt. Takes no request body (any body is 400). Stamps `runRequestedAt` on the job and writes an AgentCronRunRequest audit row before returning 202; the runtime honours a fresh request (under 15 minutes old) once on its next cron sync. Callers: `*`, `platform.ops`, or the agent's own key. 404 unless SHIPWRIGHT_CRON_RUN_NOW_ENABLED is `enabled`; 409 when the trial-expiry lockdown disabled the cron.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    cronId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Run requested */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CronRunNowResponse"];
+                    };
+                };
+                /** @description A request body was sent */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Caller not allowed */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Cron not found, or cron run-now disabled */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Cron disabled by lockdown */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/crons/{cronId}/runs/{runId}/transcript": {
         parameters: {
             query?: never;
@@ -1733,7 +2161,7 @@ export interface paths {
         };
         trace?: never;
     };
-    "/agents/{id}/phase-methodology": {
+    "/agents/{id}/marketplaces": {
         parameters: {
             query?: never;
             header?: never;
@@ -1741,8 +2169,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List phase-methodology overrides
-         * @description Returns every phase-methodology override configured for the agent — which subagent type handles each pipeline phase (prd, plan-session, review, patch, deploy, dev-task). A phase with no explicit override is simply absent from this list; see GET /agents/:id/config's `phaseMethodology` map for the full six-phase view with defaults filled in.
+         * List marketplaces
+         * @description Returns every remote plugin marketplace configured for the agent.
          */
         get: {
             parameters: {
@@ -1755,78 +2183,47 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description List of phase-methodology overrides */
+                /** @description List of marketplaces */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["PhaseMethodologyListWrapper"];
-                    };
-                };
-                /** @description Agent not found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
+                        "application/json": components["schemas"]["MarketplacesWrapper"];
                     };
                 };
             };
         };
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{id}/phase-methodology/{phase}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
         /**
-         * Set a phase's subagent-type override
-         * @description Upserts the `subagentType` override for one pipeline phase. Passing `subagentType: null` clears the override (the phase falls back to its default methodology). `phase` must be one of prd, plan-session, review, patch, deploy, dev-task.
+         * Add or update a marketplace
+         * @description Upserts a remote plugin marketplace by `name`. `source` must be a GitHub `owner/repo` or an https git URL (no credentials); `ref` optionally pins a branch, tag or sha. 422 on an invalid `name`, `source` or `ref`.
          */
-        put: {
+        post: {
             parameters: {
                 query?: never;
                 header?: never;
                 path: {
                     id: string;
-                    phase:
-                        | "prd"
-                        | "plan-session"
-                        | "review"
-                        | "patch"
-                        | "deploy"
-                        | "dev-task";
                 };
                 cookie?: never;
             };
             requestBody?: {
                 content: {
-                    "application/json": components["schemas"]["PutAgentPhaseMethodologyBody"];
+                    "application/json": components["schemas"]["UpsertAgentMarketplaceBody"];
                 };
             };
             responses: {
-                /** @description Phase-methodology override upserted */
-                200: {
+                /** @description Marketplace added or updated */
+                201: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["PhaseMethodologyWrapper"];
+                        "application/json": components["schemas"]["MarketplaceWrapper"];
                     };
                 };
-                /** @description Bad request — invalid phase */
+                /** @description Bad request */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -1835,7 +2232,57 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description Agent not found */
+                /** @description Invalid name, source or ref */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/marketplaces/{marketplaceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a marketplace
+         * @description Removes the marketplace row by id. 404 when the id does not exist or belongs to a different agent.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    marketplaceId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Marketplace removed */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Marketplace not found */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -1846,8 +2293,6 @@ export interface paths {
                 };
             };
         };
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2097,150 +2542,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/all/cron-runs/dev-task-adherence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get dev-task adherence report
-         * @description Admin-only. Per dev-task run, compares skill-usage subagent dispatches against the required-steps table and reports per-step ran/skipped, with per-step adherence rates overall, per variant (contextFingerprint) and per commandVariant (default vs alternate). Rates cover task-bearing runs only (dispatched against a work item); `counts` separates them from silent no-ready-task ticks. A dispatch proves a step started, not that it was done well. Optional `from`/`to` ISO datetime params bound startedAt.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    from?: string;
-                    to?: string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Dev-task adherence report */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            [key: string]: unknown;
-                        };
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Forbidden — requires admin scope */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Adherence reporting not configured */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{id}/dev-task-adherence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get this agent's dev-task adherence report
-         * @description Self-serve variant of the fleet-wide dev-task adherence report, scoped to the agent in the path. Access is gated by the generic agent-route auth (an agent's own bearer token, an admin, or a member session) — no admin scope required. Same report shape and optional `from`/`to` params as GET /agents/all/cron-runs/dev-task-adherence.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    from?: string;
-                    to?: string;
-                };
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Dev-task adherence report for this agent's runs only */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            [key: string]: unknown;
-                        };
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Adherence reporting not configured */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/agents/chat-tokens/daily/stats": {
         parameters: {
             query?: never;
@@ -2426,175 +2727,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{id}/work-queue": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get the latest work-queue snapshot
-         * @description Returns the most recently pushed work-queue snapshot, or 404 if the agent has never pushed one.
-         */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Latest work-queue snapshot */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["WorkQueueSnapshotWrapper"];
-                    };
-                };
-                /** @description No snapshot pushed yet */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        /**
-         * Push a work-queue snapshot
-         * @description Upserts the agent's single ranked work-queue snapshot (tasks/PRs across pipeline phases), overwriting any prior snapshot — there is no history.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": components["schemas"]["PushWorkQueueSnapshotBody"];
-                };
-            };
-            responses: {
-                /** @description Snapshot upserted (overwrites any prior snapshot for this agent) */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["WorkQueueSnapshotWrapper"];
-                    };
-                };
-                /** @description Bad request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{id}/baked-marketplaces": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Report the marketplaces baked into the agent's image
-         * @description Runtime-only report, authenticated with the agent's own key. Overwrites the stored list of baked marketplace names (the image's current state); it is exposed read-only as `bakedMarketplaces` on GET /agents/{id}. Other callers, including another agent's key, get 403.
-         */
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": components["schemas"]["PutBakedMarketplacesBody"];
-                };
-            };
-            responses: {
-                /** @description Baked marketplaces stored */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["BakedMarketplacesResult"];
-                    };
-                };
-                /** @description Bad request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Forbidden — only the agent's own key may report */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Agent not found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/agents/{id}/github-installations": {
         parameters: {
             query?: never;
@@ -2703,6 +2835,87 @@ export interface paths {
                 };
                 /** @description Forbidden — token does not own this agent */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/baked-marketplaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Report the marketplaces baked into the agent's image
+         * @description Runtime-only report, authenticated with the agent's own key. Overwrites the stored list of baked marketplace names (the image's current state); it is exposed read-only as `bakedMarketplaces` on GET /agents/{id}. Other callers, including another agent's key, get 403.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PutBakedMarketplacesBody"];
+                };
+            };
+            responses: {
+                /** @description Baked marketplaces stored */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BakedMarketplacesResult"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden — only the agent's own key may report */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2864,7 +3077,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{id}/chat-credentials": {
+    "/github-enterprise/apps": {
         parameters: {
             query?: never;
             header?: never;
@@ -2872,411 +3085,38 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List chat credentials
-         * @description Lists the chat-service tokens scoped to the agent (id and label only — raw values are never returned). `*` or `platform.ops` callers only.
+         * GitHub Enterprise App status
+         * @description Admin-only. Metadata and key-set flag per role; never the key. Returns configured=false with null roles when nothing is set.
          */
         get: {
             parameters: {
                 query?: never;
                 header?: never;
-                path: {
-                    id: string;
-                };
+                path?: never;
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description Chat credential metadata */
+                /** @description Status */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["ChatCredentialsWrapper"];
+                        "application/json": components["schemas"]["GithubEnterpriseStatus"];
                     };
                 };
-                /** @description Forbidden */
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (non-admin caller) */
                 403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Not found, or chat-credential minting disabled */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Chat service not configured */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        /**
-         * Mint a chat credential
-         * @description Mints a chat-service token scoped to the agent in the path. `*` or `platform.ops` callers only — never the agent's own key. The body is closed: an `agentId` field is rejected with 400, so an unrestricted chat admin token cannot be minted here. The raw token is returned once and is never logged or stored by admin. 404 unless SHIPWRIGHT_CHAT_TOKEN_MINT_ENABLED is `enabled`.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": components["schemas"]["CreateChatCredentialBody"];
-                };
-            };
-            responses: {
-                /** @description Credential minted (raw token returned once) */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CreateChatCredentialResponse"];
-                    };
-                };
-                /** @description Bad request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Not found, or chat-credential minting disabled */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Chat service not configured */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{id}/chat-credentials/{tokenId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Revoke a chat credential
-         * @description Revokes a chat-service token. 404 when the token is not scoped to the agent in the path. `*` or `platform.ops` callers only.
-         */
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                    tokenId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Credential revoked */
-                204: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Not found, or chat-credential minting disabled */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Chat service not configured */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{id}/crons/{cronId}/run-now": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Request an immediate run of a cron job
-         * @description Asks the agent's runtime to run the cron job once, now, with the job's own stored prompt. Takes no request body (any body is 400). Stamps `runRequestedAt` on the job and writes an AgentCronRunRequest audit row before returning 202; the runtime honours a fresh request (under 15 minutes old) once on its next cron sync. Callers: `*`, `platform.ops`, or the agent's own key. 404 unless SHIPWRIGHT_CRON_RUN_NOW_ENABLED is `enabled`; 409 when the trial-expiry lockdown disabled the cron.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                    cronId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Run requested */
-                202: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CronRunNowResponse"];
-                    };
-                };
-                /** @description A request body was sent */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Caller not allowed */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Cron not found, or cron run-now disabled */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Cron disabled by lockdown */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{id}/ask": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask another agent a question
-         * @description Posts `question` from agent `from` into a new `kind: ask` chat thread of agent `{id}` (always created with `askDepth: 1`), then, when `waitMs > 0`, polls once per second until the agent replies or the budget ends. Callers: `*`, `platform.ops`, or the agent key whose id equals `from` (never impersonation). The `from>{id}` pair must be on SHIPWRIGHT_AGENT_ASK_ALLOWLIST. Every ask writes an AgentAsk audit row (no question text). 404 unless SHIPWRIGHT_AGENT_ASK_ENABLED is `enabled`; 503 when the chat service is not configured.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": components["schemas"]["AgentAskBody"];
-                };
-            };
-            responses: {
-                /** @description Ask posted; `replied` with the reply, or `pending` */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["AgentAskResponse"];
-                    };
-                };
-                /** @description Bad request (including depth other than 1) */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Caller not allowed, or the pair is not allowlisted */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Agent not found, or agent ask disabled */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Chat service not configured */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{id}/asks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List agent asks
-         * @description Lists the AgentAsk audit rows the agent sent or received, newest first. `*`, `platform.read` and `platform.ops` callers only. 404 unless SHIPWRIGHT_AGENT_ASK_ENABLED is `enabled`.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    limit?: number;
-                    offset?: number | null;
-                };
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Audit rows */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["AgentAskList"];
-                    };
-                };
-                /** @description Bad request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Agent ask disabled */
-                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -3294,66 +3134,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{id}/marketplaces": {
+    "/github-enterprise/apps/{role}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
+        get?: never;
         /**
-         * List marketplaces
-         * @description Returns every remote plugin marketplace configured for the agent.
+         * Create or replace the App for a role
+         * @description Admin-only. Stores the App id, slug, enterprise slug (installer) and the encrypted private key, and resets validation state. 422 when SHIPWRIGHT_ENCRYPTION_KEY is not configured.
          */
-        get: {
+        put: {
             parameters: {
                 query?: never;
                 header?: never;
                 path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description List of marketplaces */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["MarketplacesWrapper"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        /**
-         * Add or update a marketplace
-         * @description Upserts a remote plugin marketplace by `name`. `source` must be a GitHub `owner/repo` or an https git URL (no credentials); `ref` optionally pins a branch, tag or sha. 422 on an invalid `name`, `source` or `ref`.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
+                    role: "installer" | "lookup";
                 };
                 cookie?: never;
             };
             requestBody?: {
                 content: {
-                    "application/json": components["schemas"]["UpsertAgentMarketplaceBody"];
+                    "application/json": components["schemas"]["PutGithubEnterpriseAppBody"];
                 };
             };
             responses: {
-                /** @description Marketplace added or updated */
-                201: {
+                /** @description Saved (metadata only) */
+                200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["MarketplaceWrapper"];
+                        "application/json": components["schemas"]["GithubEnterpriseApp"];
                     };
                 };
                 /** @description Bad request */
@@ -3365,7 +3179,25 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description Invalid name, source or ref */
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (non-admin caller) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Invalid key, or encryption unavailable */
                 422: {
                     headers: {
                         [name: string]: unknown;
@@ -3376,13 +3208,55 @@ export interface paths {
                 };
             };
         };
-        delete?: never;
+        post?: never;
+        /**
+         * Remove the App for a role
+         * @description Admin-only. No-op when the role is not configured.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    role: "installer" | "lookup";
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (non-admin caller) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/agents/{id}/marketplaces/{marketplaceId}": {
+    "/github-enterprise/apps/{role}/validate": {
         parameters: {
             query?: never;
             header?: never;
@@ -3391,31 +3265,49 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
         /**
-         * Remove a marketplace
-         * @description Removes the marketplace row by id. 404 when the id does not exist or belongs to a different agent.
+         * Validate the App for a role
+         * @description Admin-only. Authenticates as the App and checks the required permission (installer: enterprise_organization_installations write; lookup: metadata read). The outcome is persisted and returned; GitHub failures are reported as status=error with a generic message.
          */
-        delete: {
+        post: {
             parameters: {
                 query?: never;
                 header?: never;
                 path: {
-                    id: string;
-                    marketplaceId: string;
+                    role: "installer" | "lookup";
                 };
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description Marketplace removed */
-                204: {
+                /** @description Validation outcome */
+                200: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["GithubEnterpriseValidateResult"];
+                    };
                 };
-                /** @description Marketplace not found */
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (non-admin caller) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Role not configured */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -3426,6 +3318,255 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/github-enterprise/orgs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List installable organizations
+         * @description Admin-only. Lists the enterprise's installable organizations, whether each has the lookup App installed, and (with agentId) whether each has that agent's App installed. Returns configured=false and no orgs when the installer App is not set.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    agentId?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Organizations */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubEnterpriseOrgs"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (non-admin caller) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found (or not found at GitHub) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused or rejected by GitHub */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub refused the configured App credentials or permission */
+                424: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub rate limit */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or returned an unexpected response */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unreachable */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/github-enterprise/orgs/{org}/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install an agent's App on an organization
+         * @description Admin-only. Resolves the agent's stored GH_APP_SLUG, looks the App up through the public GET /apps/{slug} to get its client id, and installs it on the org with the installer App. 422 for an agent with no slug and for a private App (not visible to the public lookup); 409 when the installer App is not configured.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    org: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["GithubEnterpriseInstallBody"];
+                };
+            };
+            responses: {
+                /** @description Installed (or already installed) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubEnterpriseInstallResult"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (non-admin caller) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found (or not found at GitHub) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Installer App not configured */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused or rejected by GitHub */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub refused the configured App credentials or permission */
+                424: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub rate limit */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or returned an unexpected response */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unreachable */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3494,10 +3635,12 @@ export interface components {
             trialExpiryWarnedAt?: string | null;
             /** @example octocat */
             githubUsername?: string | null;
-            /** @example [
+            /**
+             * @example [
              *       "example-marketplace",
              *       "shipwright"
-             *     ] */
+             *     ]
+             */
             bakedMarketplaces?: string[];
             /** @example true */
             autoPostReviews: boolean;
@@ -3616,13 +3759,13 @@ export interface components {
             name: string;
             /** @example false */
             selfHosted: boolean;
-            /** @example coding */
+            /** @example specialist */
             specialty: string;
         };
         CreateAgentBody: {
             /** @example Bodhi */
             name: string;
-            /** @example coding */
+            /** @example specialist */
             specialty: string;
             /** @example in-cluster */
             runtime?: string;
@@ -3680,13 +3823,6 @@ export interface components {
         };
         CronWrapper: {
             cron: components["schemas"]["AgentCronJob"];
-        };
-        CronRunNowResponse: {
-            /**
-             * Format: date-time
-             * @example 2026-10-26T12:00:00.000Z
-             */
-            requestedAt: string;
         };
         AgentCronJob: {
             /** @example clx1234567890 */
@@ -4128,6 +4264,120 @@ export interface components {
         TokensWrapper: {
             tokens: components["schemas"]["AgentToken"][];
         };
+        CreateChatCredentialResponse: {
+            /** @example clx0987654321 */
+            tokenId: string;
+            /** @example ct_xxxxxxxxxxxxxxxxxxxxxxxx */
+            rawToken: string;
+            /** @example ask-caller */
+            label: string;
+            /** @example clx1234567890 */
+            agentId: string;
+        };
+        CreateChatCredentialBody: {
+            /** @example ask-caller */
+            label: string;
+        };
+        ChatCredentialsWrapper: {
+            credentials: components["schemas"]["ChatCredential"][];
+        };
+        ChatCredential: {
+            /** @example clx0987654321 */
+            tokenId: string;
+            /** @example ask-caller */
+            label: string | null;
+            /** @example clx1234567890 */
+            agentId: string;
+        };
+        AgentAskResponse: {
+            /** @example clx1111111111 */
+            askId: string;
+            /** @example clx2222222222 */
+            threadId: string;
+            /**
+             * @example pending
+             * @enum {string}
+             */
+            status: "replied" | "pending";
+            /**
+             * @description The agent's reply body; present only when status is `replied`.
+             * @example acme/web is deployed and green.
+             */
+            reply?: string;
+        };
+        AgentAskBody: {
+            /**
+             * @description Id of the asking agent. An agent key may only ask as itself (`from` must equal its own id).
+             * @example clx0987654321
+             */
+            from: string;
+            /**
+             * @description The question, posted as the thread's user message. Never stored or logged by admin.
+             * @example What is the deploy status of acme/web?
+             */
+            question: string;
+            /**
+             * @description How long to wait for the reply, polling once per second. 0 (default) returns `pending` immediately.
+             * @default 0
+             * @example 0
+             */
+            waitMs: number;
+            /**
+             * @description Ask chain depth. Capped at 1: any other value is a 400.
+             * @default 1
+             * @example 1
+             */
+            depth: number;
+            /**
+             * @description How long the ask stays relevant, in seconds. Recorded on the audit row.
+             * @default 600
+             * @example 600
+             */
+            ttlSeconds: number;
+        };
+        AgentAskList: {
+            asks: components["schemas"]["AgentAskRecord"][];
+            /** @example 1 */
+            total: number;
+            /** @example 50 */
+            limit: number;
+            /** @example 0 */
+            offset: number;
+        };
+        AgentAskRecord: {
+            /** @example clx1111111111 */
+            id: string;
+            /** @example clx0987654321 */
+            fromAgentId: string;
+            /** @example clx1234567890 */
+            toAgentId: string;
+            /** @example clx2222222222 */
+            threadId: string | null;
+            /** @example 1 */
+            depth: number;
+            /** @example 0 */
+            waitMs: number;
+            /** @example 600 */
+            ttlSeconds: number;
+            /**
+             * @description created | pending | replied | failed
+             * @example pending
+             */
+            status: string;
+            /** @example ops (platform.ops) [platform-ops] */
+            callerLabel: string;
+            /** @example 2026-10-25T12:00:00.000Z */
+            createdAt: string;
+            /** @example null */
+            repliedAt: string | null;
+        };
+        CronRunNowResponse: {
+            /**
+             * Format: date-time
+             * @example 2026-10-26T12:00:00.000Z
+             */
+            requestedAt: string;
+        };
         CronRunTranscriptUploadResult: {
             /** @example clx1111111111 */
             runId: string;
@@ -4213,39 +4463,44 @@ export interface components {
             /** @example 1.3.0 */
             version?: string | null;
         };
-        PhaseMethodologyListWrapper: {
-            phaseMethodology: components["schemas"]["AgentPhaseMethodology"][];
+        MarketplacesWrapper: {
+            marketplaces: components["schemas"]["AgentMarketplace"][];
         };
-        AgentPhaseMethodology: {
+        AgentMarketplace: {
             /** @example clx1234567890 */
             id: string;
             /** @example clx1234567890 */
             agentId: string;
+            /** @example shipwright */
+            name: string;
+            /** @example app-vitals/shipwright */
+            source: string;
+            /** @example main */
+            ref: string | null;
             /**
-             * @example review
-             * @enum {string}
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
              */
-            phase:
-                | "prd"
-                | "plan-session"
-                | "review"
-                | "patch"
-                | "deploy"
-                | "dev-task";
-            /** @example shipwright:code-reviewer */
-            subagentType: string | null;
+            createdAt: string;
             /**
              * Format: date-time
              * @example 2026-01-01T00:00:00.000Z
              */
             updatedAt: string;
         };
-        PhaseMethodologyWrapper: {
-            phaseMethodology: components["schemas"]["AgentPhaseMethodology"];
+        MarketplaceWrapper: {
+            marketplace: components["schemas"]["AgentMarketplace"];
         };
-        PutAgentPhaseMethodologyBody: {
-            /** @example shipwright:code-reviewer */
-            subagentType: string | null;
+        UpsertAgentMarketplaceBody: {
+            /** @example shipwright */
+            name: string;
+            /**
+             * @description GitHub `owner/repo` or an https git URL
+             * @example app-vitals/shipwright
+             */
+            source: string;
+            /** @example main */
+            ref?: string | null;
         };
         CronRunTokenStats: {
             totals: components["schemas"]["TokenAggregate"];
@@ -4416,55 +4671,6 @@ export interface components {
             /** @example 0.0012 */
             costUsd: number;
         };
-        WorkQueueSnapshotWrapper: {
-            snapshot: components["schemas"]["AgentWorkQueueSnapshot"];
-        };
-        AgentWorkQueueSnapshot: {
-            /** @example clx1234567890 */
-            id: string;
-            /** @example clx1234567890 */
-            agentId: string;
-            /**
-             * Format: date-time
-             * @example 2026-01-01T00:00:00.000Z
-             */
-            computedAt: string;
-            items: components["schemas"]["RankedWorkItem"][];
-            /**
-             * Format: date-time
-             * @example 2026-01-01T00:00:00.000Z
-             */
-            createdAt: string;
-        };
-        RankedWorkItem: {
-            /**
-             * @example task
-             * @enum {string}
-             */
-            type: "task" | "pr";
-            /** @example WLS-2.2 */
-            id: string;
-            /** @example Add work queue snapshot endpoints */
-            title?: string;
-            /**
-             * @example dev-task
-             * @enum {string}
-             */
-            phase: "dev-task" | "plan" | "review" | "patch" | "deploy";
-            /**
-             * @description ISO timestamp
-             * @example 2026-01-01T00:00:00.000Z
-             */
-            age: string;
-        };
-        PushWorkQueueSnapshotBody: {
-            /**
-             * Format: date-time
-             * @example 2026-01-01T00:00:00.000Z
-             */
-            computedAt: string;
-            items: components["schemas"]["RankedWorkItem"][];
-        };
         GitHubInstallationsSnapshotWrapper: {
             snapshot: components["schemas"]["AgentGitHubInstallationsSnapshot"];
         };
@@ -4521,23 +4727,6 @@ export interface components {
              */
             error?: "not_found" | "forbidden" | "rate_limited" | "network";
         };
-        PutBakedMarketplacesBody: {
-            /**
-             * @example [
-             *       "example-marketplace",
-             *       "shipwright"
-             *     ]
-             */
-            names: string[];
-        };
-        BakedMarketplacesResult: {
-            /**
-             * @example [
-             *       "example-marketplace"
-             *     ]
-             */
-            bakedMarketplaces: string[];
-        };
         PutGitHubInstallationsBody: {
             /**
              * Format: date-time
@@ -4547,6 +4736,23 @@ export interface components {
             installations: components["schemas"]["GitHubInstallation"][];
             /** @description Per-repo access probe result (COS-44.1). Omit to leave the stored result unchanged; send [] to clear it. */
             repos?: components["schemas"]["RepoAccessEntry"][];
+        };
+        BakedMarketplacesResult: {
+            /**
+             * @example [
+             *       "example-marketplace"
+             *     ]
+             */
+            bakedMarketplaces: string[];
+        };
+        PutBakedMarketplacesBody: {
+            /**
+             * @example [
+             *       "example-marketplace",
+             *       "shipwright"
+             *     ]
+             */
+            names: string[];
         };
         GithubAccessPreview: {
             /**
@@ -4641,11 +4847,11 @@ export interface components {
             trialExpiresAt?: string | null;
             /** @example active */
             accountStatus?: string | null;
-            /** @example coding */
+            /** @example specialist */
             specialty: string;
             /**
              * @deprecated
-             * @example coding
+             * @example specialist
              */
             typeName?: string;
             /**
@@ -4669,6 +4875,14 @@ export interface components {
             /** @example shipwright */
             plugin: string;
         };
+        AgentConfigMarketplace: {
+            /** @example shipwright */
+            name: string;
+            /** @example app-vitals/shipwright */
+            source: string;
+            /** @example main */
+            ref: string | null;
+        };
         AgentConfigFeatures: {
             /**
              * @description True when SHIPWRIGHT_TRANSCRIPT_API_ENABLED is on: the runtime uploads a redacted transcript after each cron run.
@@ -4685,159 +4899,87 @@ export interface components {
             /** @example Not found */
             error: string;
         };
-        CreateChatCredentialResponse: {
-            /** @example clx0987654321 */
-            tokenId: string;
-            /** @example ct_xxxxxxxxxxxxxxxxxxxxxxxx */
-            rawToken: string;
-            /** @example ask-caller */
-            label: string;
-            /** @example clx1234567890 */
-            agentId: string;
+        GithubEnterpriseStatus: {
+            configured: boolean;
+            installer: components["schemas"]["GithubEnterpriseApp"];
+            lookup: components["schemas"]["GithubEnterpriseApp"];
         };
-        CreateChatCredentialBody: {
-            /** @example ask-caller */
-            label: string;
-        };
-        ChatCredentialsWrapper: {
-            credentials: components["schemas"]["ChatCredential"][];
-        };
-        ChatCredential: {
-            /** @example clx0987654321 */
-            tokenId: string;
-            /** @example ask-caller */
-            label: string | null;
-            /** @example clx1234567890 */
-            agentId: string;
-        };
-        AgentAskResponse: {
-            /** @example clx1111111111 */
-            askId: string;
-            /** @example clx2222222222 */
-            threadId: string;
+        GithubEnterpriseApp: {
+            /** @example installer */
+            role: string;
+            /** @example 12345 */
+            appId: string;
+            /** @example example-installer */
+            slug: string;
+            /** @example acme */
+            enterpriseSlug: string | null;
+            /** @description True when a private key is stored. The key is never returned. */
+            keySet: boolean;
+            /** @example valid */
+            lastValidationStatus: string | null;
+            lastValidatedAt: string | null;
+            lastValidationError: string | null;
+            createdAt: string;
+            updatedAt: string;
+        } | null;
+        PutGithubEnterpriseAppBody: {
+            /** @example 12345 */
+            appId: string;
+            /** @example example-installer */
+            slug: string;
             /**
-             * @example pending
+             * @description Required for the installer role.
+             * @example acme
+             */
+            enterpriseSlug?: string | null;
+            /** @description PEM private key. Write-only: encrypted at rest, never returned. */
+            privateKey: string;
+        };
+        GithubEnterpriseValidateResult: {
+            role: string;
+            ok: boolean;
+            /** @enum {string} */
+            status: "valid" | "missing_permission" | "error";
+            requiredPermission: string;
+            grantedPermissions: {
+                [key: string]: string;
+            };
+            error: string | null;
+            app: components["schemas"]["GithubEnterpriseApp"];
+        };
+        GithubEnterpriseOrgs: {
+            configured: boolean;
+            agentAppSlug?: string | null;
+            orgs: {
+                id: number;
+                login: string;
+                /** @description Null when no lookup App is configured. */
+                lookupAppInstalled: boolean | null;
+                /** @description Null when no agentId (or no slug) was given. */
+                agentAppInstalled: boolean | null;
+            }[];
+        };
+        GithubEnterpriseInstallResult: {
+            org: string;
+            /** @description False when the App was already installed. */
+            created: boolean;
+            installation: {
+                id: number;
+                appSlug: string;
+                accountLogin: string;
+                /** @enum {string} */
+                repositorySelection: "all" | "selected" | "none";
+            };
+        };
+        GithubEnterpriseInstallBody: {
+            /** @example agent-id */
+            agentId: string;
+            /**
+             * @default all
              * @enum {string}
              */
-            status: "replied" | "pending";
-            /**
-             * @description The agent's reply body; present only when status is `replied`.
-             * @example acme/web is deployed and green.
-             */
-            reply?: string;
-        };
-        AgentAskBody: {
-            /**
-             * @description Id of the asking agent. An agent key may only ask as itself (`from` must equal its own id).
-             * @example clx0987654321
-             */
-            from: string;
-            /**
-             * @description The question, posted as the thread's user message. Never stored or logged by admin.
-             * @example What is the deploy status of acme/web?
-             */
-            question: string;
-            /**
-             * @description How long to wait for the reply, polling once per second. 0 (default) returns `pending` immediately.
-             * @default 0
-             * @example 0
-             */
-            waitMs: number;
-            /**
-             * @description Ask chain depth. Capped at 1: any other value is a 400.
-             * @default 1
-             * @example 1
-             */
-            depth: number;
-            /**
-             * @description How long the ask stays relevant, in seconds. Recorded on the audit row.
-             * @default 600
-             * @example 600
-             */
-            ttlSeconds: number;
-        };
-        AgentAskList: {
-            asks: components["schemas"]["AgentAskRecord"][];
-            /** @example 1 */
-            total: number;
-            /** @example 50 */
-            limit: number;
-            /** @example 0 */
-            offset: number;
-        };
-        AgentAskRecord: {
-            /** @example clx1111111111 */
-            id: string;
-            /** @example clx0987654321 */
-            fromAgentId: string;
-            /** @example clx1234567890 */
-            toAgentId: string;
-            /** @example clx2222222222 */
-            threadId: string | null;
-            /** @example 1 */
-            depth: number;
-            /** @example 0 */
-            waitMs: number;
-            /** @example 600 */
-            ttlSeconds: number;
-            /**
-             * @description created | pending | replied | failed
-             * @example pending
-             */
-            status: string;
-            /** @example ops (platform.ops) [platform-ops] */
-            callerLabel: string;
-            /** @example 2026-10-25T12:00:00.000Z */
-            createdAt: string;
-            /** @example null */
-            repliedAt: string | null;
-        };
-        AgentMarketplace: {
-            /** @example clx1234567890 */
-            id: string;
-            /** @example clx1234567890 */
-            agentId: string;
-            /** @example shipwright */
-            name: string;
-            /** @example app-vitals/shipwright */
-            source: string;
-            /** @example main */
-            ref: string | null;
-            /**
-             * Format: date-time
-             * @example 2026-01-01T00:00:00.000Z
-             */
-            createdAt: string;
-            /**
-             * Format: date-time
-             * @example 2026-01-01T00:00:00.000Z
-             */
-            updatedAt: string;
-        };
-        UpsertAgentMarketplaceBody: {
-            /** @example shipwright */
-            name: string;
-            /**
-             * @description GitHub `owner/repo` or an https git URL
-             * @example app-vitals/shipwright
-             */
-            source: string;
-            /** @example main */
-            ref?: string | null;
-        };
-        MarketplaceWrapper: {
-            marketplace: components["schemas"]["AgentMarketplace"];
-        };
-        MarketplacesWrapper: {
-            marketplaces: components["schemas"]["AgentMarketplace"][];
-        };
-        AgentConfigMarketplace: {
-            /** @example shipwright */
-            name: string;
-            /** @example app-vitals/shipwright */
-            source: string;
-            /** @example main */
-            ref: string | null;
+            repositorySelection: "all" | "selected" | "none";
+            repositories?: string[];
         };
     };
     responses: never;
