@@ -623,6 +623,7 @@ export async function startAdmin(
     })(),
     githubEnterpriseApi: (path, init) =>
       githubEnterpriseApp.request(path, init),
+    agentsApi: (path, init) => adminApiApp.request(path, init),
     accountServices: {
       accounts: new AccountService(prisma),
       members: new AccountMemberService(prisma),

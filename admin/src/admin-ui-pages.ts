@@ -12,6 +12,10 @@
 
 import { PROGRESS_LABELS } from "@app-vitals/agent-lib/progress-phases";
 import { getSelfServeSpecialty } from "./account-agent-create.ts";
+import {
+  renderGithubAccessCard,
+  renderGithubUsernameRow,
+} from "./admin-ui-github-identity-pages.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
 import {
   BREAKPOINT_MOBILE_MAX,
@@ -111,6 +115,8 @@ export interface AgentDetail {
   anthropicIdentityName?: string | null;
   anthropicServiceAccountId?: string | null;
   anthropicFederationRuleId?: string | null;
+  /** GHE-2.5: bound GitHub login, shown (admins, apps configured) in the identity card. */
+  githubUsername?: string | null;
   /**
    * PMK-1.5: marketplace names baked into the agent's image, as reported by
    * the runtime at boot. Rendered read-only. Absent or empty shows the empty
@@ -973,6 +979,12 @@ export function renderAgentDetailPage(
     queueActivityLinks?: boolean;
     /** PMK-1.5: remote AgentMarketplace rows for the Marketplaces card. */
     marketplaces?: MarketplaceItem[];
+    /**
+     * GHE-2.5: the enterprise GitHub apps are configured. With isAdmin this
+     * adds the GitHub username row and the Preview access card; absent or
+     * false renders the card without them.
+     */
+    githubEnterpriseConfigured?: boolean;
   },
 ): string {
   // Reference time for relative timestamps — injected by tests for determinism,
@@ -1761,6 +1773,8 @@ export function renderAgentDetailPage(
 
   // PAI-2.5: read-only trace from this agent to its Anthropic identity. Values
   // are user data (owner email) or provider IDs, so every one is escaped.
+  const showGithubIdentity =
+    isAdmin && opts?.githubEnterpriseConfigured === true;
   const identityPlaceholder = '<span style="color:#9ca3af">—</span>';
   const identityRow = (
     label: string,
@@ -1769,14 +1783,15 @@ export function renderAgentDetailPage(
   ): string =>
     `<tr><td style="color:#6b7280;width:200px">${label}</td><td${mono ? ' class="mono"' : ""}>${value ? escapeHtml(value) : identityPlaceholder}</td></tr>`;
   const identitySection = `<div class="card">
-      <div class="card-title">Owner &amp; Anthropic identity</div>
+      <div class="card-title">Owner &amp; identities</div>
       <table class="detail-table"><tbody>
         ${identityRow("Owner email", agent.ownerEmail, false)}
         ${identityRow("Anthropic identity name", agent.anthropicIdentityName, true)}
         ${identityRow("Service account ID", agent.anthropicServiceAccountId, true)}
         ${identityRow("Federation rule ID", agent.anthropicFederationRuleId, true)}
+        ${showGithubIdentity ? renderGithubUsernameRow(agent.id, agent.githubUsername) : ""}
       </tbody></table>
-    </div>`;
+    </div>${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}`;
 
   // Only agents with a GitHub App can make API-signed commits. Checked state
   // is the SHIPWRIGHT_SIGNED_COMMITS env row; when the box is hidden the field
