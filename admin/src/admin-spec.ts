@@ -24,6 +24,7 @@ import {
   parseAdminApiKeys,
 } from "./agents-api.ts";
 import { createAgentRuntimeApp } from "./api.ts";
+import { createGithubEnterpriseApp } from "./github-enterprise-api.ts";
 
 /** The admin OpenAPI document shape the spec builders and generators share. */
 export interface AdminOpenApiDocument {
@@ -172,6 +173,23 @@ export function buildPlatformAdminSpec(): AdminOpenApiDocument {
     }
   }
 
+  // GHE-1.3: the /github-enterprise routes live in their own app (mounted at
+  // the root in admin-boot.ts); fold their paths and schemas in.
+  const gheSpec = createGithubEnterpriseApp({
+    appService: {} as never,
+    agentService: {} as never,
+    agentEnvService: {} as never,
+    sessionSecret: SESSION_SECRET,
+    adminApiKeys,
+    agentTokenService: { validate: async () => null },
+  }).getOpenAPI31Document({
+    openapi: "3.1.0",
+    info: { title: "github-enterprise (internal)", version: "0.1.0" },
+  });
+  for (const [path, def] of Object.entries(gheSpec.paths ?? {})) {
+    mergedPaths[path] = def as Record<string, unknown>;
+  }
+
   return {
     ...adminSpec,
     paths: mergedPaths,
@@ -180,6 +198,7 @@ export function buildPlatformAdminSpec(): AdminOpenApiDocument {
       schemas: {
         ...(adminSpec.components?.schemas ?? {}),
         ...(runtimeSpec.components?.schemas ?? {}),
+        ...(gheSpec.components?.schemas ?? {}),
       },
     },
   };

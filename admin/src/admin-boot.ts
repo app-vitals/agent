@@ -99,6 +99,8 @@ import { CronRunNowService } from "./cron-run-now.ts";
 import { parseCronRunNowConfig } from "./cron-run-now-config.ts";
 import { CronRunTranscriptService } from "./cron-run-transcripts.ts";
 import { isDevAuthAllowed } from "./dev-auth-guard.ts";
+import { createGithubEnterpriseApp } from "./github-enterprise-api.ts";
+import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-client.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
@@ -113,7 +115,7 @@ import { parseSelfServeConfig } from "./self-serve-config.ts";
 import { HttpSlackProvisioningClient } from "./slack-provisioning-client.ts";
 import { SpecialtyTypes } from "./specialty-types.ts";
 import { runStartupPolicyReconcile } from "./startup-policy-reconcile.ts";
-import { makeTokenCrypto } from "./token-crypto.ts";
+import { makeStrictTokenCrypto, makeTokenCrypto } from "./token-crypto.ts";
 import { parseTranscriptConfig } from "./transcript-config.ts";
 import {
   resolveTrialExpirySweepIntervalMs,
@@ -524,6 +526,24 @@ export async function startAdmin(
       accountService: new AccountService(prisma),
       accountLifecycle,
       selfServe,
+      sessionSecret,
+      adminApiKeys,
+      agentTokenService,
+    }),
+  );
+
+  // 3b'. GitHub Enterprise Apps API — /github-enterprise/* — admin-only,
+  //      optional (GHE-1.3). With no rows configured it reports unconfigured
+  //      and does nothing else. Strict crypto: no plain-text key storage.
+  root.route(
+    "/",
+    createGithubEnterpriseApp({
+      appService: new GitHubEnterpriseAppService(
+        prisma,
+        makeStrictTokenCrypto(),
+      ),
+      agentService,
+      agentEnvService,
       sessionSecret,
       adminApiKeys,
       agentTokenService,

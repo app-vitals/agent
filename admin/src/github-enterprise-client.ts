@@ -157,6 +157,8 @@ export interface EnterpriseInstallationToken {
   token: string;
   expiresAt: string;
   installationId: number;
+  /** Permissions granted to the minted token, as reported by GitHub (when present). */
+  permissions?: Record<string, string>;
 }
 
 export interface GithubEnterpriseClientOptions {
@@ -220,7 +222,11 @@ export class GithubEnterpriseClient {
         "GitHub enterprise installation lookup: response missing id",
       );
     }
-    const minted = await this.request<{ token?: string; expires_at?: string }>(
+    const minted = await this.request<{
+      token?: string;
+      expires_at?: string;
+      permissions?: Record<string, string>;
+    }>(
       "POST",
       `/app/installations/${inst.data.id}/access_tokens`,
       jwt,
@@ -236,6 +242,9 @@ export class GithubEnterpriseClient {
       token: minted.data.token,
       expiresAt: minted.data.expires_at,
       installationId: inst.data.id,
+      ...(minted.data.permissions && typeof minted.data.permissions === "object"
+        ? { permissions: minted.data.permissions }
+        : {}),
     };
     return this.cached;
   }
