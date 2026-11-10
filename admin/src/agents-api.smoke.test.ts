@@ -6599,3 +6599,160 @@ describe("admin API — baked marketplaces report", () => {
     expect(stored()).toEqual([]);
   });
 });
+
+// ─── GHE-2.1: PATCH /agents/:id githubUsername ───────────────────────────────
+
+describe("admin API — PATCH /agents/:id githubUsername (GHE-2.1)", () => {
+  const OPS = "ghe-ops-token";
+  const AGENT_KEY = "ghe-agent-token";
+
+  function setup() {
+    const updated: Array<Record<string, unknown>> = [];
+    const base = makeMockDeps();
+    const deps: AdminDeps = {
+      ...base,
+      adminApiKeys: parseAdminApiKeys(
+        `root:${ADMIN_API_KEY}:*,operator:${OPS}:platform.ops`,
+      ),
+      agentTokenService: {
+        ...base.agentTokenService,
+        validate: async (t: string) =>
+          t === AGENT_KEY ? { agentId: AGENT_ID } : null,
+      },
+      agentService: {
+        ...base.agentService,
+        updateSelfHosted: async (id, input) => {
+          updated.push(input as Record<string, unknown>);
+          return {
+            ...(await base.agentService.updateSelfHosted(id, input)),
+            githubUsername:
+              (input as { githubUsername?: string | null }).githubUsername ??
+              null,
+          };
+        },
+      },
+    };
+    return { app: createAdminApp(deps), updated };
+  }
+
+  const patch = (
+    app: ReturnType<typeof createAdminApp>,
+    body: unknown,
+    headers: Record<string, string>,
+  ) =>
+    app.request(`/agents/${AGENT_ID}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+
+  it("platform admin sets it: 200, lower-cased, returned", async () => {
+    const { app, updated } = setup();
+    const res = await patch(
+      app,
+      { githubUsername: "Octo-Cat" },
+      { Authorization: `Bearer ${ADMIN_API_KEY}` },
+    );
+    expect(res.status).toBe(200);
+    expect(
+      ((await res.json()) as { githubUsername: string }).githubUsername,
+    ).toBe("octo-cat");
+    expect(updated[0]).toMatchObject({ githubUsername: "octo-cat" });
+  });
+
+  it("platform admin clears it with null", async () => {
+    const { app, updated } = setup();
+    const res = await patch(
+      app,
+      { githubUsername: null },
+      { Authorization: `Bearer ${ADMIN_API_KEY}` },
+    );
+    expect(res.status).toBe(200);
+    expect(updated[0]).toMatchObject({ githubUsername: null });
+  });
+
+  it("403 for a non-admin session member", async () => {
+    const base = makeMockDeps();
+    const memberApp = createAdminApp({
+      ...base,
+      callerScopeResolver: async () => ({
+        kind: "scoped",
+        accountId: "acct-a",
+        agentIds: [AGENT_ID],
+      }),
+    });
+    const cookie = await sign(
+      {
+        isAdmin: false,
+        userId: "user-acct",
+        email: "owner@acct-a.example.com",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      SESSION_SECRET,
+      "HS256",
+    );
+    const res = await patch(
+      memberApp,
+      { githubUsername: "octocat" },
+      { Cookie: `admin_session=${cookie}` },
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("403 for a platform.ops key", async () => {
+    const { app, updated } = setup();
+    const res = await patch(
+      app,
+      { githubUsername: "octocat" },
+      { Authorization: `Bearer ${OPS}` },
+    );
+    expect(res.status).toBe(403);
+    expect(updated).toEqual([]);
+  });
+
+  it("403 for an agent-scoped key", async () => {
+    const { app, updated } = setup();
+    const res = await patch(
+      app,
+      { githubUsername: "octocat" },
+      { Authorization: `Bearer ${AGENT_KEY}` },
+    );
+    expect(res.status).toBe(403);
+    expect(updated).toEqual([]);
+  });
+
+  it("422 for invalid GitHub login syntax; nothing written", async () => {
+    const { app, updated } = setup();
+    for (const bad of ["-lead", "trail-", "a--b", "a".repeat(40), "", "a b"]) {
+      const res = await patch(
+        app,
+        { githubUsername: bad },
+        { Authorization: `Bearer ${ADMIN_API_KEY}` },
+      );
+      expect(res.status).toBe(422);
+    }
+    expect(updated).toEqual([]);
+  });
+
+  it("logs the caller name and agent id but never the username or key", async () => {
+    const { app } = setup();
+    const spy = spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const res = await patch(
+        app,
+        { githubUsername: "secret-login" },
+        { Authorization: `Bearer ${ADMIN_API_KEY}` },
+      );
+      expect(res.status).toBe(200);
+      const lines = spy.mock.calls.map((c) => String(c[0]));
+      const line = lines.find((l) => l.includes("githubUsername"));
+      expect(line).toContain(AGENT_ID);
+      expect(line).toContain("root");
+      expect(lines.join("\n")).not.toContain("secret-login");
+      expect(lines.join("\n")).not.toContain(ADMIN_API_KEY);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

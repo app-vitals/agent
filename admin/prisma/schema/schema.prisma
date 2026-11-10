@@ -67,6 +67,10 @@ model Agent {
   // separate column from k8sServiceAccountName, which is the Anthropic-
   // federation KSA. Only rendered when the pod-SA flag is on.
   podServiceAccountName     String?
+  // GHE-2.1: GitHub account whose repo access caps what the agent may reach
+  // (cap applied in a later phase). Nullable/additive, stored lower-cased,
+  // no uniqueness. Platform-admin only to set.
+  githubUsername            String?
   // APM-1.1: the 6 agent policy fields (auto_post_reviews, allow_self_review,
   // min_confidence, max_findings, cleanup_merged_worktrees,
   // cleanup_after_days). Originally mirrored from the legacy

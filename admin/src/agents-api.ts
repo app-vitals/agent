@@ -107,6 +107,7 @@ import {
   NotFoundError,
   UnprocessableEntityError,
 } from "./errors.ts";
+import { normalizeGithubUsername } from "./github-username.ts";
 import {
   AddAgentReposBodySchema,
   AgentChatTokenUsageDailySchema,
@@ -458,6 +459,12 @@ const GetAgentResultSchema = z
      */
     trialExpiresAt: z.string().datetime().nullable().optional(),
     trialExpiryWarnedAt: z.string().datetime().nullable().optional(),
+    /** GHE-2.1: lower-cased GitHub login; null when unset. */
+    githubUsername: z
+      .string()
+      .nullable()
+      .optional()
+      .openapi({ example: "octocat" }),
     /**
      * PMK-1.4: names of the marketplaces baked into the agent's image, as last
      * reported by the runtime at boot. Read-only: only the runtime-authenticated
@@ -658,7 +665,7 @@ const patchAgentRoute = createRoute({
   path: "/agents/{id}",
   summary: "Update an agent",
   description:
-    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `specialty` (platform admin only — 403 otherwise; 422 when the type is unknown; a no-op when unchanged; otherwise persists the new type, reconciles the agent's system crons against it — system crons the new type does not declare are deleted, user crons survive — and reconciles the workload of in-cluster agents so the pod runs the image mapped to the new specialty). `trialExpiryWarnedAt` is not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
+    "Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `githubUsername` (platform admin only — 403 otherwise; `null` clears it; lower-cased on save; 422 for invalid GitHub login syntax; no GitHub call), `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `specialty` (platform admin only — 403 otherwise; 422 when the type is unknown; a no-op when unchanged; otherwise persists the new type, reconciles the agent's system crons against it — system crons the new type does not declare are deleted, user crons survive — and reconciles the workload of in-cluster agents so the pod runs the image mapped to the new specialty). `trialExpiryWarnedAt` is not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.",
   request: {
     params: AgentIdParamSchema,
     body: {
@@ -1806,6 +1813,27 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         throw new ForbiddenError("Admin access required to change accountId");
       }
     }
+    // GHE-2.1: githubUsername — platform-admin only; syntax check only (no
+    // GitHub call). Stored lower-cased.
+    let githubUsername: string | null | undefined;
+    if (body.githubUsername !== undefined) {
+      if (c.get("isAdmin") !== true) {
+        throw new ForbiddenError(
+          "Admin access required to change githubUsername",
+        );
+      }
+      if (body.githubUsername === null) {
+        githubUsername = null;
+      } else {
+        const normalized = normalizeGithubUsername(body.githubUsername);
+        if (normalized === null) {
+          throw new UnprocessableEntityError(
+            "githubUsername must be a valid GitHub login (alphanumerics and single hyphens, no leading or trailing hyphen, max 39 characters)",
+          );
+        }
+        githubUsername = normalized;
+      }
+    }
     // SAL-1.2: specialty change — platform-admin only, known type only.
     let previousSpecialty: string | undefined;
     if (body.specialty !== undefined) {
@@ -1884,6 +1912,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
           ? { restrictSlackToMembers: body.restrictSlackToMembers }
           : {}),
         ...(body.slackId !== undefined ? { slackId: body.slackId } : {}),
+        ...(githubUsername !== undefined ? { githubUsername } : {}),
         ...(body.trialExpiresAt !== undefined
           ? {
               trialExpiresAt: body.trialExpiresAt
@@ -1926,6 +1955,12 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       body.accountId !== undefined
         ? await reconcileAgentAfterAccountChange(provisioner, agent)
         : undefined;
+    if (githubUsername !== undefined) {
+      // Audit: caller name and agent id only — never the username value.
+      console.info(
+        `[agents-api] githubUsername changed: agent=${agentId} caller=${c.get("caller")?.name ?? "anonymous"}`,
+      );
+    }
     let specialtyWarning: string | undefined;
     if (previousSpecialty !== undefined) {
       // Audit: ids and names only — never the caller's key.
@@ -3057,6 +3092,7 @@ function serializeAgent(
     missingRequiredEnv?: string[];
     trialExpiresAt?: Date | null;
     trialExpiryWarnedAt?: Date | null;
+    githubUsername?: string | null;
     bakedMarketplaces?: string[];
     autoPostReviews?: boolean;
     allowSelfReview?: boolean;
@@ -3092,6 +3128,7 @@ function serializeAgent(
     trialExpiryWarnedAt: agent.trialExpiryWarnedAt
       ? agent.trialExpiryWarnedAt.toISOString()
       : null,
+    githubUsername: agent.githubUsername ?? null,
     bakedMarketplaces: agent.bakedMarketplaces ?? [],
     autoPostReviews: agent.autoPostReviews ?? true,
     allowSelfReview: agent.allowSelfReview ?? false,

@@ -126,6 +126,8 @@ export interface AgentDetail extends Partial<AgentAnthropicIdentity> {
    */
   trialExpiresAt?: Date | null;
   trialExpiryWarnedAt?: Date | null;
+  /** GHE-2.1: nullable GitHub login (lower-cased). Optional for fixture compat. */
+  githubUsername?: string | null;
   /**
    * PMK-1.4: marketplace names baked into the agent's image, as last reported
    * by the runtime. Read-only here; written only by setBakedMarketplaces().
@@ -174,6 +176,8 @@ interface UpdateSelfHostedInput {
    * PATCH /agents/:id (omitted entirely means "leave unchanged").
    */
   trialExpiresAt?: Date | null;
+  /** GHE-2.1: null clears; omitted leaves unchanged. Already lower-cased. */
+  githubUsername?: string | null;
   /** APM-1.3: see AgentDetail's doc comment for these six fields. */
   autoPostReviews?: boolean;
   allowSelfReview?: boolean;
@@ -288,6 +292,7 @@ const DETAIL_SELECT = {
   updatedAt: true,
   trialExpiresAt: true,
   trialExpiryWarnedAt: true,
+  githubUsername: true,
   bakedMarketplaces: true,
   autoPostReviews: true,
   allowSelfReview: true,
@@ -524,6 +529,9 @@ export class AgentService {
         ...(input.slackId !== undefined ? { slackId: input.slackId } : {}),
         ...(input.trialExpiresAt !== undefined
           ? { trialExpiresAt: input.trialExpiresAt }
+          : {}),
+        ...(input.githubUsername !== undefined
+          ? { githubUsername: input.githubUsername }
           : {}),
         ...(input.autoPostReviews !== undefined
           ? { autoPostReviews: input.autoPostReviews }

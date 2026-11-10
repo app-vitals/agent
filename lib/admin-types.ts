@@ -281,7 +281,7 @@ export interface paths {
         head?: never;
         /**
          * Update an agent
-         * @description Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `specialty` (platform admin only — 403 otherwise; 422 when the type is unknown; a no-op when unchanged; otherwise persists the new type, reconciles the agent's system crons against it — system crons the new type does not declare are deleted, user crons survive — and reconciles the workload of in-cluster agents so the pod runs the image mapped to the new specialty). `trialExpiryWarnedAt` is not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.
+         * @description Admin-only. Updates `selfHosted`, `repos`, `reviewAuthorAllowlist`, `patchAuthorAllowlist`, `restrictSlackToMembers`, `slackId`, `trialExpiresAt`, `githubUsername` (platform admin only — 403 otherwise; `null` clears it; lower-cased on save; 422 for invalid GitHub login syntax; no GitHub call), `accountId` (platform admin only — 403 for session members; `null` clears it; reconciles the workload of in-cluster agents; does not move historical task-store rows), and/or `podServiceAccountName` (platform admin only — 403 otherwise; `null` clears it; 409 unless SHIPWRIGHT_K8S_AGENT_POD_SERVICE_ACCOUNT_ENABLED is on; 422 for agents with a per-agent federated identity; reconciles the workload so the pod is recreated under the new ServiceAccount). `specialty` (platform admin only — 403 otherwise; 422 when the type is unknown; a no-op when unchanged; otherwise persists the new type, reconciles the agent's system crons against it — system crons the new type does not declare are deleted, user crons survive — and reconciles the workload of in-cluster agents so the pod runs the image mapped to the new specialty). `trialExpiryWarnedAt` is not updatable via this route. `repos` here REPLACES the whole list; for incremental changes use `POST /agents/{id}/repos` (add) and `DELETE /agents/{id}/repos/{owner}/{name}` (remove). Returns the updated agent, including a `warning` field when `restrictSlackToMembers` is set true on an agent with zero members.
          */
         patch: {
             parameters: {
@@ -3406,6 +3406,8 @@ export interface components {
             trialExpiresAt?: string | null;
             /** Format: date-time */
             trialExpiryWarnedAt?: string | null;
+            /** @example octocat */
+            githubUsername?: string | null;
             /** @example [
              *       "example-marketplace",
              *       "shipwright"
@@ -3463,6 +3465,8 @@ export interface components {
             accountId?: string | null;
             /** @example agent-pod-sa */
             podServiceAccountName?: string | null;
+            /** @example octocat */
+            githubUsername?: string | null;
             /**
              * Format: date-time
              * @example 2026-12-01T00:00:00.000Z
