@@ -158,6 +158,79 @@ describe("GET /admin/settings/github-enterprise", () => {
     expect(html).toContain("optional");
     expect(html).toContain("Installer app");
   });
+
+  it("renders setup guidance on both cards and the enterprise notice", async () => {
+    const { app } = setup();
+    const html = await (await app.request(BASE)).text();
+    expect(html).toContain("GitHub Enterprise Cloud enterprise is required");
+    expect(html).not.toContain("exactly as before");
+    expect(html.match(/gh-ent-steps/g)?.length).toBe(2);
+    expect(html.match(/gh-ent-ignore/g)?.length).toBe(2);
+  });
+});
+
+const upload = (fields: Record<string, string>, file?: File) => {
+  const body = new FormData();
+  for (const [k, v] of Object.entries(fields)) body.set(k, v);
+  if (file) body.set("privateKeyFile", file);
+  return { method: "POST", body };
+};
+
+describe("private key upload", () => {
+  it("stores the same key as the paste path and never renders it", async () => {
+    const pasted = setup();
+    await pasted.app.request(
+      `${BASE}/apps/lookup`,
+      form({ appId: "42", slug: "acme-lookup", privateKey: PEM }),
+    );
+    const uploaded = setup();
+    const res = await uploaded.app.request(
+      `${BASE}/apps/lookup`,
+      upload(
+        { appId: "42", slug: "acme-lookup" },
+        new File([PEM], "key.pem", { type: "application/x-pem-file" }),
+      ),
+    );
+    expect(res.status).toBe(302);
+    expect(await uploaded.appService.get("lookup")).toEqual(
+      await pasted.appService.get("lookup"),
+    );
+    expect(await uploaded.appService.getPrivateKey("lookup")).toBe(
+      await pasted.appService.getPrivateKey("lookup"),
+    );
+    const html = await (await uploaded.app.request(BASE)).text();
+    expect(html).not.toContain("PRIVATE KEY");
+  });
+
+  it("rejects a non-PEM file and stores nothing", async () => {
+    const { app, appService } = setup();
+    const res = await app.request(
+      `${BASE}/apps/lookup`,
+      upload(
+        { appId: "42", slug: "acme-lookup" },
+        new File(["not-a-pem-SECRET"], "key.pem"),
+      ),
+    );
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain("not a PEM private key");
+    expect(html).not.toContain("not-a-pem-SECRET");
+    expect(await appService.get("lookup")).toBeNull();
+  });
+
+  it("rejects an oversized file and stores nothing", async () => {
+    const { app, appService } = setup();
+    const res = await app.request(
+      `${BASE}/apps/lookup`,
+      upload(
+        { appId: "42", slug: "acme-lookup" },
+        new File([PEM + "A".repeat(20 * 1024)], "key.pem"),
+      ),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("too large");
+    expect(await appService.get("lookup")).toBeNull();
+  });
 });
 
 describe("form posts", () => {

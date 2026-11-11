@@ -8,6 +8,7 @@
  */
 
 import type { Context, Hono, MiddlewareHandler } from "hono";
+import { readPrivateKeyField } from "./github-enterprise-pem-upload.ts";
 import { warningCodeFor } from "./github-enterprise-warnings.ts";
 import type { AdminUIEnv } from "./admin-ui.ts";
 import {
@@ -158,12 +159,14 @@ export function registerAdminGithubEnterpriseRoutes(
     if (!isRole(role)) return new Response("Not Found", { status: 404 });
     const form = await readForm(c);
     const enterpriseSlug = field(form, "enterpriseSlug");
+    const key = await readPrivateKeyField(form);
+    if (!key.ok) return renderPage(c, { error: key.error, status: 400 });
     const r = await call(c, "PUT", `/github-enterprise/apps/${role}`, {
       appId: field(form, "appId"),
       slug: field(form, "slug"),
       ...(enterpriseSlug ? { enterpriseSlug } : {}),
-      // Pasted as-is; never trimmed away from or echoed back to the page.
-      privateKey: form.get("privateKey")?.toString() ?? "",
+      // Pasted or uploaded; never echoed back to the page.
+      privateKey: key.pem,
     });
     return r.ok ? back(c, "saved") : fail(c, r);
   });

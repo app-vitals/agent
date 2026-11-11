@@ -81,4 +81,28 @@ describe("GitHub Enterprise key isolation", () => {
       expect(src).not.toMatch(/enterprise/i);
     }
   });
+
+  it("the upload route and parser never touch the key-bearing service", () => {
+    for (const rel of [
+      "admin/src/admin-ui-github-enterprise.ts",
+      "admin/src/github-enterprise-pem-upload.ts",
+    ]) {
+      const src = readFileSync(join(REPO, rel), "utf-8");
+      expect(src).not.toMatch(/\.getPrivateKey\(|privateKeyEncrypted/);
+      expect(src).not.toMatch(/github-enterprise-apps/);
+      // Uploaded content is never logged.
+      expect(src).not.toMatch(/console\.|logger\./);
+    }
+  });
+
+  it("the upload field name is only handled by the pem-upload parser", () => {
+    const handlers = files
+      .map((f) => relative(REPO, f))
+      .filter((rel) =>
+        /get\(["']privateKeyFile["']\)/.test(
+          readFileSync(join(REPO, rel), "utf-8"),
+        ),
+      );
+    expect(handlers).toEqual(["admin/src/github-enterprise-pem-upload.ts"]);
+  });
 });
