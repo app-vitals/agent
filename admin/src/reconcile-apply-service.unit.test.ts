@@ -189,3 +189,45 @@ describe("createInstallationPort (unit)", () => {
     expect(seen).toEqual(["list:2", "add:2:b", "rm:2:c,d"]);
   });
 });
+
+describe("ReconcileApplyService.planWithOpenWork (unit)", () => {
+  const removing = { repos: ["acme/a", "acme/b"], pushable: ["acme/a"] };
+
+  it("lists open work on the repos the plan removes", async () => {
+    const seen: (readonly string[])[] = [];
+    const { svc } = build({
+      ...removing,
+      openWork: {
+        listOpenWork: async (_a, repos) => {
+          seen.push(repos);
+          return [{ id: "t1", repo: "acme/b", title: "x" }];
+        },
+        blockOpenWork: async () => {},
+      },
+    });
+    const res = await svc.planWithOpenWork("a1");
+    expect(seen).toEqual([["acme/b"]]);
+    expect(res.openWork).toEqual([{ id: "t1", repo: "acme/b", title: "x" }]);
+    expect(res.plan.diff.configRemoves).toEqual(["acme/b"]);
+  });
+
+  it("returns an empty list with no port", async () => {
+    const { svc } = build(removing);
+    expect((await svc.planWithOpenWork("a1")).openWork).toEqual([]);
+  });
+
+  it("a port failure becomes a warning, not an error", async () => {
+    const { svc } = build({
+      ...removing,
+      openWork: {
+        listOpenWork: async () => {
+          throw new Error("store down");
+        },
+        blockOpenWork: async () => {},
+      },
+    });
+    const res = await svc.planWithOpenWork("a1");
+    expect(res.openWork).toEqual([]);
+    expect(res.plan.warnings.join(" ")).toContain("store down");
+  });
+});
