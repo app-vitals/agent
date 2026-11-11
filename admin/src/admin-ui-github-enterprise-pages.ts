@@ -174,11 +174,12 @@ function appCard(
       <p class="help-text" style="font-size:12px">${copy.descriptor}</p>
       ${guidance(role)}
       ${summary}
-      <form method="POST" action="${action}" style="display:grid;gap:8px;max-width:480px">
+      <form method="POST" action="${action}" enctype="multipart/form-data" style="display:grid;gap:8px;max-width:480px">
         <label>App ID <input name="appId" class="form-input" required inputmode="numeric" pattern="[0-9]+" /></label>
         <label>App slug <input name="slug" class="form-input" required /></label>
         ${enterprise}
-        <label>Private key (PEM) <textarea name="privateKey" class="form-input" rows="4" required autocomplete="off" spellcheck="false" placeholder="Paste the private key. It is stored encrypted and never shown again."></textarea></label>
+        <label>Private key (PEM) <textarea name="privateKey" class="form-input" rows="4" autocomplete="off" spellcheck="false" placeholder="Paste the private key. It is stored encrypted and never shown again."></textarea></label>
+        <label>Or upload the .pem file <input type="file" name="privateKeyFile" accept=".pem,application/x-pem-file" class="form-input" /></label>
         <div><button type="submit" class="btn btn-primary">${app ? "Replace credentials" : "Save credentials"}</button></div>
       </form>
     </div>`;

@@ -48,6 +48,8 @@ describe("renderGithubEnterpriseSettingsPage", () => {
     );
     expect(html).toContain('name="enterpriseSlug"');
     expect(html).toContain('name="privateKey"');
+    expect(html).toContain('name="privateKeyFile"');
+    expect(html).toContain('enctype="multipart/form-data"');
     expect(html).not.toContain("/validate");
     expect(html).not.toContain("Organizations</div>");
   });

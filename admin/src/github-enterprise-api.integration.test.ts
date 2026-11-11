@@ -17,6 +17,10 @@ import { AgentPluginService } from "./agent-plugins.ts";
 import { AgentService } from "./agents.ts";
 import { createAgentRuntimeApp } from "./api.ts";
 import { parseAdminApiKeys } from "./api-auth.ts";
+import type { MiddlewareHandler } from "hono";
+import { Hono } from "hono";
+import { type AdminUIEnv } from "./admin-ui.ts";
+import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
 import { createGithubEnterpriseApp } from "./github-enterprise-api.ts";
 import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
@@ -120,6 +124,58 @@ describeOrSkip("github-enterprise API (integration)", () => {
       lookup: null,
     });
     expect(await prisma.gitHubEnterpriseApp.count()).toBe(0);
+  });
+
+  it("a .pem upload through the settings UI saves the same row as pasting", async () => {
+    const api = build();
+    const ui = new Hono<AdminUIEnv>();
+    registerAdminGithubEnterpriseRoutes(ui, {
+      requireAuth: (async (c, next) => {
+        c.set("userEmail", "admin@x.com");
+        c.set("isAdmin", true);
+        await next();
+      }) as MiddlewareHandler<AdminUIEnv>,
+      html: (content, o) => new Response(content, { status: o?.status ?? 200 }),
+      api: (path, init) =>
+        api.request(path, {
+          ...init,
+          headers: { ...(init?.headers ?? {}), ...ADMIN },
+        }),
+    });
+    const base = "/admin/settings/github-enterprise/apps/lookup";
+    const fields = { appId: "777", slug: "example-lookup" };
+    const snapshot = async () => {
+      const row = await prisma.gitHubEnterpriseApp.findUnique({
+        where: { role: "lookup" },
+      });
+      return {
+        appId: row?.appId,
+        slug: row?.slug,
+        enterpriseSlug: row?.enterpriseSlug,
+        key: await appService.getPrivateKey("lookup"),
+      };
+    };
+
+    const body = new FormData();
+    for (const [k, v] of Object.entries(fields)) body.set(k, v);
+    body.set("privateKey", PEM);
+    expect((await ui.request(base, { method: "POST", body })).status).toBe(302);
+    const pasted = await snapshot();
+
+    await prisma.gitHubEnterpriseApp.deleteMany();
+    const upload = new FormData();
+    for (const [k, v] of Object.entries(fields)) upload.set(k, v);
+    upload.set("privateKeyFile", new File([PEM], "key.pem"));
+    const res = await ui.request(base, { method: "POST", body: upload });
+    expect(res.status).toBe(302);
+    expect(await snapshot()).toEqual({
+      ...pasted,
+      key: (pasted.key ?? "").trim(),
+    });
+    const row = await prisma.gitHubEnterpriseApp.findUnique({
+      where: { role: "lookup" },
+    });
+    expect(row?.privateKeyEncrypted).not.toContain(PEM_BODY);
   });
 
   it("PUT then validate persists the result; the key is encrypted and never returned", async () => {
