@@ -3180,6 +3180,301 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/github-installation/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the repos on the agent App's installation
+         * @description Platform-admin only (session members, ops keys and agent keys get 403). Per org the agent's own GitHub App (its GH_APP_ID) is installed on, lists the installation's repos. When the agent has a bound githubUsername, each repo carries `userCanPush` from the access lookup only when that org's lookup result is complete; otherwise the field is omitted (never false). 404 for an unknown agent; 422 when the agent has no GH_APP_ID.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Installation repos */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubInstallationReposList"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Platform admin required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent has no GH_APP_ID (its own GitHub App is not set up) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or refused */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub Apps are not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Add repos to the agent App's installation
+         * @description Platform-admin only. Grants the agent's own GitHub App installation access to the named repos, with no plan step; the agent's configured repos are not changed. Writes one audit entry (GitHubReconcileAudit, planHash `direct:add`) recording the caller and repos. 404 unknown agent; 422 no GH_APP_ID; 409 when the App is not installed on a repo's org (nothing is changed or audited); 502 when GitHub refuses (a failed audit entry is written).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GithubInstallationReposBody"];
+                };
+            };
+            responses: {
+                /** @description Repos added */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubInstallationReposChange"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Platform admin required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent App not installed on the org */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent has no GH_APP_ID (its own GitHub App is not set up) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or refused */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub Apps are not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/github-installation/repos/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove repos from the agent App's installation
+         * @description Platform-admin only. Revokes the agent's own GitHub App installation access to the named repos, with no plan step; the agent's configured repos are not changed. Writes one audit entry (GitHubReconcileAudit, planHash `direct:remove`) recording the caller and repos. Same errors as the add route.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GithubInstallationReposBody"];
+                };
+            };
+            responses: {
+                /** @description Repos removed */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubInstallationReposChange"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Platform admin required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent App not installed on the org */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent has no GH_APP_ID (its own GitHub App is not set up) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or refused */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub Apps are not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/config": {
         parameters: {
             query?: never;
@@ -5002,6 +5297,27 @@ export interface components {
             addRepos?: string[];
             /** @description Required when the plan removes more than 10 repos. */
             confirmRemovals?: boolean;
+        };
+        GithubInstallationReposList: {
+            appId: number;
+            orgs: {
+                org: string;
+                repos: {
+                    fullName: string;
+                    /** @description Whether the agent's bound GitHub user can push. Omitted when no username is bound or the org's access lookup is incomplete; never reported as false for unknown. */
+                    userCanPush?: boolean;
+                }[];
+            }[];
+        };
+        GithubInstallationReposChange: {
+            /** @enum {string} */
+            status: "applied";
+            auditId: string;
+            repos: string[];
+        };
+        GithubInstallationReposBody: {
+            /** @description Repos (owner/repo) to change on the agent App's installation. */
+            repos: string[];
         };
         AgentConfigResponse: {
             /**

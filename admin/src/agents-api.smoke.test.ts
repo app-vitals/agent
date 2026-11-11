@@ -7,6 +7,8 @@
  */
 
 import { beforeAll, describe, expect, it, spyOn } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { sign } from "hono/jwt";
 import type { Prisma } from "../prisma/client/client.ts";
 import { getSelfServeSpecialty } from "./account-agent-create.ts";
@@ -22,7 +24,10 @@ import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AdminDeps } from "./agents-api.ts";
 import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
 import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
-import { createGithubReconcile } from "./github-reconcile-wiring.ts";
+import {
+  createGithubInstallationRepos,
+  createGithubReconcile,
+} from "./github-reconcile-wiring.ts";
 import {
   accessFor,
   envWith,
@@ -7249,5 +7254,305 @@ describe("admin API — reconcile open-work seam, in-process composition (GHE-3.
     expect(res.status).toBe(200);
     const body = (await res.json()) as { affectedOpenWork: unknown[] };
     expect(body.affectedOpenWork).toEqual([]);
+  });
+});
+
+// ─── IRM-1.2: /agents/:id/github-installation/repos ───────────────────────────
+
+describe("admin API — agent App installation repos (IRM-1.2)", () => {
+  const OPS = "irm-ops-token";
+  const READER = "irm-read-token";
+  const AGENT_KEY = "irm-agent-token";
+  const { privateKey: PEM } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const cassette: Record<string, { status: number; body: unknown }> =
+    JSON.parse(
+      readFileSync(
+        new URL("./fixtures/github-enterprise-cassette.json", import.meta.url)
+          .pathname,
+        "utf-8",
+      ),
+    );
+  // The recorded org installation belongs to App 777 (installation 501).
+  const INST = "/enterprises/acme/apps/organizations/acme-eng/installations";
+  const routes: Record<string, string | unknown> = {
+    "GET /enterprises/acme/installation": "enterprise_installation_success",
+    "POST /app/installations/4242/access_tokens": "access_token_success",
+    "GET /enterprises/acme/apps/installable_organizations":
+      "installable_orgs_success",
+    [`GET ${INST}`]: "org_installations_success",
+    [`GET ${INST}/501/repositories`]: "install_repos_success",
+    [`PATCH ${INST}/501/repositories/add`]: "install_repos_add_success",
+    [`PATCH ${INST}/501/repositories/remove`]: "install_repos_remove_success",
+  };
+
+  function setup(
+    opts: {
+      env?: Record<string, string>;
+      username?: string | null;
+      known?: boolean;
+      override?: Record<string, string>;
+    } = {},
+  ) {
+    const audits: Array<Record<string, unknown>> = [];
+    const gh: string[] = [];
+    const table = { ...routes, ...(opts.override ?? {}) };
+    const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = new URL(input.toString());
+      const key = `${init?.method ?? "GET"} ${u.pathname}`;
+      gh.push(key);
+      // The recorded installable orgs are org-1/org-2; this agent's App lives on acme-eng.
+      if (key === "GET /enterprises/acme/apps/installable_organizations") {
+        return new Response(JSON.stringify([{ id: 5010, login: "acme-eng" }]), {
+          status: 200,
+        });
+      }
+      const name = table[key] as string | undefined;
+      if (!name) throw new Error(`no route for ${key}`);
+      const entry = cassette[name];
+      if (!entry) throw new Error(`no cassette entry ${name}`);
+      return new Response(JSON.stringify(entry.body), {
+        status: entry.status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+    const prisma = {
+      agent: {
+        findUnique: async () =>
+          opts.known === false
+            ? null
+            : {
+                id: AGENT_ID,
+                repos: [],
+                githubUsername:
+                  opts.username === undefined ? "dev" : opts.username,
+              },
+      },
+      gitHubReconcileAudit: {
+        create: async (args: { data: Record<string, unknown> }) => {
+          audits.push(args.data);
+          return { id: `audit-${audits.length}` };
+        },
+      },
+    } as unknown as Parameters<
+      typeof createGithubInstallationRepos
+    >[0]["prisma"];
+    const githubInstallationRepos = createGithubInstallationRepos({
+      prisma,
+      appService: {
+        get: async () => ({ appId: 12345, enterpriseSlug: "acme" }) as never,
+        getPrivateKey: async () => PEM,
+      },
+      access: async (username) => {
+        const base = await accessFor(["acme-eng/repo-1"])(username);
+        if (base.status === "unconfigured") return base;
+        const [org] = base.access.orgs;
+        return {
+          ...base,
+          access: {
+            ...base.access,
+            orgs: org ? [{ ...org, org: "acme-eng" }] : [],
+          },
+        };
+      },
+      agentEnv: envWith(opts.env ?? { GH_APP_ID: "777" }),
+      fetchFn,
+    });
+    const base = makeMockDeps();
+    const app = createAdminApp({
+      ...base,
+      adminApiKeys: parseAdminApiKeys(
+        `root:${ADMIN_API_KEY}:*,operator:${OPS}:platform.ops,reader:${READER}:platform.read`,
+      ),
+      agentTokenService: {
+        ...base.agentTokenService,
+        validate: async (t: string) =>
+          t === AGENT_KEY ? { agentId: AGENT_ID } : null,
+      },
+      githubInstallationRepos,
+    });
+    return { app, audits, gh };
+  }
+
+  const asAdmin = { Authorization: `Bearer ${ADMIN_API_KEY}` };
+  const url = (suffix = "", id = AGENT_ID) =>
+    `/agents/${id}/github-installation/repos${suffix}`;
+  const send = (
+    app: ReturnType<typeof createAdminApp>,
+    path: string,
+    headers: Record<string, string>,
+    body: unknown = { repos: ["acme-eng/repo-3"] },
+  ) =>
+    app.request(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it("GET lists repos per org with push hints from the access lookup", async () => {
+    const { app } = setup();
+    const res = await app.request(url(), { headers: asAdmin });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      appId: 777,
+      orgs: [
+        {
+          org: "acme-eng",
+          repos: [
+            { fullName: "acme-eng/repo-1", userCanPush: true },
+            { fullName: "acme-eng/repo-2" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("GET omits the hint entirely for an agent with no bound username", async () => {
+    const { app } = setup({ username: null });
+    const body = (await (
+      await app.request(url(), { headers: asAdmin })
+    ).json()) as {
+      orgs: { repos: Record<string, unknown>[] }[];
+    };
+    expect(body.orgs[0]?.repos.map((r) => "userCanPush" in r)).toEqual([
+      false,
+      false,
+    ]);
+  });
+
+  it("403 for ops, read and agent keys on every route; no GitHub call, no audit", async () => {
+    const { app, audits, gh } = setup();
+    for (const key of [OPS, READER, AGENT_KEY]) {
+      const h = { Authorization: `Bearer ${key}` };
+      expect((await app.request(url(), { headers: h })).status).toBe(403);
+      expect((await send(app, url(), h)).status).toBe(403);
+      expect((await send(app, url("/remove"), h)).status).toBe(403);
+    }
+    expect(audits).toEqual([]);
+    expect(gh).toEqual([]);
+  });
+
+  it("403 for a non-admin session member", async () => {
+    const { app } = setup();
+    const cookie = await sign(
+      {
+        isAdmin: false,
+        userId: "user-acct",
+        email: "owner@acct-a.example.com",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      SESSION_SECRET,
+      "HS256",
+    );
+    const memberApp = createAdminApp({
+      ...makeMockDeps(),
+      callerScopeResolver: async () => ({
+        kind: "scoped",
+        accountId: "acct-a",
+        agentIds: [AGENT_ID],
+      }),
+    });
+    const res = await memberApp.request(url(), {
+      headers: { Cookie: `admin_session=${cookie}` },
+    });
+    expect(res.status).toBe(403);
+    void app;
+  });
+
+  it("404 for an unknown agent on every route", async () => {
+    const { app, audits } = setup({ known: false });
+    expect((await app.request(url(), { headers: asAdmin })).status).toBe(404);
+    expect((await send(app, url(), asAdmin)).status).toBe(404);
+    expect((await send(app, url("/remove"), asAdmin)).status).toBe(404);
+    expect(audits).toEqual([]);
+  });
+
+  it("422 naming GH_APP_ID when the agent has none", async () => {
+    const { app, audits } = setup({ env: {} });
+    const res = await app.request(url(), { headers: asAdmin });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(await res.json())).toContain("GH_APP_ID");
+    expect((await send(app, url(), asAdmin)).status).toBe(422);
+    expect(audits).toEqual([]);
+  });
+
+  it("409 when the agent's App is not installed on the org; nothing audited", async () => {
+    // App 999 has no recorded installation on acme-eng.
+    const { app, audits, gh } = setup({ env: { GH_APP_ID: "999" } });
+    const res = await send(app, url(), asAdmin);
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(await res.json())).toContain("not installed");
+    expect(audits).toEqual([]);
+    expect(gh.some((k) => k.startsWith("PATCH"))).toBe(false);
+  });
+
+  it("POST add changes the installation and writes one audit entry with the caller", async () => {
+    const { app, audits, gh } = setup();
+    const res = await send(app, url(), asAdmin, {
+      repos: ["acme-eng/repo-3"],
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      status: "applied",
+      auditId: "audit-1",
+      repos: ["acme-eng/repo-3"],
+    });
+    expect(gh).toContain(`PATCH ${INST}/501/repositories/add`);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      agentId: AGENT_ID,
+      caller: "root",
+      planHash: "direct:add",
+      diff: { installationAdds: ["acme-eng/repo-3"], installationRemoves: [] },
+      result: { status: "applied" },
+    });
+  });
+
+  it("POST remove changes the installation and writes one audit entry", async () => {
+    const { app, audits, gh } = setup();
+    const res = await send(app, url("/remove"), asAdmin, {
+      repos: ["acme-eng/repo-2"],
+    });
+    expect(res.status).toBe(200);
+    expect(gh).toContain(`PATCH ${INST}/501/repositories/remove`);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      caller: "root",
+      planHash: "direct:remove",
+      diff: { installationRemoves: ["acme-eng/repo-2"], installationAdds: [] },
+    });
+  });
+
+  it("502 and a failed audit entry when GitHub refuses the change", async () => {
+    const { app, audits } = setup({
+      override: {
+        [`PATCH ${INST}/501/repositories/add`]: "install_repos_add_403",
+      },
+    });
+    const res = await send(app, url(), asAdmin);
+    expect(res.status).toBe(502);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]?.result).toMatchObject({ status: "failed" });
+  });
+
+  it("400 for a body that is not owner/repo names", async () => {
+    const { app, audits } = setup();
+    expect((await send(app, url(), asAdmin, { repos: ["nope"] })).status).toBe(
+      400,
+    );
+    expect((await send(app, url(), asAdmin, { repos: [] })).status).toBe(400);
+    expect(audits).toEqual([]);
+  });
+
+  it("503 when the Apps are not wired", async () => {
+    const app = createAdminApp({
+      ...makeMockDeps(),
+      adminApiKeys: parseAdminApiKeys(`root:${ADMIN_API_KEY}:*`),
+    });
+    expect((await app.request(url(), { headers: asAdmin })).status).toBe(503);
   });
 });

@@ -375,6 +375,19 @@ export interface InstallationRepoClient {
   ): Promise<unknown>;
 }
 
+/** The agent App has no installation on the org (distinct from a GitHub failure). */
+export class AppNotInstalledError extends Error {
+  constructor(
+    readonly appId: number,
+    readonly org: string,
+  ) {
+    super(
+      `agent App ${appId} (the agent's GH_APP_ID) is not installed on org ${org}`,
+    );
+    this.name = "AppNotInstalledError";
+  }
+}
+
 const baseName = (fullName: string): string => fullName.split("/")[1] ?? "";
 
 /**
@@ -392,9 +405,7 @@ export function createInstallationPort(
       (i) => i.appId === appId,
     );
     if (!found) {
-      throw new Error(
-        `agent App ${appId} (the agent's GH_APP_ID) is not installed on org ${org}`,
-      );
+      throw new AppNotInstalledError(appId, org);
     }
     return found.id;
   };
