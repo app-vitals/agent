@@ -7,7 +7,10 @@
  * never renders a key (the status API only reports `keySet`).
  */
 
-import { GHE_WARNINGS, type GheWarningCode } from "./github-enterprise-warnings.ts";
+import {
+  GHE_WARNINGS,
+  type GheWarningCode,
+} from "./github-enterprise-warnings.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
 import { escapeHtml, renderAdminToolbar } from "./admin-ui-styles.ts";
 
@@ -79,13 +82,38 @@ function validationBadge(status: string | null): string {
 const ROLE_COPY = {
   installer: {
     title: "Installer app",
-    help: "Installs agents' GitHub Apps on the enterprise's organizations. Needs the enterprise_organization_installations (write) permission.",
+    descriptor:
+      "Auto-installs agents' GitHub Apps on your enterprise's organizations.",
+    steps: [
+      "In GitHub, open your enterprise's Settings &rarr; GitHub Apps &rarr; New GitHub App (an enterprise-owned App).",
+      "Under Enterprise permissions, grant both <code>enterprise_organization_installations</code> and <code>enterprise_organization_installation_repositories</code> at <strong>Read and write</strong>.",
+      "Create the App. The App ID is on the App's settings page; the App slug is the last part of its public URL (<code>github.com/apps/&lt;slug&gt;</code>).",
+      "The enterprise slug is the last part of your enterprise's URL (<code>github.com/enterprises/&lt;slug&gt;</code>).",
+      "Under Private keys, choose Generate a private key and paste the downloaded PEM below.",
+    ],
   },
   lookup: {
     title: "Lookup app",
-    help: "Read-only App used to see which organizations the platform can look up. Needs the metadata (read) permission. It must be installed on all repositories of each organization, not selected repositories only.",
+    descriptor:
+      "Read-only App that gives the platform repository access lookups. Optional.",
+    steps: [
+      "In GitHub, open your organization's Settings &rarr; Developer settings &rarr; GitHub Apps &rarr; New GitHub App.",
+      "Grant Repository <code>Metadata</code> at <strong>Read</strong> and Organization <code>Members</code> at <strong>Read</strong>.",
+      "Create the App. The App ID is on the App's settings page; the App slug is the last part of its public URL (<code>github.com/apps/&lt;slug&gt;</code>).",
+      "Install it on <strong>all repositories</strong> of each organization, not selected repositories only.",
+      "Under Private keys, choose Generate a private key and paste the downloaded PEM below.",
+    ],
   },
 } as const;
+
+const IGNORED_OPTIONS =
+  "Ignore these options: callback URL, request user authorization, expire user authorization tokens, device flow, and webhook (uncheck Active).";
+
+function guidance(role: "installer" | "lookup"): string {
+  const copy = ROLE_COPY[role];
+  return `<ol class="help-text gh-ent-steps" style="font-size:12px;margin:8px 0;padding-left:20px">${copy.steps.map((x) => `<li>${x}</li>`).join("")}</ol>
+      <p class="help-text gh-ent-ignore" style="font-size:12px;margin:8px 0">${IGNORED_OPTIONS}</p>`;
+}
 
 function statusLine(app: GheApp): string {
   const validated = app.lastValidatedAt
@@ -110,9 +138,14 @@ function postButton(
   return `<form method="POST" action="${action}" style="display:inline;margin:0"><button type="submit" class="btn ${cls}" style="font-size:12px;padding:4px 10px">${label}</button></form>`;
 }
 
-function warningsBlock(role: "installer" | "lookup", codes: string[] | undefined): string {
+function warningsBlock(
+  role: "installer" | "lookup",
+  codes: string[] | undefined,
+): string {
   return (codes ?? [])
-    .filter((c): c is GheWarningCode => c in GHE_WARNINGS && c.startsWith(`${role}_`))
+    .filter(
+      (c): c is GheWarningCode => c in GHE_WARNINGS && c.startsWith(`${role}_`),
+    )
     .map(
       (c) =>
         `<div class="help-text gh-ent-warning" style="font-size:12px;margin-top:4px">Warning: ${escapeHtml(GHE_WARNINGS[c])}</div>`,
@@ -138,7 +171,8 @@ function appCard(
       : "";
   return `<div class="card">
       <div class="card-title">${copy.title}</div>
-      <p class="help-text" style="font-size:12px">${copy.help}</p>
+      <p class="help-text" style="font-size:12px">${copy.descriptor}</p>
+      ${guidance(role)}
       ${summary}
       <form method="POST" action="${action}" style="display:grid;gap:8px;max-width:480px">
         <label>App ID <input name="appId" class="form-input" required inputmode="numeric" pattern="[0-9]+" /></label>
@@ -221,10 +255,9 @@ export function renderGithubEnterpriseSettingsPage(
   const notice = opts.notice
     ? `<div class="alert alert-success">${escapeHtml(opts.notice)}</div>`
     : "";
-  const emptyState = status.configured
-    ? ""
-    : `<div class="card"><div class="card-title">Not configured</div>
-      <p>This feature is optional. Without it, agents are provisioned exactly as before. Configure an installer app to install agents' GitHub Apps on your enterprise's organizations from here, and a lookup app to see which organizations are reachable. Paste the credentials of Apps you created in GitHub below.</p>
+  const intro = `<div class="card">
+      <p>Configure an installer app to auto-install agent apps on your enterprise's organizations, and a lookup app for repository access. Both are optional.</p>
+      <p class="help-text gh-ent-required" style="margin-top:8px"><strong>A GitHub Enterprise Cloud enterprise is required.</strong> These Apps are created in and scoped to an enterprise.</p>
     </div>`;
 
   return renderAdminPage({
@@ -232,7 +265,7 @@ export function renderGithubEnterpriseSettingsPage(
     body: `${renderAdminToolbar(opts.userEmail, BASE)}
   <div class="vos-page">
     <div class="page-header"><h1 class="page-title">GitHub Enterprise apps</h1></div>
-    ${error}${notice}${emptyState}
+    ${error}${notice}${intro}
     ${appCard("installer", status.installer, opts.warnings)}
     ${appCard("lookup", status.lookup, opts.warnings)}
     ${orgsCard(opts)}

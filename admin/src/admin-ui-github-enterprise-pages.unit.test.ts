@@ -52,6 +52,39 @@ describe("renderGithubEnterpriseSettingsPage", () => {
     expect(html).not.toContain("Organizations</div>");
   });
 
+  test("intro and enterprise-required notice render; old wording is gone", () => {
+    for (const status of [
+      empty,
+      { configured: true, installer: app(), lookup: null },
+    ]) {
+      const html = renderGithubEnterpriseSettingsPage({ ...base, status });
+      expect(html).toContain("auto-install agent apps");
+      expect(html).toContain("lookup app for repository access");
+      expect(html).toContain("GitHub Enterprise Cloud enterprise is required");
+      expect(html).not.toContain("exactly as before");
+    }
+  });
+
+  test("each card lists permissions, field locations and options to ignore", () => {
+    const html = renderGithubEnterpriseSettingsPage({ ...base, status: empty });
+    expect(html.match(/gh-ent-steps/g)?.length).toBe(2);
+    expect(html.match(/gh-ent-ignore/g)?.length).toBe(2);
+    expect(html).toContain("enterprise_organization_installations");
+    expect(html).toContain("Read and write");
+    expect(html).toContain("<code>Metadata</code>");
+    expect(html).toContain("<code>Members</code>");
+    expect(html).toContain("github.com/enterprises/");
+    expect(html).toContain("Generate a private key");
+    for (const opt of [
+      "callback URL",
+      "request user authorization",
+      "device flow",
+      "webhook",
+    ]) {
+      expect(html).toContain(opt);
+    }
+  });
+
   test("only the installer form asks for an enterprise slug", () => {
     const html = renderGithubEnterpriseSettingsPage({ ...base, status: empty });
     expect(html.match(/name="enterpriseSlug"/g)?.length).toBe(1);
@@ -106,7 +139,11 @@ describe("renderGithubEnterpriseSettingsPage", () => {
   test("warnings render on the matching card only, as non-error notes", () => {
     const html = renderGithubEnterpriseSettingsPage({
       ...base,
-      status: { configured: true, installer: app(), lookup: app({ role: "lookup", enterpriseSlug: null }) },
+      status: {
+        configured: true,
+        installer: app(),
+        lookup: app({ role: "lookup", enterpriseSlug: null }),
+      },
       warnings: ["installer_repositories_write"],
     });
     expect(html).toContain("enterprise_organization_installation_repositories");

@@ -158,6 +158,15 @@ describe("GET /admin/settings/github-enterprise", () => {
     expect(html).toContain("optional");
     expect(html).toContain("Installer app");
   });
+
+  it("renders setup guidance on both cards and the enterprise notice", async () => {
+    const { app } = setup();
+    const html = await (await app.request(BASE)).text();
+    expect(html).toContain("GitHub Enterprise Cloud enterprise is required");
+    expect(html).not.toContain("exactly as before");
+    expect(html.match(/gh-ent-steps/g)?.length).toBe(2);
+    expect(html.match(/gh-ent-ignore/g)?.length).toBe(2);
+  });
 });
 
 describe("form posts", () => {
