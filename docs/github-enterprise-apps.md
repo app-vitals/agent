@@ -20,7 +20,7 @@ Permissions were verified against GitHub's REST API description and the "permiss
 | App | Permission | Level | Why |
 |-----|------------|-------|-----|
 | Installer | Enterprise: `enterprise_organization_installations` | **Read and write** (read covers the list calls only) | Read for listing installable orgs and an org's installations; write for installing (and removing) an App on an org. Required: validation fails without it. |
-| Installer | Enterprise: `enterprise_organization_installation_repositories` | **Read and write** | For the repository add/remove endpoints used by repository management (Phase 3). The settings page asks for it now; it is **needed from Phase 3**, so validation only warns when it is missing. |
+| Installer | Enterprise: `enterprise_organization_installation_repositories` | **Read and write** (read covers list only) | Read for listing repositories an installation can access; write for granting and revoking repository access (repository management). The settings page asks for it; validation only warns when it is missing. |
 | Lookup | Repository: `metadata` | **read** | Collaborator-permission lookups are listed under Metadata read, not Administration. Required: validation fails without it. |
 | Lookup | Organization: `members` | **read** | Lets the lookup see organization membership. Optional: validation only warns when it is missing. |
 
@@ -29,6 +29,7 @@ Notes:
 - The enterprise endpoints exist only on GitHub Enterprise Cloud, and "can only be called by a GitHub App installed on the enterprise that owns the organization". The installer App must therefore be installed on the enterprise itself.
 - Validation fails only for the required permissions: installer needs `enterprise_organization_installations` at `write`; lookup needs `metadata` at `read` or `write`.
 - The two optional permissions above produce non-failing warnings (see Setup step 4).
+- `GithubEnterpriseClient` implements repository access management (list, add, remove, and all/selected toggle); these operations require `enterprise_organization_installation_repositories` at write.
 - **Unverified:** whether Metadata read alone suffices for the collaborator-permission lookup at runtime has not been verified live. This stays flagged until GHE-2.7 checks it.
 
 ## Setup

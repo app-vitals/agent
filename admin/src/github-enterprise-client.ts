@@ -8,7 +8,14 @@
  * POST /app/installations/{id}/access_tokens (JWT) -> call the
  * /enterprises/{enterprise}/apps/... endpoints with the installation token.
  *
- * Repo add/remove on an installation is Phase 3 and intentionally not here.
+ * Repository access on an installation (Phase 3): list, add, remove (max 50
+ * names per call, batched here) and the all/selected toggle, all under
+ * /enterprises/{enterprise}/apps/organizations/{org}/installations/{id}/repositories
+ * (GET list; PATCH toggle; PATCH /add; PATCH /remove). They need the
+ * installer permission `enterprise_organization_installation_repositories`.
+ * The list/add/remove responses are arrays of { id, name, full_name }; the
+ * toggle returns the updated installation. /remove returns 422 when removing
+ * from an "all" installation or removing the last repository.
  *
  * ── Verified findings (feed GHE-1.5 docs) ─────────────────────────────────
  * Source: github/rest-api-description descriptions/ghec/ghec.json (fetched
@@ -156,6 +163,18 @@ export interface InstallOnOrgResult {
   created: boolean;
 }
 
+export interface AccessibleRepository {
+  id: number;
+  name: string;
+  fullName: string;
+}
+
+export interface SetRepositorySelectionInput {
+  repositorySelection: "all" | "selected";
+  /** Simple repo names (max 50); required when repositorySelection is "selected". */
+  repositories?: string[];
+}
+
 export interface EnterpriseInstallationToken {
   token: string;
   expiresAt: string;
@@ -178,6 +197,19 @@ const MAX_PAGES = 100;
 const MAX_REPOSITORIES = 50;
 /** Refresh a cached installation token this long before it expires. */
 const TOKEN_REFRESH_SKEW_MS = 60_000;
+
+/**
+ * Split repository names into batches of at most MAX_REPOSITORIES, keeping
+ * order and dropping blanks and duplicates (GitHub caps each call at 50).
+ */
+export function batchRepositoryNames(names: readonly string[]): string[][] {
+  const unique = [...new Set(names.filter((n) => n))];
+  const batches: string[][] = [];
+  for (let i = 0; i < unique.length; i += MAX_REPOSITORIES) {
+    batches.push(unique.slice(i, i + MAX_REPOSITORIES));
+  }
+  return batches;
+}
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 
@@ -316,7 +348,99 @@ export class GithubEnterpriseClient {
     return { installation: toInstallation(res.data), created: res.status === 201 };
   }
 
+  /** List all repositories an installation can access (paginated). */
+  async listInstallationRepositories(
+    org: string,
+    installationId: number,
+  ): Promise<AccessibleRepository[]> {
+    const rows = await this.paginate<RawRepository>(
+      this.repositoriesPath(org, installationId),
+      "GitHub installation repositories",
+    );
+    return rows.map(toRepository);
+  }
+
+  /** Grant an installation access to repositories, in batches of at most 50. */
+  async addRepositories(
+    org: string,
+    installationId: number,
+    names: readonly string[],
+  ): Promise<AccessibleRepository[]> {
+    return this.patchRepositories(org, installationId, "add", names, "GitHub add installation repositories");
+  }
+
+  /** Remove repository access from an installation, in batches of at most 50. */
+  async removeRepositories(
+    org: string,
+    installationId: number,
+    names: readonly string[],
+  ): Promise<AccessibleRepository[]> {
+    return this.patchRepositories(
+      org,
+      installationId,
+      "remove",
+      names,
+      "GitHub remove installation repositories",
+    );
+  }
+
+  /** Toggle an installation between "all" and "selected" repositories. */
+  async setRepositorySelection(
+    org: string,
+    installationId: number,
+    input: SetRepositorySelectionInput,
+  ): Promise<AppInstallation> {
+    const context = "GitHub set installation repository selection";
+    const path = this.repositoriesPath(org, installationId);
+    const repos = input.repositories ?? [];
+    if (input.repositorySelection === "selected" && (repos.length === 0 || repos.length > MAX_REPOSITORIES)) {
+      throw new GithubEnterpriseError(
+        "validation",
+        `setRepositorySelection: repositories must list 1-${MAX_REPOSITORIES} names when repositorySelection is "selected"`,
+      );
+    }
+    const body: Record<string, unknown> = { repository_selection: input.repositorySelection };
+    if (input.repositorySelection === "selected") body.repositories = repos;
+    const { token } = await this.getInstallationToken();
+    const res = await this.request<RawInstallation>("PATCH", path, token, context, body);
+    if (typeof res.data?.id !== "number") {
+      throw new GithubEnterpriseError("unexpected", `${context}: response missing id`);
+    }
+    return toInstallation(res.data);
+  }
+
   // ─── internals ──────────────────────────────────────────────────────────────
+
+  private repositoriesPath(org: string, installationId: number): string {
+    if (!Number.isInteger(installationId) || installationId <= 0) {
+      throw new GithubEnterpriseError("validation", "installationId must be a positive integer");
+    }
+    const ent = encodeURIComponent(this.enterprise);
+    return `/enterprises/${ent}/apps/organizations/${encodeURIComponent(org)}/installations/${installationId}/repositories`;
+  }
+
+  /** Sequential batched PATCH to /add or /remove; stops at the first failing batch. */
+  private async patchRepositories(
+    org: string,
+    installationId: number,
+    action: "add" | "remove",
+    names: readonly string[],
+    context: string,
+  ): Promise<AccessibleRepository[]> {
+    const path = `${this.repositoriesPath(org, installationId)}/${action}`;
+    const batches = batchRepositoryNames(names);
+    if (batches.length === 0) return [];
+    const { token } = await this.getInstallationToken();
+    const out: AccessibleRepository[] = [];
+    for (const repositories of batches) {
+      const res = await this.request<RawRepository[]>("PATCH", path, token, context, { repositories });
+      if (!Array.isArray(res.data)) {
+        throw new GithubEnterpriseError("unexpected", `${context}: response is not a list`);
+      }
+      out.push(...res.data.map(toRepository));
+    }
+    return out;
+  }
 
   private async paginate<T>(path: string, context: string): Promise<T[]> {
     const { token } = await this.getInstallationToken();
@@ -340,7 +464,7 @@ export class GithubEnterpriseClient {
   }
 
   private async request<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH",
     path: string,
     bearer: string,
     context: string,
@@ -385,6 +509,16 @@ interface RawInstallation {
   client_id?: string;
   account?: { login?: string } | null;
   repository_selection: RepositorySelection;
+}
+
+interface RawRepository {
+  id: number;
+  name: string;
+  full_name: string;
+}
+
+function toRepository(r: RawRepository): AccessibleRepository {
+  return { id: r.id, name: r.name, fullName: r.full_name };
 }
 
 function toInstallation(r: RawInstallation): AppInstallation {
