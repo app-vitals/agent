@@ -313,7 +313,7 @@ export interface AdminUIDeps {
     AgentTokenService,
     "listForAgent" | "create" | "revoke"
   >;
-  agentPluginService: Pick<AgentPluginService, "list" | "add">;
+  agentPluginService: Pick<AgentPluginService, "list" | "add" | "remove">;
   /**
    * PMK-1.5: remote marketplaces for the agent page. Optional (additive to the
    * exported AdminUIDeps); absent hides the add/remove routes' effect and
@@ -804,6 +804,22 @@ export function createAgentAccessChecks(deps: {
 }
 
 // ─── App factory ──────────────────────────────────────────────────────────────
+
+/** Marketplace a bare plugin spec resolves to (the bundled one). */
+const DEFAULT_PLUGIN_MARKETPLACE = "shipwright";
+
+/**
+ * Validate a plugin install spec and return its canonical
+ * "<plugin>@<marketplace>" form. Throws UnprocessableEntityError if malformed.
+ */
+function normalizePluginSpec(spec: string): string {
+  if (!/^[^\s@]+(@[^\s@]+)?$/.test(spec)) {
+    throw new UnprocessableEntityError(
+      "plugin must be <plugin>@<marketplace> or a bare plugin name",
+    );
+  }
+  return spec.includes("@") ? spec : `${spec}@${DEFAULT_PLUGIN_MARKETPLACE}`;
+}
 
 export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
   const {
@@ -2623,6 +2639,62 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     if (marketplaceId) {
       try {
         await agentMarketplaceService?.remove(agentId, marketplaceId);
+      } catch {
+        // already gone, ignore
+      }
+    }
+    return c.redirect(`/admin/agents/${agentId}`, 302);
+  });
+
+  // ─── Plugin mutations (PUI-1.2) ───────────────────────────────────────────
+  // Same access rule as the marketplace routes. The spec is the canonical
+  // Claude install spec: "<plugin>@<marketplace>", or a bare "<plugin>" which
+  // defaults to the built-in shipwright marketplace.
+
+  app.post("/admin/agents/:id/plugins", requireAuth, async (c) => {
+    const agentId = c.req.param("id");
+    if (!(await assertAgentAccess(agentId, c.var.userEmail, c.var.isAdmin))) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    let raw: string | undefined;
+    try {
+      const formData = await c.req.formData();
+      raw = formData.get("spec")?.toString().trim();
+    } catch {
+      return c.redirect(`/admin/agents/${agentId}`, 302);
+    }
+    const redirectError = (message: string) =>
+      c.redirect(
+        `/admin/agents/${agentId}?error=${encodeURIComponent(message)}`,
+        302,
+      );
+    if (!raw) return redirectError("missing_fields");
+    try {
+      await agentPluginService.add(agentId, normalizePluginSpec(raw));
+    } catch (err) {
+      if (err instanceof UnprocessableEntityError) {
+        return redirectError(err.message);
+      }
+      // other errors — redirect back silently, like the tool routes
+    }
+    return c.redirect(`/admin/agents/${agentId}`, 302);
+  });
+
+  app.post("/admin/agents/:id/plugins/delete", requireAuth, async (c) => {
+    const agentId = c.req.param("id");
+    if (!(await assertAgentAccess(agentId, c.var.userEmail, c.var.isAdmin))) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    let pluginId: string | undefined;
+    try {
+      const formData = await c.req.formData();
+      pluginId = formData.get("pluginId")?.toString();
+    } catch {
+      return c.redirect(`/admin/agents/${agentId}`, 302);
+    }
+    if (pluginId) {
+      try {
+        await agentPluginService.remove(agentId, pluginId);
       } catch {
         // already gone, ignore
       }

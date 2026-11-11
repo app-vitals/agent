@@ -154,6 +154,7 @@ function makeMockDeps(overrides?: Partial<AdminUIDeps>): AdminUIDeps {
       add: async () => {
         throw new Error("not implemented");
       },
+      remove: async () => {},
     },
     agentMemberService: {
       listByEmail: async () => [],

@@ -107,6 +107,28 @@ const marketplaceRows: Array<{
   },
 ];
 
+// In-memory AgentPlugin rows (PUI-1.2), mutated by the add/remove routes so
+// plugins-section.e2e.ts sees real round trips (one server process per spec file).
+const pluginRows: Array<{
+  id: string;
+  agentId: string;
+  name: string;
+  version: string | null;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}> = [
+  {
+    id: "pl-e2e-1",
+    agentId: ADMIN_E2E_AGENT.id,
+    name: "seeded-plugin@seeded-remote",
+    version: null,
+    enabled: true,
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+  },
+];
+
 // ─── Chat fixtures (CFB-1.3 — chat thread page e2e) ──────────────────────────
 
 const MOCK_CHAT_THREAD: ChatThread = {
@@ -318,16 +340,26 @@ function buildMockDeps(chatClient: ChatClient | undefined): AdminUIDeps {
       revoke: async () => MOCK_TOKEN,
     },
     agentPluginService: {
-      list: async () => [],
-      add: async (agentId: string, name: string) => ({
-        id: "plugin-e2e-1",
-        agentId,
-        name,
-        version: null,
-        enabled: true,
-        createdAt: new Date("2024-01-01"),
-        updatedAt: new Date("2024-01-01"),
-      }),
+      list: async () => [...pluginRows],
+      add: async (agentId: string, name: string) => {
+        const existing = pluginRows.find((p) => p.name === name);
+        if (existing) return existing;
+        const row = {
+          id: `pl-e2e-${pluginRows.length + 1}-${name}`,
+          agentId,
+          name,
+          version: null,
+          enabled: true,
+          createdAt: new Date("2024-01-01"),
+          updatedAt: new Date("2024-01-01"),
+        };
+        pluginRows.push(row);
+        return row;
+      },
+      remove: async (_agentId: string, pluginId: string) => {
+        const i = pluginRows.findIndex((p) => p.id === pluginId);
+        if (i >= 0) pluginRows.splice(i, 1);
+      },
     },
     agentMarketplaceService: {
       list: async () => [...marketplaceRows],
