@@ -14,6 +14,7 @@
 import type { PrismaClient } from "../prisma/client/client.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import {
+  type OpenWorkItem,
   type OpenWorkPort,
   removedRepoBlockReason,
 } from "./reconcile-open-work.ts";
@@ -126,6 +127,35 @@ export class ReconcileApplyService {
     const agent = await this.deps.agents.get(agentId);
     if (!agent) throw new Error(`agent ${agentId} not found`);
     return this.planFor(agent, namedAdds);
+  }
+
+  /**
+   * Plan plus the open work the removals would affect (GHE-3.4). Read-only.
+   * Without a port the list is empty; a port failure adds a plan warning
+   * rather than failing the preview.
+   */
+  async planWithOpenWork(
+    agentId: string,
+    namedAdds?: readonly string[],
+  ): Promise<{ plan: ReconcilePlan; openWork: OpenWorkItem[] }> {
+    const plan = await this.plan(agentId, namedAdds);
+    const port = this.deps.openWork;
+    const removed = plan.diff.configRemoves;
+    if (!port || plan.skipped || removed.length === 0) {
+      return { plan, openWork: [] };
+    }
+    try {
+      return { plan, openWork: await port.listOpenWork(agentId, removed) };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        plan: {
+          ...plan,
+          warnings: [...plan.warnings, `open work could not be listed: ${msg}`],
+        },
+        openWork: [],
+      };
+    }
   }
 
   private async planFor(

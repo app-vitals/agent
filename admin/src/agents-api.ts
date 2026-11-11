@@ -164,6 +164,7 @@ import {
   UpsertAgentMarketplaceBodySchema,
   UpsertChatTokenDailyBodySchema,
 } from "./openapi-schemas.ts";
+import type { ReconcileApplyService } from "./reconcile-apply-service.ts";
 import type { SelfServeConfig } from "./self-serve-config.ts";
 import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
 import type { SpecialtyTypeResolver } from "./specialty-types.ts";
@@ -261,6 +262,12 @@ export interface AdminDeps {
    * means the enterprise Apps are not wired, reported as `unconfigured`.
    */
   githubAccessPreview?: GithubAccessPreviewFn;
+  /**
+   * GHE-3.4: backs POST /agents/:id/github-reconcile/{plan,apply}. Optional
+   * (additive); absent means the enterprise Apps are not wired, reported as
+   * `skipped`.
+   */
+  githubReconcile?: Pick<ReconcileApplyService, "planWithOpenWork" | "apply">;
   /**
    * Retained solely as a pass-through to deleteAgentFully() (DELETE /agents/:id),
    * which has its own internal prisma.agent/prisma.agentEnv access — out of
@@ -590,6 +597,87 @@ const GithubAccessPreviewSchema = z
       .openapi({ description: "Resolver output; absent when unconfigured." }),
   })
   .openapi("GithubAccessPreview");
+
+const GITHUB_RECONCILE_UNCONFIGURED = "GitHub Apps are not configured";
+
+const RepoFullNameSchema = z
+  .string()
+  .regex(/^[^/\s]+\/[^/\s]+$/, "must be owner/repo");
+
+const GithubReconcilePlanBodySchema = z
+  .object({
+    addRepos: z.array(RepoFullNameSchema).optional().openapi({
+      description:
+        "Repos (owner/repo) to explicitly add to the agent's config and installation.",
+    }),
+  })
+  .openapi("GithubReconcilePlanBody");
+
+const GithubReconcileApplyBodySchema = z
+  .object({
+    planHash: z.string().min(1).openapi({
+      description: "planHash of the plan the admin reviewed.",
+    }),
+    addRepos: z.array(RepoFullNameSchema).optional().openapi({
+      description: "Must match the addRepos used when the plan was made.",
+    }),
+    confirmRemovals: z.boolean().optional().openapi({
+      description: "Required when the plan removes more than 10 repos.",
+    }),
+  })
+  .openapi("GithubReconcileApplyBody");
+
+const GithubReconcileDiffSchema = z.object({
+  installationAdds: z.array(z.string()),
+  installationRemoves: z.array(z.string()),
+  configAdds: z.array(z.string()),
+  configRemoves: z.array(z.string()),
+});
+
+const GithubReconcilePlanResultSchema = z
+  .object({
+    status: z.enum(["planned", "skipped"]).openapi({
+      description:
+        "`skipped` (not an error) when no GitHub username is bound or the Apps are not configured; `reason` says why.",
+    }),
+    reason: z.string().optional(),
+    planHash: z.string().optional(),
+    empty: z.boolean().optional(),
+    diff: GithubReconcileDiffSchema.optional(),
+    skippedOrgs: z
+      .array(z.object({ org: z.string(), reason: z.string() }))
+      .optional(),
+    rejectedAdds: z
+      .array(z.object({ repo: z.string(), reason: z.string() }))
+      .optional(),
+    warnings: z.array(z.string()).optional(),
+    affectedOpenWork: z
+      .array(
+        z.object({
+          id: z.string(),
+          repo: z.string(),
+          title: z.string().optional(),
+        }),
+      )
+      .optional()
+      .openapi({
+        description:
+          "Open work the removals would block; empty when no open-work port is wired.",
+      }),
+  })
+  .openapi("GithubReconcilePlanResult");
+
+const GithubReconcileApplyResultSchema = z
+  .object({
+    status: z.enum(["applied", "failed", "noop", "skipped"]),
+    reason: z.string().optional(),
+    auditId: z.string().optional(),
+    planHash: z.string().optional(),
+    diff: GithubReconcileDiffSchema.optional(),
+    warnings: z.array(z.string()).optional(),
+    error: z.string().optional(),
+  })
+  .openapi("GithubReconcileApplyResult");
 
 // ─── Route definitions ──────────────────────────────────────────────────────────
 
@@ -1481,6 +1569,64 @@ const getGithubAccessRoute = createRoute({
     404: { description: "Agent not found", ...jsonError },
     422: { description: "Agent has no githubUsername", ...jsonError },
     502: { description: "GitHub unavailable or refused", ...jsonError },
+  },
+});
+
+const githubReconcilePlanRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/github-reconcile/plan",
+  summary: "Plan a GitHub repo reconcile for the agent",
+  description:
+    "Platform-admin only (session members, ops keys and agent keys get 403). Read-only: nothing is persisted or changed. Returns the diff, warnings, `planHash` and the open work the removals would affect. 200 with `status: skipped` and a `reason` when no githubUsername is bound or the enterprise Apps are not configured. 404 for an unknown agent.",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      required: false,
+      content: {
+        "application/json": { schema: GithubReconcilePlanBodySchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Reconcile plan",
+      content: {
+        "application/json": { schema: GithubReconcilePlanResultSchema },
+      },
+    },
+    401: { description: "Unauthorized", ...jsonError },
+    403: { description: "Platform admin required", ...jsonError },
+    404: { description: "Agent not found", ...jsonError },
+  },
+});
+
+const githubReconcileApplyRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/github-reconcile/apply",
+  summary: "Apply a reviewed GitHub repo reconcile plan",
+  description:
+    "Platform-admin only (session members, ops keys and agent keys get 403). Re-plans server-side and applies only when the fresh plan still matches `planHash` (409 otherwise). More than 10 removals need `confirmRemovals: true` (422 otherwise). Returns the audit id and result. 200 with `status: skipped` (unbound user or unconfigured Apps) or `status: noop` (nothing to change) is not an error. Open work on removed repos is blocked through the optional open-work port; a failure there is a warning.",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      required: true,
+      content: {
+        "application/json": { schema: GithubReconcileApplyBodySchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Apply result",
+      content: {
+        "application/json": { schema: GithubReconcileApplyResultSchema },
+      },
+    },
+    401: { description: "Unauthorized", ...jsonError },
+    403: { description: "Platform admin required", ...jsonError },
+    404: { description: "Agent not found", ...jsonError },
+    409: { description: "Plan hash is stale; re-plan", ...jsonError },
+    422: { description: "Removal cap needs confirmRemovals", ...jsonError },
   },
 });
 
@@ -2935,6 +3081,130 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       return c.json({ status: "unconfigured" as const }, 200);
     const preview = await deps.githubAccessPreview(agent.githubUsername);
     return c.json(preview, 200);
+  });
+
+  // POST /agents/:id/github-reconcile/{plan,apply} — GHE-3.4. Platform admin
+  // only. Responses carry repo names and ids, never tokens; logs carry ids only.
+  app.openapi(githubReconcilePlanRoute, async (c) => {
+    if (c.get("isAdmin") !== true) {
+      throw new ForbiddenError(
+        "Admin access required to plan a GitHub reconcile",
+      );
+    }
+    const { id: agentId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    const reconcile = deps.githubReconcile;
+    if (!reconcile) {
+      return c.json(
+        { status: "skipped" as const, reason: GITHUB_RECONCILE_UNCONFIGURED },
+        200,
+      );
+    }
+    let result: Awaited<ReturnType<typeof reconcile.planWithOpenWork>>;
+    try {
+      result = await reconcile.planWithOpenWork(agentId, body?.addRepos);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message === `agent ${agentId} not found`
+      ) {
+        throw new NotFoundError(`agent ${agentId} not found`);
+      }
+      throw err;
+    }
+    const { plan, openWork } = result;
+    if (plan.skipped) {
+      return c.json(
+        {
+          status: "skipped" as const,
+          reason: plan.skipReason ?? "reconcile skipped",
+        },
+        200,
+      );
+    }
+    return c.json(
+      {
+        status: "planned" as const,
+        planHash: plan.planHash,
+        empty: plan.empty,
+        diff: plan.diff,
+        skippedOrgs: plan.skippedOrgs,
+        rejectedAdds: plan.rejectedAdds,
+        warnings: plan.warnings,
+        affectedOpenWork: openWork,
+      },
+      200,
+    );
+  });
+
+  app.openapi(githubReconcileApplyRoute, async (c) => {
+    if (c.get("isAdmin") !== true) {
+      throw new ForbiddenError(
+        "Admin access required to apply a GitHub reconcile",
+      );
+    }
+    const { id: agentId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    const reconcile = deps.githubReconcile;
+    if (!reconcile) {
+      return c.json(
+        { status: "skipped" as const, reason: GITHUB_RECONCILE_UNCONFIGURED },
+        200,
+      );
+    }
+    const caller = c.get("caller")?.name ?? "anonymous";
+    const result = await reconcile.apply({
+      agentId,
+      caller,
+      planHash: body.planHash,
+      namedAdds: body.addRepos,
+      confirmRemovals: body.confirmRemovals,
+    });
+    switch (result.status) {
+      case "agent_not_found":
+        throw new NotFoundError(`agent ${agentId} not found`);
+      case "stale_plan":
+        throw new ConflictError(
+          "the plan changed since it was reviewed; re-run plan and review it again",
+        );
+      case "removal_cap":
+        throw new UnprocessableEntityError(
+          `plan removes ${result.removals} repos; resend with confirmRemovals: true to apply`,
+        );
+      case "skipped":
+        return c.json(
+          {
+            status: "skipped" as const,
+            reason: result.plan.skipReason ?? "reconcile skipped",
+          },
+          200,
+        );
+      case "noop":
+        return c.json(
+          {
+            status: "noop" as const,
+            planHash: result.plan.planHash,
+            diff: result.plan.diff,
+          },
+          200,
+        );
+      case "applied":
+      case "failed":
+        console.log(
+          `[agents-api] github reconcile ${result.status}: agent=${agentId} audit=${result.auditId} caller=${caller}`,
+        );
+        return c.json(
+          {
+            status: result.status,
+            auditId: result.auditId,
+            planHash: result.plan.planHash,
+            diff: result.plan.diff,
+            warnings: result.status === "applied" ? result.warnings : [],
+            ...(result.status === "failed" ? { error: result.error } : {}),
+          },
+          200,
+        );
+    }
   });
 
   // GET /agents/:id/github-installations — latest snapshot, 404 if none yet
