@@ -69,7 +69,6 @@ Provide either the GitHub App vars (recommended) or `GH_TOKEN` (PAT). App auth i
 | `GH_APP_SLUG` | `string` | — | URL slug of the agent's GitHub App, persisted from the manifest-flow exchange so the install link (`https://github.com/apps/<slug>/installations/new`) can be rebuilt later. Env-var-only (not secret). |
 | `GH_TOKEN` | `string` | — | Personal Access Token. Settable via the admin UI agent detail page's "Add GitHub PAT" action or as an env var. Used only when GitHub App vars are absent. Env-var-only (secret). |
 | `SHIPWRIGHT_GH_OWNER` | `string` | — | Owner hint under GitHub App auth: names the org whose `gh-token.d/<owner>` token the `gh` wrapper (`scripts/bin/gh`) and git credential helper use. Set per spawn by `runtime/spawn-env.ts` and per call by the `gh` helpers in `runtime/gh-helpers.ts`. Unset fails with a teaching error; an owner with no token file fails naming the org. Ignored under PAT auth. |
-| `SHIPWRIGHT_GITHUB_AGENT_APP_ID` | `string` | — | Numeric GitHub App id of the agent, read at admin boot and passed to the GitHub reconcile routes. Unset (or non-numeric) means the reconcile routes report `skipped`. |
 
 ### Platform
 

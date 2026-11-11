@@ -25,6 +25,7 @@ import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
 import { createGithubReconcile } from "./github-reconcile-wiring.ts";
 import {
   accessFor,
+  envWith,
   fakeOpenWork,
   fakePrisma,
 } from "./github-reconcile-wiring.unit.test.ts";
@@ -7186,13 +7187,16 @@ describe("admin API — GitHub reconcile routes (GHE-3.4)", () => {
 });
 
 describe("admin API — reconcile open-work seam, in-process composition (GHE-3.9)", () => {
-  const compose = (openWork?: ReturnType<typeof fakeOpenWork>["port"]) => {
+  const compose = (
+    openWork?: ReturnType<typeof fakeOpenWork>["port"],
+    env: Record<string, string> | undefined = { GH_APP_ID: "42" },
+  ) => {
     const { prisma, state } = fakePrisma(["acme/old"]);
     const githubReconcile = createGithubReconcile({
       prisma,
       appService: { get: async () => null, getPrivateKey: async () => null },
       access: accessFor(["acme/api"]),
-      agentAppId: 42,
+      agentEnv: envWith(env),
       installation: {
         listRepos: async () => ({ acme: ["acme/old", "acme/api"] }),
         addRepos: async () => {},
@@ -7224,6 +7228,20 @@ describe("admin API — reconcile open-work seam, in-process composition (GHE-3.
     ]);
     expect(calls.map((c) => c.fn)).toEqual(["list"]);
     expect(state.repos).toEqual(["acme/old"]);
+  });
+
+  it("plans for an agent whose GH_APP_ID is in its stored env", async () => {
+    const res = await compose(undefined, { GH_APP_ID: "42" }).plan();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "planned" });
+  });
+
+  it("reports skipped naming GH_APP_ID for an agent without one", async () => {
+    const res = await compose(undefined, {}).plan();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; reason?: string };
+    expect(body.status).toBe("skipped");
+    expect(body.reason).toContain("GH_APP_ID");
   });
 
   it("without a port plan lists nothing", async () => {

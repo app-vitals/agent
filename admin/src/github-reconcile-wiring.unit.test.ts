@@ -1,10 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { PrismaClient } from "../prisma/client/client.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
-import {
-  createGithubReconcile,
-  parseAgentAppId,
-} from "./github-reconcile-wiring.ts";
+import { createGithubReconcile } from "./github-reconcile-wiring.ts";
+import type { ReconcileInstallationPort } from "./reconcile-apply-service.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 
 export const accessFor = (pushable: string[]): GithubAccessPreviewFn => {
@@ -70,7 +68,12 @@ export function fakeOpenWork() {
   return { port, calls };
 }
 
-const installation = {
+export const envWith = (env?: Record<string, string>) => ({
+  getConfigBundle: async (agentId: string) =>
+    env ? { env, agentId, allowedTools: [] } : null,
+});
+
+const installation: ReconcileInstallationPort = {
   listRepos: async () => ({ acme: ["acme/old", "acme/api"] }),
   addRepos: async () => {},
   removeRepos: async () => {},
@@ -82,7 +85,7 @@ const build = (openWork?: OpenWorkPort) => {
     prisma,
     appService: { get: async () => null, getPrivateKey: async () => null },
     access: accessFor(["acme/api"]),
-    agentAppId: 42,
+    agentEnv: envWith({ GH_APP_ID: "42" }),
     installation,
     openWork,
   });
@@ -90,26 +93,47 @@ const build = (openWork?: OpenWorkPort) => {
   return { svc, state };
 };
 
-describe("parseAgentAppId", () => {
-  it("parses a positive integer and rejects everything else", () => {
-    expect(parseAgentAppId(" 123 ")).toBe(123);
-    for (const bad of [undefined, "", "abc", "0", "-4", "1.5"]) {
-      expect(parseAgentAppId(bad)).toBeUndefined();
-    }
-  });
-});
-
 describe("createGithubReconcile", () => {
-  it("is unwired without an agent App id", () => {
-    const { prisma } = fakePrisma([]);
-    expect(
-      createGithubReconcile({
+  it("plans from the agent's own stored GH_APP_ID", async () => {
+    const seen: number[] = [];
+    const { prisma } = fakePrisma(["acme/old"]);
+    const svc = createGithubReconcile({
+      prisma,
+      appService: { get: async () => null, getPrivateKey: async () => null },
+      access: accessFor(["acme/api"]),
+      agentEnv: envWith({ GH_APP_ID: " 77 " }),
+      installation: {
+        ...installation,
+        listRepos: async (appId) => {
+          seen.push(appId);
+          return { acme: ["acme/old", "acme/api"] };
+        },
+      },
+    });
+    const plan = await svc.plan("a1");
+    expect(seen).toEqual([77]);
+    expect(plan.skipped).toBe(false);
+  });
+
+  it("skips an agent with no GH_APP_ID, naming the missing var", async () => {
+    const { prisma } = fakePrisma(["acme/old"]);
+    const envs: (Record<string, string> | undefined)[] = [
+      undefined,
+      { OTHER: "x" },
+      { GH_APP_ID: "abc" },
+    ];
+    for (const env of envs) {
+      const svc = createGithubReconcile({
         prisma,
         appService: { get: async () => null, getPrivateKey: async () => null },
         access: accessFor([]),
-        agentAppId: undefined,
-      }),
-    ).toBeUndefined();
+        agentEnv: envWith(env),
+        installation,
+      });
+      const plan = await svc.plan("a1");
+      expect(plan.skipped).toBe(true);
+      expect(plan.skipReason).toContain("GH_APP_ID");
+    }
   });
 
   it("with a port: plan lists affected open work and apply blocks it", async () => {

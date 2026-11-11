@@ -53,7 +53,7 @@ The same operations are available over the API: `GET`/`PUT`/`DELETE /github-ente
 
 ## Repository reconcile
 
-Reconcile keeps an agent's repo scope within what its bound GitHub user can actually push to. It is the enforcer of that rule: session members can still edit an agent's `repos` (see [The member-edit caveat](#the-member-edit-caveat)), so reconcile is what brings the scope back in line. It needs the agent's `githubUsername`, both enterprise Apps, and `SHIPWRIGHT_GITHUB_AGENT_APP_ID` (the numeric id of the agent App whose installations are changed; see [`configuration-agent.md`](./configuration-agent.md)).
+Reconcile keeps an agent's repo scope within what its bound GitHub user can actually push to. It is the enforcer of that rule: session members can still edit an agent's `repos` (see [The member-edit caveat](#the-member-edit-caveat)), so reconcile is what brings the scope back in line. It needs the agent's `githubUsername`, both enterprise Apps, and a `GH_APP_ID` in the agent's own stored env (the numeric id of that agent's GitHub App, whose installations are changed).
 
 ### Plan, then apply
 
@@ -80,7 +80,7 @@ Order of effects on apply: installation adds, installation removes, the agent's 
 - **Unknown is never none.** Removals are skipped for an org whose access listing is missing, `partial` or failed, and for an org whose lookup App is installed on selected repositories only. Each is reported in `skippedOrgs` and as a warning. If the user is unbound, not found on GitHub or could not be verified, the whole plan is `skipped`.
 - **Subset invariant.** The agent's repos stay a subset of the agent App's installation repos. A removed repo also leaves the installation, a named add is installed first when absent, and a configured repo that the installation does not cover is dropped with a warning.
 - **Removal cap.** Applying more than 10 removals needs `confirmRemovals: true`. The cap guards against a bad lookup (for example a revoked or mis-scoped lookup App) silently stripping most of an agent's scope in one click.
-- **Inert when unbound or unconfigured.** With no bound username, or with the enterprise Apps not configured, plan and apply return `skipped` and make no installation calls. With `SHIPWRIGHT_GITHUB_AGENT_APP_ID` unset or non-numeric the reconcile is not wired at all and both routes report `skipped`.
+- **Inert when unbound or unconfigured.** With no bound username, or with the enterprise Apps not configured, plan and apply return `skipped` and make no installation calls. An agent with no (or a non-numeric) `GH_APP_ID` in its stored env reports `skipped` with a reason naming `GH_APP_ID`; an org where the agent's App is not installed fails the plan with an error naming that org.
 - **Idempotent.** Planning over an already-reconciled state gives an empty diff and the same hash; applying it is a `noop`.
 
 ### Audit entry

@@ -105,10 +105,7 @@ import {
   createGithubEnterpriseApp,
 } from "./github-enterprise-api.ts";
 import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
-import {
-  createGithubReconcile,
-  parseAgentAppId,
-} from "./github-reconcile-wiring.ts";
+import { createGithubReconcile } from "./github-reconcile-wiring.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";
@@ -474,17 +471,17 @@ export async function startAdmin(
     appService: githubEnterpriseAppService,
   });
   // GHE-3.9: the reconcile routes' service, with the extension's optional
-  // open-work port. Unwired (routes report `skipped`) without an agent App id.
+  // open-work port. Each agent's App id is read from its own stored GH_APP_ID.
   const githubReconcile = createGithubReconcile({
     prisma,
     appService: githubEnterpriseAppService,
     access: githubAccessPreview,
-    agentAppId: parseAgentAppId(process.env.SHIPWRIGHT_GITHUB_AGENT_APP_ID),
+    agentEnv: agentEnvService,
     openWork: resolvedExtensions.openWork,
   });
   const adminApiApp = createAdminApp({
     githubAccessPreview,
-    ...(githubReconcile ? { githubReconcile } : {}),
+    githubReconcile,
     agentService,
     agentEnvService,
     agentCronJobService,

@@ -37,6 +37,7 @@ function access(pushable: string[]): UserRepoAccessResult {
 }
 
 function build(opts: {
+  appId?: number | null;
   repos: string[];
   pushable: string[];
   installed?: string[];
@@ -52,6 +53,7 @@ function build(opts: {
         id: "a1",
         repos: state.repos,
         githubUsername: "dev",
+        ...(opts.appId === null ? {} : { appId: opts.appId ?? 42 }),
       }),
       setRepos: async (_id, repos) => {
         calls.push("config");
@@ -61,8 +63,10 @@ function build(opts: {
     access: async () =>
       opts.preview ?? { status: "ok", access: access(opts.pushable) },
     installation: {
-      listRepos: async () => ({ acme: opts.installed ?? opts.repos }),
-      addRepos: async () => {
+      listRepos: async (_app, _orgs) => ({
+        acme: opts.installed ?? opts.repos,
+      }),
+      addRepos: async (_app) => {
         calls.push("inst-add");
       },
       removeRepos: async () => {
@@ -148,6 +152,39 @@ describe("ReconcileApplyService (unit)", () => {
     );
   });
 
+  it("agent without GH_APP_ID is skipped with a reason naming GH_APP_ID", async () => {
+    const { svc, calls } = build({
+      appId: null,
+      repos: ["acme/a"],
+      pushable: ["acme/a"],
+    });
+    const plan = await svc.plan("a1");
+    expect(plan.skipped).toBe(true);
+    expect(plan.skipReason).toContain("GH_APP_ID");
+    expect(plan.skipReason).not.toContain("not configured");
+    const res = await svc.apply({ agentId: "a1", caller: "c", planHash: "x" });
+    expect(res.status).toBe("skipped");
+    expect(calls).toEqual([]);
+  });
+
+  it("passes the agent's own App id to the installation port", async () => {
+    const seen: number[] = [];
+    const { svc } = build({
+      appId: 77,
+      repos: ["acme/a"],
+      pushable: ["acme/a"],
+    });
+    // @ts-expect-error reach into deps to spy
+    const inst = svc.deps.installation;
+    const orig = inst.listRepos;
+    inst.listRepos = async (app: number, orgs: readonly string[]) => {
+      seen.push(app);
+      return orig(app, orgs);
+    };
+    await svc.plan("a1");
+    expect(seen).toEqual([77]);
+  });
+
   it("skipped plan (unconfigured) changes nothing and writes no audit", async () => {
     const { svc, calls, audits } = build({
       repos: ["acme/a"],
@@ -162,31 +199,40 @@ describe("ReconcileApplyService (unit)", () => {
 });
 
 describe("createInstallationPort (unit)", () => {
-  it("scopes to the agent App installation and sends simple names", async () => {
+  it("scopes to the given App's installation per call and sends simple names", async () => {
     const seen: string[] = [];
-    const port = createInstallationPort(
-      {
-        listOrgInstallations: async () => [
-          { id: 1, appId: 10 },
-          { id: 2, appId: 20 },
-        ],
-        listInstallationRepositories: async (_o, id) => {
-          seen.push(`list:${id}`);
-          return [{ fullName: "acme/a" }];
-        },
-        addRepositories: async (_o, id, names) => {
-          seen.push(`add:${id}:${names.join(",")}`);
-        },
-        removeRepositories: async (_o, id, names) => {
-          seen.push(`rm:${id}:${names.join(",")}`);
-        },
+    const port = createInstallationPort({
+      listOrgInstallations: async () => [
+        { id: 1, appId: 10 },
+        { id: 2, appId: 20 },
+      ],
+      listInstallationRepositories: async (_o, id) => {
+        seen.push(`list:${id}`);
+        return [{ fullName: "acme/a" }];
       },
-      20,
+      addRepositories: async (_o, id, names) => {
+        seen.push(`add:${id}:${names.join(",")}`);
+      },
+      removeRepositories: async (_o, id, names) => {
+        seen.push(`rm:${id}:${names.join(",")}`);
+      },
+    });
+    expect(await port.listRepos(20, ["acme"])).toEqual({ acme: ["acme/a"] });
+    await port.addRepos(20, "acme", ["acme/b"]);
+    await port.removeRepos(10, "acme", ["acme/c", "acme/d"]);
+    expect(seen).toEqual(["list:2", "add:2:b", "rm:1:c,d"]);
+  });
+
+  it("names the org when the App is not installed there", async () => {
+    const port = createInstallationPort({
+      listOrgInstallations: async () => [{ id: 1, appId: 10 }],
+      listInstallationRepositories: async () => [],
+      addRepositories: async () => {},
+      removeRepositories: async () => {},
+    });
+    await expect(port.listRepos(99, ["acme"])).rejects.toThrow(
+      /99.*not installed on org acme/,
     );
-    expect(await port.listRepos(["acme"])).toEqual({ acme: ["acme/a"] });
-    await port.addRepos("acme", ["acme/b"]);
-    await port.removeRepos("acme", ["acme/c", "acme/d"]);
-    expect(seen).toEqual(["list:2", "add:2:b", "rm:2:c,d"]);
   });
 });
 
