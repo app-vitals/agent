@@ -3840,6 +3840,152 @@ describe("admin UI — marketplaces (PMK-1.5)", () => {
   });
 });
 
+describe("admin UI — plugin add/remove (PUI-1.2)", () => {
+  const MEMBER = "member@example.com";
+  const form = (fields: Record<string, string>, cookie: string) => ({
+    method: "POST",
+    body: new URLSearchParams(fields).toString(),
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Cookie: `admin_session=${cookie}`,
+    },
+  });
+  const pluginService = (calls: unknown[][], removed: string[]) => ({
+    list: async () => [],
+    add: async (...args: unknown[]) => {
+      calls.push(args);
+      return {} as never;
+    },
+    remove: async (_id: string, pid: string) => {
+      removed.push(pid);
+    },
+  });
+
+  it("admin add passes the spec through and redirects", async () => {
+    const calls: unknown[][] = [];
+    const app = createAdminUIApp(
+      makeMockDeps({ agentPluginService: pluginService(calls, []) }),
+    );
+    const res = await app.request(
+      `/admin/agents/${AGENT_ID}/plugins`,
+      form({ spec: " foo@mkt " }, await makeSessionCookie()),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(`/admin/agents/${AGENT_ID}`);
+    expect(calls).toEqual([[AGENT_ID, "foo@mkt"]]);
+  });
+
+  it("a bare name defaults to the shipwright marketplace", async () => {
+    const calls: unknown[][] = [];
+    const app = createAdminUIApp(
+      makeMockDeps({ agentPluginService: pluginService(calls, []) }),
+    );
+    await app.request(
+      `/admin/agents/${AGENT_ID}/plugins`,
+      form({ spec: "foo" }, await makeSessionCookie()),
+    );
+    expect(calls).toEqual([[AGENT_ID, "foo@shipwright"]]);
+  });
+
+  it("a malformed spec redirects with an error and does not add", async () => {
+    const calls: unknown[][] = [];
+    const app = createAdminUIApp(
+      makeMockDeps({ agentPluginService: pluginService(calls, []) }),
+    );
+    for (const spec of ["a@b@c", "foo@", "@mkt", "has space", ""]) {
+      const res = await app.request(
+        `/admin/agents/${AGENT_ID}/plugins`,
+        form({ spec }, await makeSessionCookie()),
+      );
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toContain("error=");
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("an UnprocessableEntityError from the service surfaces via ?error=", async () => {
+    const app = createAdminUIApp(
+      makeMockDeps({
+        agentPluginService: {
+          list: async () => [],
+          add: async () => {
+            throw new UnprocessableEntityError("bad plugin spec");
+          },
+          remove: async () => {},
+        },
+      }),
+    );
+    const res = await app.request(
+      `/admin/agents/${AGENT_ID}/plugins`,
+      form({ spec: "foo@bar" }, await makeSessionCookie()),
+    );
+    expect(res.headers.get("location")).toContain("error=bad%20plugin%20spec");
+  });
+
+  it("remove calls the service with pluginId", async () => {
+    const removed: string[] = [];
+    const app = createAdminUIApp(
+      makeMockDeps({ agentPluginService: pluginService([], removed) }),
+    );
+    const res = await app.request(
+      `/admin/agents/${AGENT_ID}/plugins/delete`,
+      form({ pluginId: "pl1" }, await makeSessionCookie()),
+    );
+    expect(res.status).toBe(302);
+    expect(removed).toEqual(["pl1"]);
+  });
+
+  it("a member can add and remove; a non-member gets 403", async () => {
+    const calls: unknown[][] = [];
+    const removed: string[] = [];
+    const memberCookie = await makeSessionCookie(
+      SESSION_SECRET,
+      "google-sub-member",
+      MEMBER,
+      false,
+    );
+    const outsiderCookie = await makeSessionCookie(
+      SESSION_SECRET,
+      "google-sub-outsider",
+      "outsider@example.com",
+      false,
+    );
+    const app = createAdminUIApp(
+      makeMockDeps({
+        agentMemberService: {
+          listByEmail: async (email: string) =>
+            email === MEMBER
+              ? [{ id: "m1", agentId: AGENT_ID, email, createdAt: new Date() }]
+              : [],
+          exists: async (_a: string, email: string) => email === MEMBER,
+          add: async () => ({}) as never,
+          remove: async () => {},
+          listByAgentId: async () => [],
+        },
+        agentPluginService: pluginService(calls, removed),
+      }),
+    );
+    const add = await app.request(
+      `/admin/agents/${AGENT_ID}/plugins`,
+      form({ spec: "foo" }, memberCookie),
+    );
+    const del = await app.request(
+      `/admin/agents/${AGENT_ID}/plugins/delete`,
+      form({ pluginId: "pl1" }, memberCookie),
+    );
+    expect([add.status, del.status]).toEqual([302, 302]);
+    for (const path of ["plugins", "plugins/delete"]) {
+      const res = await app.request(
+        `/admin/agents/${AGENT_ID}/${path}`,
+        form({ spec: "foo", pluginId: "pl1" }, outsiderCookie),
+      );
+      expect(res.status).toBe(403);
+    }
+    expect(calls.length).toBe(1);
+    expect(removed).toEqual(["pl1"]);
+  });
+});
+
 describe("admin UI — manifest sync route", () => {
   let adminCookie: string;
 

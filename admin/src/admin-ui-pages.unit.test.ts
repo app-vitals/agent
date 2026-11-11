@@ -1891,7 +1891,7 @@ describe("renderAgentDetailPage — plugins", () => {
   test("Plugins table is wrapped in .data-table-wrapper", () => {
     const html = render([PLUGIN_ENABLED]);
     expect(html).toMatch(
-      /<div class="data-table-wrapper">\s*<table class="data-table">\s*<thead>\s*<tr>\s*<th>Package<\/th>/,
+      /<div class="data-table-wrapper">\s*<table class="data-table"[^>]*>\s*<thead>\s*<tr>\s*<th>Package<\/th>/,
     );
   });
 
@@ -4584,5 +4584,78 @@ describe("renderAgentDetailPage — marketplaces section (PMK-1.5)", () => {
     const html = render([{ ...remote, name: "<b>x</b>" }]);
     expect(html).not.toContain("<b>x</b>");
     expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
+  });
+});
+
+describe("renderAgentDetailPage — plugins add/remove (PUI-1.2)", () => {
+  const render = (
+    plugins: Array<{
+      id: string;
+      name: string;
+      version: string | null;
+      enabled: boolean;
+      createdAt: Date;
+    }>,
+    marketplaces: Array<{
+      id: string;
+      name: string;
+      source: string;
+      ref: string | null;
+      createdAt: Date;
+    }> = [],
+    bakedMarketplaces?: string[],
+  ) =>
+    renderAgentDetailPage(
+      { ...AGENT, bakedMarketplaces },
+      {},
+      [],
+      [],
+      [],
+      plugins,
+      [],
+      USER_NAME,
+      true,
+      { timezone: "UTC", marketplaces },
+    );
+  const plugin = {
+    id: "pl1",
+    name: "shipwright@shipwright",
+    version: null,
+    enabled: true,
+    createdAt: new Date("2024-01-01"),
+  };
+
+  test("rows carry a remove form posting pluginId", () => {
+    const html = render([plugin]);
+    expect(html).toContain(`/admin/agents/${AGENT.id}/plugins/delete`);
+    expect(html).toContain('name="pluginId" value="pl1"');
+  });
+
+  test("add form posts a spec with a datalist of marketplace names", () => {
+    const html = render(
+      [],
+      [
+        {
+          id: "mk1",
+          name: "remote-one",
+          source: "a/b",
+          ref: null,
+          createdAt: new Date(),
+        },
+      ],
+      ["baked-one"],
+    );
+    const form = html.match(/<form[^>]*id="add-plugin-form".*?<\/form>/s)?.[0];
+    expect(form).toContain(`action="/admin/agents/${AGENT.id}/plugins"`);
+    expect(form).toContain('name="spec"');
+    expect(form).toContain("Add plugin");
+    expect(html).toMatch(
+      /<datalist id="plugin-marketplaces">.*remote-one.*baked-one.*<\/datalist>/s,
+    );
+  });
+
+  test("escapes plugin names", () => {
+    const html = render([{ ...plugin, name: "<b>x</b>" }]);
+    expect(html).not.toContain("<b>x</b>");
   });
 });

@@ -1287,7 +1287,7 @@ export function renderAgentDetailPage(
 
   const pluginRows =
     plugins.length === 0
-      ? `<tr><td colspan="4" class="empty-state">No plugins installed.</td></tr>`
+      ? `<tr><td colspan="5" class="empty-state">No plugins installed.</td></tr>`
       : plugins
           .map(
             (p) => `<tr>
@@ -1295,6 +1295,12 @@ export function renderAgentDetailPage(
       <td class="mono">${p.version ? escapeHtml(p.version) : "latest"}</td>
       <td><span class="badge ${p.enabled ? "badge-green" : "badge-gray"}">${p.enabled ? "enabled" : "disabled"}</span></td>
       <td>${escapeHtml(new Date(p.createdAt).toLocaleDateString("en-US", { timeZone: timezone }))}</td>
+      <td>
+        <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/plugins/delete" style="display:inline">
+          <input type="hidden" name="pluginId" value="${escapeHtml(p.id)}" />
+          <button type="submit" class="btn btn-danger" style="font-size:11px;padding:3px 8px">Remove</button>
+        </form>
+      </td>
     </tr>`,
           )
           .join("\n");
@@ -1725,16 +1731,20 @@ export function renderAgentDetailPage(
       </div>
     </div>`;
 
+  const pluginMarketplaceNames = [
+    ...new Set([...marketplaces.map((m) => m.name), ...bakedMarketplaces]),
+  ];
   const pluginsSection = `<div class="card">
       <div class="card-title">Plugins</div>
       <div class="data-table-wrapper">
-        <table class="data-table">
+        <table class="data-table" id="plugins-table">
           <thead>
             <tr>
               <th>Package</th>
               <th>Version</th>
               <th>Status</th>
               <th>Created</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -1742,6 +1752,11 @@ export function renderAgentDetailPage(
           </tbody>
         </table>
       </div>
+      <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/plugins" id="add-plugin-form" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <input name="spec" type="text" class="form-input mono" list="plugin-marketplaces" placeholder="plugin@marketplace (bare name = shipwright)" required />
+        <datalist id="plugin-marketplaces">${pluginMarketplaceNames.map((n) => `<option value="${escapeHtml(n)}"></option>`).join("")}</datalist>
+        <button type="submit" class="btn btn-primary">Add plugin</button>
+      </form>
     </div>`;
 
   const marketplacesSection = `<div class="card">

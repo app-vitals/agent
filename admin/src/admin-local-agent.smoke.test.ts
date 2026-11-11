@@ -223,6 +223,7 @@ function makeMockDeps(overrides?: Partial<AdminUIDeps>): AdminUIDeps {
         createdAt: new Date(),
         updatedAt: new Date(),
       }),
+      remove: async () => {},
     },
     agentMemberService: {
       listByEmail: async () => [],
