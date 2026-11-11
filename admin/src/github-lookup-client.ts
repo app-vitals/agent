@@ -125,7 +125,10 @@ export class GithubLookupClient {
       privateKey: this.privateKey,
       now: this.now(),
     });
-    const inst = await this.request<{ id?: number; repository_selection?: unknown }>(
+    const inst = await this.request<{
+      id?: number;
+      repository_selection?: unknown;
+    }>(
       "GET",
       `/orgs/${encodeURIComponent(org)}/installation`,
       jwt,
