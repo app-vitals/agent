@@ -40,10 +40,11 @@ describeOrSkip("github reconcile routes (integration)", () => {
   let prisma: PrismaClient;
   let pushable: string[];
   let installed: string[];
+  let envService: AgentEnvService;
 
   const buildApp = () => {
     const reconcile = new ReconcileApplyService({
-      agents: new PrismaReconcileAgents(prisma),
+      agents: new PrismaReconcileAgents(prisma, envService),
       access: async () => ({
         status: "ok",
         access: {
@@ -76,7 +77,7 @@ describeOrSkip("github reconcile routes (integration)", () => {
     });
     return createAdminApp({
       agentService: new AgentService(prisma),
-      agentEnvService: new AgentEnvService(prisma, identityCrypto),
+      agentEnvService: envService,
       agentCronJobService: new AgentCronJobService(prisma),
       agentCronRunService: new AgentCronRunService(prisma),
       agentCronRunStatsService: new AgentCronRunStatsService(prisma),
@@ -124,6 +125,7 @@ describeOrSkip("github reconcile routes (integration)", () => {
 
   beforeEach(async () => {
     prisma = createAdminPrismaClient(TEST_DB as string);
+    envService = new AgentEnvService(prisma, identityCrypto);
     await prisma.gitHubReconcileAudit.deleteMany();
     await prisma.agentGitHubInstallationsSnapshot.deleteMany();
     await prisma.agentWorkQueueSnapshot.deleteMany();
@@ -147,6 +149,7 @@ describeOrSkip("github reconcile routes (integration)", () => {
     const agent = await prisma.agent.create({
       data: { name: "A", repos: ["acme/a", "acme/b"], githubUsername: "dev" },
     });
+    await envService.patch(agent.id, { GH_APP_ID: "42" });
     installed = ["acme/a", "acme/b"];
     pushable = ["acme/a"];
     const app = buildApp();
@@ -173,6 +176,7 @@ describeOrSkip("github reconcile routes (integration)", () => {
     const agent = await prisma.agent.create({
       data: { name: "A", repos, githubUsername: "dev" },
     });
+    await envService.patch(agent.id, { GH_APP_ID: "42" });
     installed = [...repos];
     pushable = ["acme/keep"];
     const app = buildApp();

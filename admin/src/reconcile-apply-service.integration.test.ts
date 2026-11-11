@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { PrismaClient } from "../prisma/client/client.ts";
+import { AgentEnvService } from "./agent-envs.ts";
 import type { GithubAccessPreview } from "./github-access-preview.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
 import {
@@ -15,6 +16,7 @@ import {
   PrismaReconcileAudit,
   ReconcileApplyService,
 } from "./reconcile-apply-service.ts";
+import { identityCrypto } from "./token-crypto.ts";
 
 const TEST_DB = process.env.DATABASE_URL_ADMIN_TEST;
 const describeOrSkip = TEST_DB ? describe : describe.skip;
@@ -55,10 +57,13 @@ describeOrSkip("ReconcileApplyService (integration)", () => {
   const service = (): ReconcileApplyService =>
     new ReconcileApplyService({
       agents: {
-        get: (id) => new PrismaReconcileAgents(prisma).get(id),
+        get: (id) => new PrismaReconcileAgents(prisma, envService()).get(id),
         setRepos: async (id, repos) => {
           calls.push("config");
-          await new PrismaReconcileAgents(prisma).setRepos(id, repos);
+          await new PrismaReconcileAgents(prisma, envService()).setRepos(
+            id,
+            repos,
+          );
         },
       },
       access: async () =>
@@ -77,6 +82,8 @@ describeOrSkip("ReconcileApplyService (integration)", () => {
       audit: new PrismaReconcileAudit(prisma),
     });
 
+  const envService = () => new AgentEnvService(prisma, identityCrypto);
+
   async function makeAgent(
     repos: string[],
     githubUsername: string | null = "dev",
@@ -84,6 +91,7 @@ describeOrSkip("ReconcileApplyService (integration)", () => {
     const a = await prisma.agent.create({
       data: { name: "A", repos, githubUsername },
     });
+    await envService().patch(a.id, { GH_APP_ID: "42" });
     installed = [...repos];
     return a.id;
   }
@@ -238,7 +246,7 @@ describeOrSkip("ReconcileApplyService (integration)", () => {
     const base = service();
     const plan = await base.plan(id);
     const failing = new ReconcileApplyService({
-      agents: new PrismaReconcileAgents(prisma),
+      agents: new PrismaReconcileAgents(prisma, envService()),
       access: async () => accessFor(pushable),
       installation: {
         listRepos: async () => ({ acme: [...installed] }),
