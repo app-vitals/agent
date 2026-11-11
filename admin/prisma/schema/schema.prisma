@@ -614,3 +614,19 @@ model AgentMarketplace {
 
   @@unique([agentId, name])
 }
+
+// ─── GitHubReconcileAudit ─────────────────────────────────────────────────────
+// GHE-3.3: one row per applied (or failed) GitHub repo reconcile for an agent.
+// agentId is deliberately not a relation: the audit trail outlives the agent.
+
+model GitHubReconcileAudit {
+  id        String   @id @default(cuid())
+  agentId   String
+  caller    String
+  planHash  String
+  diff      Json
+  result    Json
+  createdAt DateTime @default(now())
+
+  @@index([agentId, createdAt])
+}
