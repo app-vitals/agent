@@ -708,5 +708,884 @@
         "members": "read"
       }
     }
+  },
+  "install_repos_success": {
+    "status": 200,
+    "body": [
+      {
+        "id": 1,
+        "name": "repo-1",
+        "full_name": "acme-eng/repo-1"
+      },
+      {
+        "id": 2,
+        "name": "repo-2",
+        "full_name": "acme-eng/repo-2"
+      }
+    ]
+  },
+  "install_repos_page_1": {
+    "status": 200,
+    "headers": {
+      "link": "<https://api.github.com/enterprises/acme/apps/organizations/acme-eng/installations/501/repositories?per_page=100&page=2>; rel=\"next\""
+    },
+    "body": [
+      {
+        "id": 1,
+        "name": "repo-1",
+        "full_name": "acme-eng/repo-1"
+      },
+      {
+        "id": 2,
+        "name": "repo-2",
+        "full_name": "acme-eng/repo-2"
+      }
+    ]
+  },
+  "install_repos_page_2": {
+    "status": 200,
+    "body": [
+      {
+        "id": 3,
+        "name": "repo-3",
+        "full_name": "acme-eng/repo-3"
+      }
+    ]
+  },
+  "install_repos_empty": {
+    "status": 200,
+    "body": []
+  },
+  "install_repos_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_repos_403_secondary_rate_limit": {
+    "status": 403,
+    "headers": {
+      "retry-after": "60"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
+  },
+  "install_repos_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_repos_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_repos_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"
+    }
+  },
+  "install_repos_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error"
+    }
+  },
+  "install_repos_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable"
+    }
+  },
+  "install_repos_add_success": {
+    "status": 200,
+    "body": [
+      {
+        "id": 1,
+        "name": "repo-1",
+        "full_name": "acme-eng/repo-1"
+      },
+      {
+        "id": 2,
+        "name": "repo-2",
+        "full_name": "acme-eng/repo-2"
+      }
+    ]
+  },
+  "install_repos_add_batch_1": {
+    "status": 200,
+    "body": [
+      {
+        "id": 1,
+        "name": "repo-1",
+        "full_name": "acme-eng/repo-1"
+      },
+      {
+        "id": 2,
+        "name": "repo-2",
+        "full_name": "acme-eng/repo-2"
+      },
+      {
+        "id": 3,
+        "name": "repo-3",
+        "full_name": "acme-eng/repo-3"
+      },
+      {
+        "id": 4,
+        "name": "repo-4",
+        "full_name": "acme-eng/repo-4"
+      },
+      {
+        "id": 5,
+        "name": "repo-5",
+        "full_name": "acme-eng/repo-5"
+      },
+      {
+        "id": 6,
+        "name": "repo-6",
+        "full_name": "acme-eng/repo-6"
+      },
+      {
+        "id": 7,
+        "name": "repo-7",
+        "full_name": "acme-eng/repo-7"
+      },
+      {
+        "id": 8,
+        "name": "repo-8",
+        "full_name": "acme-eng/repo-8"
+      },
+      {
+        "id": 9,
+        "name": "repo-9",
+        "full_name": "acme-eng/repo-9"
+      },
+      {
+        "id": 10,
+        "name": "repo-10",
+        "full_name": "acme-eng/repo-10"
+      },
+      {
+        "id": 11,
+        "name": "repo-11",
+        "full_name": "acme-eng/repo-11"
+      },
+      {
+        "id": 12,
+        "name": "repo-12",
+        "full_name": "acme-eng/repo-12"
+      },
+      {
+        "id": 13,
+        "name": "repo-13",
+        "full_name": "acme-eng/repo-13"
+      },
+      {
+        "id": 14,
+        "name": "repo-14",
+        "full_name": "acme-eng/repo-14"
+      },
+      {
+        "id": 15,
+        "name": "repo-15",
+        "full_name": "acme-eng/repo-15"
+      },
+      {
+        "id": 16,
+        "name": "repo-16",
+        "full_name": "acme-eng/repo-16"
+      },
+      {
+        "id": 17,
+        "name": "repo-17",
+        "full_name": "acme-eng/repo-17"
+      },
+      {
+        "id": 18,
+        "name": "repo-18",
+        "full_name": "acme-eng/repo-18"
+      },
+      {
+        "id": 19,
+        "name": "repo-19",
+        "full_name": "acme-eng/repo-19"
+      },
+      {
+        "id": 20,
+        "name": "repo-20",
+        "full_name": "acme-eng/repo-20"
+      },
+      {
+        "id": 21,
+        "name": "repo-21",
+        "full_name": "acme-eng/repo-21"
+      },
+      {
+        "id": 22,
+        "name": "repo-22",
+        "full_name": "acme-eng/repo-22"
+      },
+      {
+        "id": 23,
+        "name": "repo-23",
+        "full_name": "acme-eng/repo-23"
+      },
+      {
+        "id": 24,
+        "name": "repo-24",
+        "full_name": "acme-eng/repo-24"
+      },
+      {
+        "id": 25,
+        "name": "repo-25",
+        "full_name": "acme-eng/repo-25"
+      },
+      {
+        "id": 26,
+        "name": "repo-26",
+        "full_name": "acme-eng/repo-26"
+      },
+      {
+        "id": 27,
+        "name": "repo-27",
+        "full_name": "acme-eng/repo-27"
+      },
+      {
+        "id": 28,
+        "name": "repo-28",
+        "full_name": "acme-eng/repo-28"
+      },
+      {
+        "id": 29,
+        "name": "repo-29",
+        "full_name": "acme-eng/repo-29"
+      },
+      {
+        "id": 30,
+        "name": "repo-30",
+        "full_name": "acme-eng/repo-30"
+      },
+      {
+        "id": 31,
+        "name": "repo-31",
+        "full_name": "acme-eng/repo-31"
+      },
+      {
+        "id": 32,
+        "name": "repo-32",
+        "full_name": "acme-eng/repo-32"
+      },
+      {
+        "id": 33,
+        "name": "repo-33",
+        "full_name": "acme-eng/repo-33"
+      },
+      {
+        "id": 34,
+        "name": "repo-34",
+        "full_name": "acme-eng/repo-34"
+      },
+      {
+        "id": 35,
+        "name": "repo-35",
+        "full_name": "acme-eng/repo-35"
+      },
+      {
+        "id": 36,
+        "name": "repo-36",
+        "full_name": "acme-eng/repo-36"
+      },
+      {
+        "id": 37,
+        "name": "repo-37",
+        "full_name": "acme-eng/repo-37"
+      },
+      {
+        "id": 38,
+        "name": "repo-38",
+        "full_name": "acme-eng/repo-38"
+      },
+      {
+        "id": 39,
+        "name": "repo-39",
+        "full_name": "acme-eng/repo-39"
+      },
+      {
+        "id": 40,
+        "name": "repo-40",
+        "full_name": "acme-eng/repo-40"
+      },
+      {
+        "id": 41,
+        "name": "repo-41",
+        "full_name": "acme-eng/repo-41"
+      },
+      {
+        "id": 42,
+        "name": "repo-42",
+        "full_name": "acme-eng/repo-42"
+      },
+      {
+        "id": 43,
+        "name": "repo-43",
+        "full_name": "acme-eng/repo-43"
+      },
+      {
+        "id": 44,
+        "name": "repo-44",
+        "full_name": "acme-eng/repo-44"
+      },
+      {
+        "id": 45,
+        "name": "repo-45",
+        "full_name": "acme-eng/repo-45"
+      },
+      {
+        "id": 46,
+        "name": "repo-46",
+        "full_name": "acme-eng/repo-46"
+      },
+      {
+        "id": 47,
+        "name": "repo-47",
+        "full_name": "acme-eng/repo-47"
+      },
+      {
+        "id": 48,
+        "name": "repo-48",
+        "full_name": "acme-eng/repo-48"
+      },
+      {
+        "id": 49,
+        "name": "repo-49",
+        "full_name": "acme-eng/repo-49"
+      },
+      {
+        "id": 50,
+        "name": "repo-50",
+        "full_name": "acme-eng/repo-50"
+      }
+    ]
+  },
+  "install_repos_add_batch_2": {
+    "status": 200,
+    "body": [
+      {
+        "id": 51,
+        "name": "repo-51",
+        "full_name": "acme-eng/repo-51"
+      }
+    ]
+  },
+  "install_repos_add_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_repos_add_403_secondary_rate_limit": {
+    "status": 403,
+    "headers": {
+      "retry-after": "60"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
+  },
+  "install_repos_add_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_repos_add_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_repos_add_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"
+    }
+  },
+  "install_repos_add_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error"
+    }
+  },
+  "install_repos_add_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable"
+    }
+  },
+  "install_repos_remove_success": {
+    "status": 200,
+    "body": [
+      {
+        "id": 1,
+        "name": "repo-1",
+        "full_name": "acme-eng/repo-1"
+      },
+      {
+        "id": 2,
+        "name": "repo-2",
+        "full_name": "acme-eng/repo-2"
+      }
+    ]
+  },
+  "install_repos_remove_batch_1": {
+    "status": 200,
+    "body": [
+      {
+        "id": 1,
+        "name": "repo-1",
+        "full_name": "acme-eng/repo-1"
+      },
+      {
+        "id": 2,
+        "name": "repo-2",
+        "full_name": "acme-eng/repo-2"
+      },
+      {
+        "id": 3,
+        "name": "repo-3",
+        "full_name": "acme-eng/repo-3"
+      },
+      {
+        "id": 4,
+        "name": "repo-4",
+        "full_name": "acme-eng/repo-4"
+      },
+      {
+        "id": 5,
+        "name": "repo-5",
+        "full_name": "acme-eng/repo-5"
+      },
+      {
+        "id": 6,
+        "name": "repo-6",
+        "full_name": "acme-eng/repo-6"
+      },
+      {
+        "id": 7,
+        "name": "repo-7",
+        "full_name": "acme-eng/repo-7"
+      },
+      {
+        "id": 8,
+        "name": "repo-8",
+        "full_name": "acme-eng/repo-8"
+      },
+      {
+        "id": 9,
+        "name": "repo-9",
+        "full_name": "acme-eng/repo-9"
+      },
+      {
+        "id": 10,
+        "name": "repo-10",
+        "full_name": "acme-eng/repo-10"
+      },
+      {
+        "id": 11,
+        "name": "repo-11",
+        "full_name": "acme-eng/repo-11"
+      },
+      {
+        "id": 12,
+        "name": "repo-12",
+        "full_name": "acme-eng/repo-12"
+      },
+      {
+        "id": 13,
+        "name": "repo-13",
+        "full_name": "acme-eng/repo-13"
+      },
+      {
+        "id": 14,
+        "name": "repo-14",
+        "full_name": "acme-eng/repo-14"
+      },
+      {
+        "id": 15,
+        "name": "repo-15",
+        "full_name": "acme-eng/repo-15"
+      },
+      {
+        "id": 16,
+        "name": "repo-16",
+        "full_name": "acme-eng/repo-16"
+      },
+      {
+        "id": 17,
+        "name": "repo-17",
+        "full_name": "acme-eng/repo-17"
+      },
+      {
+        "id": 18,
+        "name": "repo-18",
+        "full_name": "acme-eng/repo-18"
+      },
+      {
+        "id": 19,
+        "name": "repo-19",
+        "full_name": "acme-eng/repo-19"
+      },
+      {
+        "id": 20,
+        "name": "repo-20",
+        "full_name": "acme-eng/repo-20"
+      },
+      {
+        "id": 21,
+        "name": "repo-21",
+        "full_name": "acme-eng/repo-21"
+      },
+      {
+        "id": 22,
+        "name": "repo-22",
+        "full_name": "acme-eng/repo-22"
+      },
+      {
+        "id": 23,
+        "name": "repo-23",
+        "full_name": "acme-eng/repo-23"
+      },
+      {
+        "id": 24,
+        "name": "repo-24",
+        "full_name": "acme-eng/repo-24"
+      },
+      {
+        "id": 25,
+        "name": "repo-25",
+        "full_name": "acme-eng/repo-25"
+      },
+      {
+        "id": 26,
+        "name": "repo-26",
+        "full_name": "acme-eng/repo-26"
+      },
+      {
+        "id": 27,
+        "name": "repo-27",
+        "full_name": "acme-eng/repo-27"
+      },
+      {
+        "id": 28,
+        "name": "repo-28",
+        "full_name": "acme-eng/repo-28"
+      },
+      {
+        "id": 29,
+        "name": "repo-29",
+        "full_name": "acme-eng/repo-29"
+      },
+      {
+        "id": 30,
+        "name": "repo-30",
+        "full_name": "acme-eng/repo-30"
+      },
+      {
+        "id": 31,
+        "name": "repo-31",
+        "full_name": "acme-eng/repo-31"
+      },
+      {
+        "id": 32,
+        "name": "repo-32",
+        "full_name": "acme-eng/repo-32"
+      },
+      {
+        "id": 33,
+        "name": "repo-33",
+        "full_name": "acme-eng/repo-33"
+      },
+      {
+        "id": 34,
+        "name": "repo-34",
+        "full_name": "acme-eng/repo-34"
+      },
+      {
+        "id": 35,
+        "name": "repo-35",
+        "full_name": "acme-eng/repo-35"
+      },
+      {
+        "id": 36,
+        "name": "repo-36",
+        "full_name": "acme-eng/repo-36"
+      },
+      {
+        "id": 37,
+        "name": "repo-37",
+        "full_name": "acme-eng/repo-37"
+      },
+      {
+        "id": 38,
+        "name": "repo-38",
+        "full_name": "acme-eng/repo-38"
+      },
+      {
+        "id": 39,
+        "name": "repo-39",
+        "full_name": "acme-eng/repo-39"
+      },
+      {
+        "id": 40,
+        "name": "repo-40",
+        "full_name": "acme-eng/repo-40"
+      },
+      {
+        "id": 41,
+        "name": "repo-41",
+        "full_name": "acme-eng/repo-41"
+      },
+      {
+        "id": 42,
+        "name": "repo-42",
+        "full_name": "acme-eng/repo-42"
+      },
+      {
+        "id": 43,
+        "name": "repo-43",
+        "full_name": "acme-eng/repo-43"
+      },
+      {
+        "id": 44,
+        "name": "repo-44",
+        "full_name": "acme-eng/repo-44"
+      },
+      {
+        "id": 45,
+        "name": "repo-45",
+        "full_name": "acme-eng/repo-45"
+      },
+      {
+        "id": 46,
+        "name": "repo-46",
+        "full_name": "acme-eng/repo-46"
+      },
+      {
+        "id": 47,
+        "name": "repo-47",
+        "full_name": "acme-eng/repo-47"
+      },
+      {
+        "id": 48,
+        "name": "repo-48",
+        "full_name": "acme-eng/repo-48"
+      },
+      {
+        "id": 49,
+        "name": "repo-49",
+        "full_name": "acme-eng/repo-49"
+      },
+      {
+        "id": 50,
+        "name": "repo-50",
+        "full_name": "acme-eng/repo-50"
+      }
+    ]
+  },
+  "install_repos_remove_batch_2": {
+    "status": 200,
+    "body": [
+      {
+        "id": 51,
+        "name": "repo-51",
+        "full_name": "acme-eng/repo-51"
+      }
+    ]
+  },
+  "install_repos_remove_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_repos_remove_403_secondary_rate_limit": {
+    "status": 403,
+    "headers": {
+      "retry-after": "60"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
+  },
+  "install_repos_remove_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_repos_remove_422": {
+    "status": 422,
+    "body": {
+      "message": "Cannot remove the last repository from an installation. Remove the installation instead.",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_repos_remove_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"
+    }
+  },
+  "install_repos_remove_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error"
+    }
+  },
+  "install_repos_remove_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable"
+    }
+  },
+  "install_selection_success": {
+    "status": 200,
+    "body": {
+      "id": 501,
+      "client_id": "Iv1.targetapp0001",
+      "account": {
+        "login": "acme-eng",
+        "id": 5010,
+        "type": "Organization"
+      },
+      "repository_selection": "selected",
+      "access_tokens_url": "https://api.github.com/app/installations/501/access_tokens",
+      "repositories_url": "https://api.github.com/installation/repositories",
+      "html_url": "https://github.com/organizations/acme-eng/settings/installations/501",
+      "app_id": 777,
+      "app_slug": "target-app",
+      "target_id": 5010,
+      "target_type": "Organization",
+      "permissions": {
+        "contents": "write",
+        "metadata": "read"
+      },
+      "events": [],
+      "created_at": "2026-10-01T00:00:00Z",
+      "updated_at": "2026-10-01T00:00:00Z",
+      "single_file_name": null,
+      "suspended_at": null,
+      "suspended_by": null
+    }
+  },
+  "install_selection_all": {
+    "status": 200,
+    "body": {
+      "id": 501,
+      "client_id": "Iv1.targetapp0001",
+      "account": {
+        "login": "acme-eng",
+        "id": 5010,
+        "type": "Organization"
+      },
+      "repository_selection": "all",
+      "access_tokens_url": "https://api.github.com/app/installations/501/access_tokens",
+      "repositories_url": "https://api.github.com/installation/repositories",
+      "html_url": "https://github.com/organizations/acme-eng/settings/installations/501",
+      "app_id": 777,
+      "app_slug": "target-app",
+      "target_id": 5010,
+      "target_type": "Organization",
+      "permissions": {
+        "contents": "write",
+        "metadata": "read"
+      },
+      "events": [],
+      "created_at": "2026-10-01T00:00:00Z",
+      "updated_at": "2026-10-01T00:00:00Z",
+      "single_file_name": null,
+      "suspended_at": null,
+      "suspended_by": null
+    }
+  },
+  "install_selection_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_selection_403_secondary_rate_limit": {
+    "status": 403,
+    "headers": {
+      "retry-after": "60"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
+  },
+  "install_selection_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_selection_422": {
+    "status": 422,
+    "body": {
+      "message": "Validation Failed",
+      "documentation_url": "https://docs.github.com/enterprise-cloud@latest/rest/enterprise-admin/organization-installations"
+    }
+  },
+  "install_selection_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "30"
+    },
+    "body": {
+      "message": "API rate limit exceeded",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"
+    }
+  },
+  "install_selection_500": {
+    "status": 500,
+    "body": {
+      "message": "Server Error"
+    }
+  },
+  "install_selection_503": {
+    "status": 503,
+    "body": {
+      "message": "Service Unavailable"
+    }
   }
 }

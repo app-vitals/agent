@@ -20,13 +20,14 @@ Permissions were verified against GitHub's REST API description and the "permiss
 | App | Permission | Level | Why |
 |-----|------------|-------|-----|
 | Installer | Enterprise: `enterprise_organization_installations` | **write** (read covers the list calls only) | Read for listing installable orgs and an org's installations; write for installing (and removing) an App on an org. |
+| Installer | Enterprise: `enterprise_organization_installation_repositories` | **write** (read covers list only) | Read for listing repositories an installation can access; write for granting and revoking repository access. |
 | Lookup | Repository: `metadata` | **read** | Collaborator-permission lookups are listed under Metadata read, not Administration. |
 
 Notes:
 
 - The enterprise endpoints exist only on GitHub Enterprise Cloud, and "can only be called by a GitHub App installed on the enterprise that owns the organization". The installer App must therefore be installed on the enterprise itself.
-- `enterprise_organization_installation_repositories` is for the repository add/remove endpoints, a later phase, and is not needed now.
-- Validation checks exactly these: installer needs `enterprise_organization_installations` at `write`; lookup needs `metadata` at `read` or `write`.
+- `GithubEnterpriseClient` implements repository access management (list, add, remove, and all/selected toggle) under the Phase 3 feature; these operations require `enterprise_organization_installation_repositories` at write.
+- Validation checks exactly these: installer needs `enterprise_organization_installations` at `write` and `enterprise_organization_installation_repositories` at `write` (for repository management); lookup needs `metadata` at `read` or `write`. Missing optional permissions appear as non-failing warnings.
 - Whether Metadata read alone suffices for the collaborator-permission lookup at runtime was not verified live.
 
 ## Setup

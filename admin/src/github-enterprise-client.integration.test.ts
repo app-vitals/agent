@@ -41,6 +41,10 @@ const ENT = "GET /enterprises/acme/installation";
 const MINT = "POST /app/installations/4242/access_tokens";
 const ORGS = "GET /enterprises/acme/apps/installable_organizations";
 const INSTS = "GET /enterprises/acme/apps/organizations/acme-eng/installations";
+const REPOS = "GET /enterprises/acme/apps/organizations/acme-eng/installations/501/repositories";
+const SELECTION = "PATCH /enterprises/acme/apps/organizations/acme-eng/installations/501/repositories";
+const ADD = `${SELECTION}/add`;
+const REMOVE = `${SELECTION}/remove`;
 const INSTALL = "POST /enterprises/acme/apps/organizations/acme-eng/installations";
 
 interface Recorded {
@@ -50,8 +54,11 @@ interface Recorded {
   body?: string;
 }
 
-/** routes: "METHOD /path[?page=N]" or "METHOD /path" -> cassette key. */
-function replay(routes: Record<string, string>) {
+/**
+ * routes: "METHOD /path[?page=N]" or "METHOD /path" -> cassette key. An array
+ * of keys is replayed in call order (one per request, e.g. batched PATCHes).
+ */
+function replay(routes: Record<string, string | string[]>) {
   const calls: Recorded[] = [];
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(input.toString());
@@ -64,7 +71,8 @@ function replay(routes: Record<string, string>) {
       headers: new Headers(init?.headers),
       body: typeof init?.body === "string" ? init.body : undefined,
     });
-    const key = (page && routes[`${base}?page=${page}`]) || routes[base];
+    const route = (page && routes[`${base}?page=${page}`]) || routes[base];
+    const key = Array.isArray(route) ? route.shift() : route;
     if (!key) throw new Error(`no route for ${base} page=${page}`);
     const entry = cassette[key];
     if (!entry) throw new Error(`cassette key not found: ${key}`);
@@ -78,7 +86,7 @@ function replay(routes: Record<string, string>) {
 
 const OK = { [ENT]: "enterprise_installation_success", [MINT]: "access_token_success" };
 
-function makeClient(routes: Record<string, string>) {
+function makeClient(routes: Record<string, string | string[]>) {
   const { fetchFn, calls } = replay({ ...OK, ...routes });
   const client = new GithubEnterpriseClient({
     appId: "12345",
@@ -323,6 +331,170 @@ describe("installOnOrg", () => {
       const { client } = makeClient({ [INSTALL]: `install_${suffix}` });
       const e = await errOf(
         client.installOnOrg("acme-eng", { clientId: "Iv1.x", repositorySelection: "all" }),
+      );
+      expect(e.kind).toBe(kind);
+      expect(e.status).toBe(status);
+      expectNoSecrets(e);
+    });
+  }
+});
+
+const names = (a: number, b: number) =>
+  Array.from({ length: b - a + 1 }, (_, i) => `repo-${a + i}`);
+
+describe("listInstallationRepositories", () => {
+  it("maps repositories using the installation token", async () => {
+    const { client, calls } = makeClient({ [REPOS]: "install_repos_success" });
+    expect(await client.listInstallationRepositories("acme-eng", 501)).toEqual([
+      { id: 1, name: "repo-1", fullName: "acme-eng/repo-1" },
+      { id: 2, name: "repo-2", fullName: "acme-eng/repo-2" },
+    ]);
+    const last = calls[calls.length - 1] as Recorded;
+    expect(last.path).toBe(
+      "/enterprises/acme/apps/organizations/acme-eng/installations/501/repositories?per_page=100&page=1",
+    );
+    expect(last.headers.get("authorization")).toBe(
+      "Bearer ghs_cassetteInstallationToken0000000000",
+    );
+  });
+
+  it("follows Link rel=next across pages", async () => {
+    const { client } = makeClient({
+      [`${REPOS}?page=1`]: "install_repos_page_1",
+      [`${REPOS}?page=2`]: "install_repos_page_2",
+    });
+    const repos = await client.listInstallationRepositories("acme-eng", 501);
+    expect(repos.map((r) => r.name)).toEqual(["repo-1", "repo-2", "repo-3"]);
+  });
+
+  it("returns an empty list", async () => {
+    const { client } = makeClient({ [REPOS]: "install_repos_empty" });
+    expect(await client.listInstallationRepositories("acme-eng", 501)).toEqual([]);
+  });
+
+  for (const [suffix, kind, status] of ERRORS) {
+    it(`${suffix} -> ${kind}`, async () => {
+      const { client } = makeClient({ [REPOS]: `install_repos_${suffix}` });
+      const e = await errOf(client.listInstallationRepositories("acme-eng", 501));
+      expect(e.kind).toBe(kind);
+      expect(e.status).toBe(status);
+      expectNoSecrets(e);
+    });
+  }
+});
+
+describe("addRepositories", () => {
+  it("patches repository names and maps the result", async () => {
+    const { client, calls } = makeClient({ [ADD]: "install_repos_add_success" });
+    const r = await client.addRepositories("acme-eng", 501, ["repo-1", "repo-2"]);
+    expect(r.map((x) => x.fullName)).toEqual(["acme-eng/repo-1", "acme-eng/repo-2"]);
+    const last = calls[calls.length - 1] as Recorded;
+    expect(last.method).toBe("PATCH");
+    expect(JSON.parse(last.body ?? "")).toEqual({ repositories: ["repo-1", "repo-2"] });
+  });
+
+  it("splits 51 repositories into batches of 50 and 1", async () => {
+    const { client, calls } = makeClient({
+      [ADD]: ["install_repos_add_batch_1", "install_repos_add_batch_2"],
+    });
+    const r = await client.addRepositories("acme-eng", 501, names(1, 51));
+    expect(r).toHaveLength(51);
+    const patches = calls.filter((c) => c.method === "PATCH");
+    expect(patches.map((c) => JSON.parse(c.body ?? "").repositories.length)).toEqual([50, 1]);
+    expect(patches.every((c) => c.path.endsWith("/repositories/add"))).toBe(true);
+  });
+
+  it("makes no request for an empty list", async () => {
+    const { client, calls } = makeClient({});
+    expect(await client.addRepositories("acme-eng", 501, [])).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+
+  for (const [suffix, kind, status] of ERRORS) {
+    it(`${suffix} -> ${kind}`, async () => {
+      const { client } = makeClient({ [ADD]: `install_repos_add_${suffix}` });
+      const e = await errOf(client.addRepositories("acme-eng", 501, ["repo-1"]));
+      expect(e.kind).toBe(kind);
+      expect(e.status).toBe(status);
+      expectNoSecrets(e);
+    });
+  }
+});
+
+describe("removeRepositories", () => {
+  it("patches repository names to /remove", async () => {
+    const { client, calls } = makeClient({ [REMOVE]: "install_repos_remove_success" });
+    const r = await client.removeRepositories("acme-eng", 501, ["repo-1", "repo-2"]);
+    expect(r).toHaveLength(2);
+    const last = calls[calls.length - 1] as Recorded;
+    expect(last.method).toBe("PATCH");
+    expect(last.path).toEndWith("/installations/501/repositories/remove");
+    expect(JSON.parse(last.body ?? "")).toEqual({ repositories: ["repo-1", "repo-2"] });
+  });
+
+  it("splits 51 repositories into batches of 50 and 1", async () => {
+    const { client, calls } = makeClient({
+      [REMOVE]: ["install_repos_remove_batch_1", "install_repos_remove_batch_2"],
+    });
+    const r = await client.removeRepositories("acme-eng", 501, names(1, 51));
+    expect(r).toHaveLength(51);
+    const patches = calls.filter((c) => c.method === "PATCH");
+    expect(patches.map((c) => JSON.parse(c.body ?? "").repositories.length)).toEqual([50, 1]);
+  });
+
+  it("stops at the first failing batch", async () => {
+    const { client, calls } = makeClient({
+      [REMOVE]: ["install_repos_remove_batch_1", "install_repos_remove_422"],
+    });
+    const e = await errOf(client.removeRepositories("acme-eng", 501, names(1, 101)));
+    expect(e.kind).toBe("validation");
+    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(2);
+  });
+
+  for (const [suffix, kind, status] of ERRORS) {
+    it(`${suffix} -> ${kind}`, async () => {
+      const { client } = makeClient({ [REMOVE]: `install_repos_remove_${suffix}` });
+      const e = await errOf(client.removeRepositories("acme-eng", 501, ["repo-1"]));
+      expect(e.kind).toBe(kind);
+      expect(e.status).toBe(status);
+      expectNoSecrets(e);
+    });
+  }
+});
+
+describe("setRepositorySelection", () => {
+  it("toggles to selected with repositories", async () => {
+    const { client, calls } = makeClient({ [SELECTION]: "install_selection_success" });
+    const inst = await client.setRepositorySelection("acme-eng", 501, {
+      repositorySelection: "selected",
+      repositories: ["repo-1"],
+    });
+    expect(inst.repositorySelection).toBe("selected");
+    const last = calls[calls.length - 1] as Recorded;
+    expect(last.method).toBe("PATCH");
+    expect(JSON.parse(last.body ?? "")).toEqual({
+      repository_selection: "selected",
+      repositories: ["repo-1"],
+    });
+  });
+
+  it("toggles to all without sending repositories", async () => {
+    const { client, calls } = makeClient({ [SELECTION]: "install_selection_all" });
+    const inst = await client.setRepositorySelection("acme-eng", 501, {
+      repositorySelection: "all",
+      repositories: ["ignored"],
+    });
+    expect(inst.repositorySelection).toBe("all");
+    expect(JSON.parse((calls[calls.length - 1] as Recorded).body ?? "")).toEqual({
+      repository_selection: "all",
+    });
+  });
+
+  for (const [suffix, kind, status] of ERRORS) {
+    it(`${suffix} -> ${kind}`, async () => {
+      const { client } = makeClient({ [SELECTION]: `install_selection_${suffix}` });
+      const e = await errOf(
+        client.setRepositorySelection("acme-eng", 501, { repositorySelection: "all" }),
       );
       expect(e.kind).toBe(kind);
       expect(e.status).toBe(status);
