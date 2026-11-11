@@ -31,6 +31,7 @@ interface FakeOpts {
   perm?: (owner: string, repo: string) => RepoRole | Error | Promise<RepoRole>;
   token?: Record<string, Error>;
   user?: Error;
+  selection?: Record<string, "all" | "selected">;
 }
 
 function fake(o: FakeOpts = {}) {
@@ -40,7 +41,14 @@ function fake(o: FakeOpts = {}) {
     async getOrgToken(org) {
       const e = o.token?.[org];
       if (e) throw e;
-      return { token: "ghs_secret", expiresAt: "x", installationId: 1 };
+      return {
+        token: "ghs_secret",
+        expiresAt: "x",
+        installationId: 1,
+        ...(o.selection?.[org]
+          ? { repositorySelection: o.selection[org] }
+          : {}),
+      };
     },
     async getUser(_org, login) {
       if (o.user) throw o.user;
@@ -69,6 +77,31 @@ function fake(o: FakeOpts = {}) {
   });
   return { resolver, calls };
 }
+
+describe("selected-repositories installation", () => {
+  it("marks the org partial with a reason and keeps resolved repos", async () => {
+    const { resolver } = fake({
+      repos: { acme: ["a"], beta: ["b"] },
+      selection: { acme: "selected", beta: "all" },
+    });
+    const res = await resolver.resolve("octocat");
+    const [acme, beta] = res.orgs;
+    expect(acme.status).toBe("partial");
+    expect(acme.reason).toContain("selected repositories");
+    expect(acme.repos).toHaveLength(1);
+    expect(beta.status).toBe("ok");
+    expect(beta.reason).toBeUndefined();
+    expect(res.complete).toBe(false);
+  });
+
+  it("an all-repositories or unreported selection is unchanged", async () => {
+    const { resolver } = fake({ selection: { acme: "all" } });
+    const res = await resolver.resolve("octocat");
+    expect(res.orgs[0].status).toBe("ok");
+    expect(res.orgs[0].reason).toBeUndefined();
+    expect(res.complete).toBe(true);
+  });
+});
 
 describe("canPushForRole", () => {
   const cases: Array<[RepoRole, boolean]> = [

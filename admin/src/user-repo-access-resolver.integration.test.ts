@@ -28,8 +28,9 @@ const { privateKey } = generateKeyPairSync("rsa", {
 });
 
 const NOW = new Date("2026-11-09T12:00:00Z");
+const INST = "GET /orgs/acme-eng/installation";
 const BASE: Record<string, string> = {
-  "GET /orgs/acme-eng/installation": "org_installation_success",
+  [INST]: "org_installation_success",
   "POST /app/installations/7001/access_tokens": "lookup_token_success",
   "GET /installation/repositories": "repos_success",
   "GET /users/octocat": "user_success",
@@ -96,6 +97,20 @@ describe("UserRepoAccessResolver against GHE-2.2 cassettes", () => {
         unresolved: 0,
       },
     ]);
+  });
+
+  it("selected installation: partial with a reason naming the selection", async () => {
+    const { resolver } = setup({
+      [INST]: "org_installation_selected",
+      [API]: "permission_maintain",
+      [WEB]: "permission_triage",
+    });
+    const res = await resolver.resolve("octocat");
+    expect(res.complete).toBe(false);
+    expect(res.orgs[0].status).toBe("partial");
+    expect(res.orgs[0].reason).toContain("selected repositories");
+    expect(res.orgs[0].repos).toHaveLength(2);
+    expect(res.orgs[0].unresolved).toBe(0);
   });
 
   it("partial run: 429 mid-org keeps resolved and stops further calls", async () => {

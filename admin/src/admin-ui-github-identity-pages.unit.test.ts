@@ -173,6 +173,26 @@ describe("renderGithubAccessResult", () => {
     expect(html).toContain("Partial results");
   });
 
+  test("partial org with a reason shows the reason in the banner", () => {
+    const html = renderGithubAccessResult(
+      analysis({
+        complete: false,
+        orgs: [
+          {
+            org: "acme",
+            status: "partial",
+            repos: [],
+            unresolved: 0,
+            reason: "lookup app installed on selected repositories only <x>",
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("Partial results");
+    expect(html).toContain("selected repositories only &lt;x&gt;");
+    expect(html).not.toContain("<x>");
+  });
+
   test("incomplete with all orgs ok still warns", () => {
     const html = renderGithubAccessResult(
       analysis({

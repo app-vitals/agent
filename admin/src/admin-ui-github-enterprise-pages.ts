@@ -83,7 +83,7 @@ const ROLE_COPY = {
   },
   lookup: {
     title: "Lookup app",
-    help: "Read-only App used to see which organizations the platform can look up. Needs the metadata (read) permission.",
+    help: "Read-only App used to see which organizations the platform can look up. Needs the metadata (read) permission. It must be installed on all repositories of each organization, not selected repositories only.",
   },
 } as const;
 

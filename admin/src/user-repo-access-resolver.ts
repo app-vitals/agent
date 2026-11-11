@@ -58,7 +58,13 @@ export interface OrgAccessResult {
   repos: ResolvedRepoAccess[];
   /** Repos that could not be checked. Never reported as "none". */
   unresolved: number;
+  /** Why the org is not "ok" when the cause is the lookup install scope. */
+  reason?: string;
 }
+
+/** Shown when the lookup App is installed on selected repositories only. */
+export const SELECTED_REPOS_REASON =
+  "lookup app is installed on selected repositories only; install it on all repositories";
 
 export interface UserRepoAccessResult {
   username: string;
@@ -173,8 +179,10 @@ export class UserRepoAccessResolver {
     username: string,
   ): Promise<OrgAccessResult> {
     let repos: LookupRepository[];
+    let selectedOnly = false;
     try {
-      await this.lookup.getOrgToken(org);
+      const token = await this.lookup.getOrgToken(org);
+      selectedOnly = token.repositorySelection === "selected";
       repos = await this.lookup.listInstallationRepositories(org);
     } catch (e) {
       return orgLevelFailure(org, e);
@@ -221,6 +229,16 @@ export class UserRepoAccessResolver {
     else if (list.length > 0) status = "partial";
     else if (stop === "rate_limit") status = "rate_limited";
     else status = "error";
+    // A selected-only install lists a subset that looks complete: never "ok".
+    if (selectedOnly && status === "ok") {
+      return {
+        org,
+        status: "partial",
+        repos: list,
+        unresolved,
+        reason: SELECTED_REPOS_REASON,
+      };
+    }
     return { org, status, repos: list, unresolved };
   }
 
