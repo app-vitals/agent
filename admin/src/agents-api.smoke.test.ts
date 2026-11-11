@@ -34,6 +34,8 @@ import {
   fakeOpenWork,
   fakePrisma,
 } from "./github-reconcile-wiring.unit.test.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
+import { repoRemovedFromAgentBlockReason } from "./repo-removal-open-work.ts";
 import type { SpecialtyType } from "./specialty-types.ts";
 import { identityCrypto } from "./token-crypto.ts";
 
@@ -6042,6 +6044,224 @@ describe("admin API — POST/DELETE /agents/:id/repos", () => {
     const res = await call(app, "GET", "/agents/repos");
     expect(res.status).toBe(404);
     expect((await res.json()).error).toMatch(/agent repos not found/);
+  });
+});
+
+// ─── Repo removal blocks open work (IRM-1.7) ─────────────────────────────────
+
+describe("admin API — repo removal blocks open work", () => {
+  const MEMBER_EMAIL = "member@example.com";
+  const ADMIN_KEY = "irm-admin-key";
+  const ITEMS = [{ id: "T-1", repo: "a/one", title: "work" }];
+  const makeApp = (initial: string[], port?: Partial<OpenWorkPort> | null) => {
+    let repos = [...initial];
+    const calls: unknown[][] = [];
+    const base = makeMockDeps();
+    const detail = () => ({
+      id: AGENT_ID,
+      name: "Existing Agent",
+      slackId: null,
+      selfHosted: false,
+      repos: [...repos],
+      reviewAuthorAllowlist: [],
+      patchAuthorAllowlist: [],
+      restrictSlackToMembers: false,
+      specialty: "coding",
+      createdAt: new Date("2024-01-01"),
+      updatedAt: new Date("2024-01-01"),
+      missingRequiredEnv: [],
+    });
+    const openWork: OpenWorkPort | undefined =
+      port === null
+        ? undefined
+        : {
+            listOpenWork: async (...a) => {
+              calls.push(["list", ...a]);
+              return ITEMS;
+            },
+            blockOpenWork: async (...a) => {
+              calls.push(["block", ...a]);
+            },
+            ...port,
+          };
+    const app = createAdminApp({
+      ...base,
+      ...(openWork ? { openWork } : {}),
+      adminApiKeys: parseAdminApiKeys(`admin:${ADMIN_KEY}:*`),
+      agentMemberService: {
+        ...base.agentMemberService,
+        exists: async (agentId: string, email: string) =>
+          agentId === AGENT_ID && email === MEMBER_EMAIL,
+        listByEmail: async (email: string) =>
+          email === MEMBER_EMAIL
+            ? [
+                {
+                  id: "m1",
+                  agentId: AGENT_ID,
+                  email,
+                  createdAt: new Date("2024-01-01"),
+                },
+              ]
+            : [],
+      },
+      agentService: {
+        ...base.agentService,
+        exists: async () => true,
+        getDetail: async (id: string) => (id === AGENT_ID ? detail() : null),
+        updateSelfHosted: async (_id: string, input: { repos?: string[] }) => {
+          if (input.repos) repos = input.repos;
+          return detail();
+        },
+      },
+    });
+    return { app, calls, repos: () => repos };
+  };
+  const adminCall = (
+    app: ReturnType<typeof createAdminApp>,
+    method: string,
+    path: string,
+    body?: unknown,
+  ) =>
+    app.request(path, {
+      method,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${ADMIN_KEY}`,
+      },
+    });
+  const memberCall = async (
+    app: ReturnType<typeof createAdminApp>,
+    method: string,
+    path: string,
+    body?: unknown,
+  ) => {
+    const cookie = await sign(
+      {
+        isAdmin: false,
+        userId: "user-m",
+        email: MEMBER_EMAIL,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      },
+      SESSION_SECRET,
+      "HS256",
+    );
+    return app.request(path, {
+      method,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `admin_session=${cookie}`,
+      },
+    });
+  };
+  const url = `/agents/${AGENT_ID}/repos`;
+  const blockCall = (repo: string) => [
+    "block",
+    AGENT_ID,
+    [repo],
+    repoRemovedFromAgentBlockReason(repo),
+  ];
+
+  it("DELETE as platform admin blocks open work with a reason naming the repo", async () => {
+    const { app, calls } = makeApp(["a/one", "b/two"]);
+    const res = await adminCall(app, "DELETE", `${url}/a/one`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).repos).toEqual(["b/two"]);
+    expect(calls).toEqual([blockCall("a/one")]);
+  });
+
+  it("DELETE as a session member blocks open work too", async () => {
+    const { app, calls } = makeApp(["a/one", "b/two"]);
+    const res = await memberCall(app, "DELETE", `${url}/a/one`);
+    expect(res.status).toBe(200);
+    expect(calls).toEqual([blockCall("a/one")]);
+  });
+
+  it("a port failure is a warning and the removal still succeeds", async () => {
+    const { app, repos } = makeApp(["a/one"], {
+      blockOpenWork: async () => {
+        throw new Error("store down");
+      },
+    });
+    const res = await adminCall(app, "DELETE", `${url}/a/one`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.repos).toEqual([]);
+    expect(body.warning).toContain("store down");
+    expect(repos()).toEqual([]);
+  });
+
+  it("DELETE without a port just removes the repo", async () => {
+    const { app } = makeApp(["a/one"], null);
+    const res = await adminCall(app, "DELETE", `${url}/a/one`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).warning).toBeUndefined();
+  });
+
+  it("PATCH that drops repos blocks only the dropped ones", async () => {
+    const { app, calls } = makeApp(["a/one", "b/two", "c/three"]);
+    const res = await memberCall(app, "PATCH", `/agents/${AGENT_ID}`, {
+      repos: ["b/two"],
+    });
+    expect(res.status).toBe(200);
+    expect(calls).toEqual([blockCall("a/one"), blockCall("c/three")]);
+  });
+
+  it("adding a repo (POST, or PATCH that only adds) never touches open work", async () => {
+    const { app, calls } = makeApp(["a/one"]);
+    expect(
+      (await adminCall(app, "POST", url, { repos: ["b/two"] })).status,
+    ).toBe(200);
+    expect(
+      (
+        await adminCall(app, "PATCH", `/agents/${AGENT_ID}`, {
+          repos: ["a/one", "b/two", "c/three"],
+        })
+      ).status,
+    ).toBe(200);
+    expect(calls).toEqual([]);
+  });
+
+  it("preview lists open work for admin and member without changing anything", async () => {
+    const { app, calls, repos } = makeApp(["a/one", "b/two"]);
+    for (const res of [
+      await adminCall(app, "GET", `${url}/a/one/removal-preview`),
+      await memberCall(app, "GET", `${url}/a/one/removal-preview`),
+    ]) {
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        repo: "a/one",
+        openWork: ITEMS,
+        warnings: [],
+      });
+    }
+    expect(calls.every((c) => c[0] === "list")).toBe(true);
+    expect(repos()).toEqual(["a/one", "b/two"]);
+  });
+
+  it("preview is empty with no port, warns on a port failure, 404s for a repo the agent lacks", async () => {
+    const none = makeApp(["a/one"], null);
+    expect(
+      await (
+        await adminCall(none.app, "GET", `${url}/a/one/removal-preview`)
+      ).json(),
+    ).toEqual({ repo: "a/one", openWork: [], warnings: [] });
+    const failing = makeApp(["a/one"], {
+      listOpenWork: async () => {
+        throw new Error("nope");
+      },
+    });
+    const body = await (
+      await adminCall(failing.app, "GET", `${url}/a/one/removal-preview`)
+    ).json();
+    expect(body.openWork).toEqual([]);
+    expect(body.warnings[0]).toContain("nope");
+    expect(
+      (await adminCall(failing.app, "GET", `${url}/z/nope/removal-preview`))
+        .status,
+    ).toBe(404);
   });
 });
 

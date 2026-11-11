@@ -491,6 +491,9 @@ export async function startAdmin(
   const adminApiApp = createAdminApp({
     githubAccessPreview,
     githubReconcile,
+    ...(resolvedExtensions.openWork
+      ? { openWork: resolvedExtensions.openWork }
+      : {}),
     githubInstallationRepos,
     agentService,
     agentEnvService,
