@@ -25,11 +25,11 @@ const pemFile = (body: string) =>
   new File([body], "app.private-key.pem", { type: "application/x-pem-file" });
 
 describe("readPrivateKeyField", () => {
-  it("returns an uploaded valid PEM, trimmed", async () => {
+  it("returns an uploaded valid PEM unchanged", async () => {
     const r = await readPrivateKeyField(
-      formWith({ privateKeyFile: pemFile(`${PEM}\n\n`) }),
+      formWith({ privateKeyFile: pemFile(PEM) }),
     );
-    expect(r).toEqual({ ok: true, pem: PEM.trim() });
+    expect(r).toEqual({ ok: true, pem: PEM });
   });
 
   it("accepts RSA and EC private key headers", async () => {
@@ -46,7 +46,7 @@ describe("readPrivateKeyField", () => {
     const r = await readPrivateKeyField(
       formWith({ privateKeyFile: pemFile(PEM), privateKey: "pasted" }),
     );
-    expect(r).toEqual({ ok: true, pem: PEM.trim() });
+    expect(r).toEqual({ ok: true, pem: PEM });
   });
 
   it("passes pasted text through unchanged when no file is chosen", async () => {

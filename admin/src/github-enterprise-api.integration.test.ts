@@ -168,10 +168,7 @@ describeOrSkip("github-enterprise API (integration)", () => {
     upload.set("privateKeyFile", new File([PEM], "key.pem"));
     const res = await ui.request(base, { method: "POST", body: upload });
     expect(res.status).toBe(302);
-    expect(await snapshot()).toEqual({
-      ...pasted,
-      key: (pasted.key ?? "").trim(),
-    });
+    expect(await snapshot()).toEqual(pasted);
     const row = await prisma.gitHubEnterpriseApp.findUnique({
       where: { role: "lookup" },
     });

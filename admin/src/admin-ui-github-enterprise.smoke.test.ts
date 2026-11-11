@@ -196,7 +196,7 @@ describe("private key upload", () => {
       await pasted.appService.get("lookup"),
     );
     expect(await uploaded.appService.getPrivateKey("lookup")).toBe(
-      (await pasted.appService.getPrivateKey("lookup"))?.trim() ?? "",
+      await pasted.appService.getPrivateKey("lookup"),
     );
     const html = await (await uploaded.app.request(BASE)).text();
     expect(html).not.toContain("PRIVATE KEY");

@@ -36,6 +36,8 @@ export async function readPrivateKeyField(form: FormData): Promise<PemResult> {
 }
 
 function checkPem(text: string, error: string): PemResult {
-  const pem = text.trim();
-  return PEM_PRIVATE_KEY.test(pem) ? { ok: true, pem } : { ok: false, error };
+  // Validated trimmed, stored as-is so an upload matches a paste byte for byte.
+  return PEM_PRIVATE_KEY.test(text.trim())
+    ? { ok: true, pem: text }
+    : { ok: false, error };
 }
