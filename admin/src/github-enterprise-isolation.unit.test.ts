@@ -1,8 +1,8 @@
 /**
  * admin/src/github-enterprise-isolation.unit.test.ts
  * Isolation exception guard (GHE-1.3): the GitHub Enterprise App private key
- * is reachable only from the enterprise service, its admin API and the boot
- * wiring. Agent config bundle, agent-bearer routes and env serialization must
+ * is reachable only from the enterprise service, its admin API, the boot
+ * wiring and the reconcile wiring. Agent config bundle, agent-bearer routes and env serialization must
  * never import the service, touch its table or call getPrivateKey().
  */
 
@@ -17,6 +17,7 @@ const ALLOWED = new Set([
   "admin/src/github-enterprise-apps.ts",
   "admin/src/github-enterprise-api.ts",
   "admin/src/admin-boot.ts",
+  "admin/src/github-reconcile-wiring.ts",
 ]);
 
 function sources(dir: string, out: string[] = []): string[] {
@@ -66,13 +67,16 @@ describe("GitHub Enterprise key isolation", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("getPrivateKey() is only called by the enterprise API", () => {
+  it("getPrivateKey() is only called by the enterprise API and reconcile wiring", () => {
     const callers = files
       .map((f) => relative(REPO, f))
       .filter((rel) =>
         /\.getPrivateKey\(/.test(readFileSync(join(REPO, rel), "utf-8")),
       );
-    expect(callers).toEqual(["admin/src/github-enterprise-api.ts"]);
+    expect(callers.sort()).toEqual([
+      "admin/src/github-enterprise-api.ts",
+      "admin/src/github-reconcile-wiring.ts",
+    ]);
   });
 
   it("the config bundle and env serializers never read the enterprise table", () => {

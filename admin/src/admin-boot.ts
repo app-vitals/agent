@@ -99,12 +99,16 @@ import { CronRunNowService } from "./cron-run-now.ts";
 import { parseCronRunNowConfig } from "./cron-run-now-config.ts";
 import { CronRunTranscriptService } from "./cron-run-transcripts.ts";
 import { isDevAuthAllowed } from "./dev-auth-guard.ts";
+import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-client.ts";
 import {
   createGithubAccessPreview,
   createGithubEnterpriseApp,
 } from "./github-enterprise-api.ts";
 import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
-import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-client.ts";
+import {
+  createGithubReconcile,
+  parseAgentAppId,
+} from "./github-reconcile-wiring.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";
@@ -466,10 +470,21 @@ export async function startAdmin(
     prisma,
     makeStrictTokenCrypto(),
   );
+  const githubAccessPreview = createGithubAccessPreview({
+    appService: githubEnterpriseAppService,
+  });
+  // GHE-3.9: the reconcile routes' service, with the extension's optional
+  // open-work port. Unwired (routes report `skipped`) without an agent App id.
+  const githubReconcile = createGithubReconcile({
+    prisma,
+    appService: githubEnterpriseAppService,
+    access: githubAccessPreview,
+    agentAppId: parseAgentAppId(process.env.SHIPWRIGHT_GITHUB_AGENT_APP_ID),
+    openWork: resolvedExtensions.openWork,
+  });
   const adminApiApp = createAdminApp({
-    githubAccessPreview: createGithubAccessPreview({
-      appService: githubEnterpriseAppService,
-    }),
+    githubAccessPreview,
+    ...(githubReconcile ? { githubReconcile } : {}),
     agentService,
     agentEnvService,
     agentCronJobService,
