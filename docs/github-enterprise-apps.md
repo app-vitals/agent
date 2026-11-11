@@ -62,6 +62,15 @@ Two platform-admin-only routes (session members, ops keys and agent keys get `40
 - `POST /agents/{id}/github-reconcile/plan` is read-only. The optional body `{addRepos: ["owner/repo"]}` names repos to add. It returns `status: planned` with `planHash`, `empty`, the `diff` (`installationAdds`, `installationRemoves`, `configAdds`, `configRemoves`), `skippedOrgs`, `rejectedAdds`, `warnings` and `affectedOpenWork` (the open work the removals would touch). Unknown agent is `404`.
 - `POST /agents/{id}/github-reconcile/apply` takes `{planHash, addRepos?, confirmRemovals?}`. It **re-plans server-side** and applies only when the fresh plan hashes to the `planHash` the admin reviewed, so what is applied is what was reviewed. Pass the same `addRepos` used for the plan.
 
+### Direct installation repo management
+
+Without a plan step, a platform admin can manage the repos on the agent's own App installation (the App named by its stored `GH_APP_ID`). Same auth as reconcile: session members, ops keys and agent keys get `403`.
+
+- `GET /agents/{id}/github-installation/repos` lists, per org the agent App is installed on, the installation's repos. With a bound `githubUsername`, each repo carries `userCanPush` from the access lookup, but only when that org's lookup result is complete; otherwise the field is omitted (never `false`).
+- `POST /agents/{id}/github-installation/repos` and `POST /agents/{id}/github-installation/repos/remove` take `{repos: ["owner/repo"]}` and add or remove those repos on the installation. The agent's configured `repos` are not changed.
+
+Errors: unknown agent `404`; no `GH_APP_ID` `422`; the App not installed on a repo's org `409` (nothing is changed or audited); GitHub refusing the change `502`. Every add or remove writes one `GitHubReconcileAudit` row (`planHash` is `direct:add` or `direct:remove`, `caller` is the key or session name, the repos are in `diff.installationAdds` or `installationRemoves`); a GitHub failure writes a `failed` row with only the repos that landed.
+
 Apply checks run in this order, and the first that matches decides the outcome:
 
 | Outcome | HTTP | When |
