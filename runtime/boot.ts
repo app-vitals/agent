@@ -538,24 +538,23 @@ export async function startAgent(
         });
 
         // Install agent-specific plugins from bundle (non-fatal)
-        if (bundle.plugins?.length || bundle.marketplaces?.length) {
-          await installPlugins(
-            undefined,
-            undefined,
-            bundle.plugins,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            bundle.marketplaces,
-          ).catch((err) =>
-            console.warn(
-              "[config-sync] agent plugin install failed (non-fatal):",
-              (err as Error).message,
-            ),
-          );
-        }
+        // An empty bundle still reconciles (the last row may have been removed).
+        await installPlugins(
+          undefined,
+          undefined,
+          bundle.plugins ?? [],
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          bundle.marketplaces,
+        ).catch((err) =>
+          console.warn(
+            "[config-sync] agent plugin install failed (non-fatal):",
+            (err as Error).message,
+          ),
+        );
 
         // Sync the agent's scoped repos live ref
         agentReposRef.set(bundle.repos);

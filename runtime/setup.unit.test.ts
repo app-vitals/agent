@@ -5,7 +5,14 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -60,7 +67,7 @@ describe("installPlugins — local marketplace", () => {
       "/tmp/cwd",
       plugins,
       repoRoot,
-      "/tmp/nonexistent-manifest.json",
+      join(mkdtempSync(join(tmpdir(), "manifest-")), "installed_plugins.json"),
       extra,
     );
 
@@ -258,7 +265,7 @@ describe("SHIPWRIGHT_REPO_ROOT override (PCB-1.1)", () => {
       "/tmp/cwd",
       [],
       undefined,
-      "/tmp/nonexistent-manifest.json",
+      join(mkdtempSync(join(tmpdir(), "manifest-")), "installed_plugins.json"),
       NO_EXTRA_MARKETPLACES,
       "/tmp/nonexistent-baked-root",
       env,
@@ -337,5 +344,112 @@ describe("SHIPWRIGHT_REPO_ROOT override (PCB-1.1)", () => {
         rmSync(root, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe("installPlugins — ledger reconciliation (PUI-1.1)", () => {
+  let dir: string;
+  let manifest: string;
+  const ledgerPath = () => join(dir, "agent_plugin_ledger.json");
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "ledger-"));
+    manifest = join(dir, "installed_plugins.json");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const run = (
+    exec: ReturnType<typeof recordCalls>["exec"],
+    plugins?: Array<{ plugin: string; marketplace: string }>,
+    marketplaces?: Array<{ name: string; source: string; ref: string | null }>,
+  ) =>
+    installPlugins(
+      exec,
+      "/tmp/cwd",
+      plugins,
+      "/tmp/no-such-repo-root",
+      manifest,
+      NO_EXTRA_MARKETPLACES,
+      "/tmp/nonexistent-baked-root",
+      {},
+      marketplaces,
+    );
+  const writeLedger = (plugins: string[], marketplaces: string[] = []) =>
+    writeFileSync(ledgerPath(), JSON.stringify({ plugins, marketplaces }));
+  const uninstalls = (calls: Array<{ args: string[] }>) =>
+    calls.filter((c) => c.args[1] === "uninstall").map((c) => c.args[2]);
+
+  it("records installed specs in the ledger", async () => {
+    const { exec } = recordCalls();
+    await run(exec, [{ plugin: "a", marketplace: "m" }]);
+    expect(JSON.parse(readFileSync(ledgerPath(), "utf8")).plugins).toEqual([
+      "a@m",
+    ]);
+  });
+
+  it("uninstalls a ledger spec that is absent from the bundle (removed or disabled)", async () => {
+    writeLedger(["a@m", "b@m"]);
+    const { calls, exec } = recordCalls();
+    await run(exec, [{ plugin: "a", marketplace: "m" }]);
+    expect(uninstalls(calls)).toEqual(["b@m"]);
+    expect(JSON.parse(readFileSync(ledgerPath(), "utf8")).plugins).toEqual([
+      "a@m",
+    ]);
+  });
+
+  it("reconciles when the last plugin is removed (empty bundle)", async () => {
+    writeLedger(["a@m"]);
+    const { calls, exec } = recordCalls();
+    await run(exec, [], []);
+    expect(uninstalls(calls)).toEqual(["a@m"]);
+    expect(JSON.parse(readFileSync(ledgerPath(), "utf8")).plugins).toEqual([]);
+  });
+
+  it("never uninstalls specs that are not in the ledger", async () => {
+    writeLedger([]);
+    const { calls, exec } = recordCalls();
+    await run(exec, []);
+    expect(uninstalls(calls)).toEqual([]);
+  });
+
+  it("skips plugin reconciliation when agentPlugins is omitted (boot default)", async () => {
+    writeLedger(["a@m"], ["mk"]);
+    const { calls, exec } = recordCalls();
+    await run(exec, undefined, undefined);
+    expect(uninstalls(calls)).toEqual([]);
+    expect(calls.some((c) => c.args[2] === "remove")).toBe(false);
+  });
+
+  it("keeps a failed uninstall in the ledger and does not throw", async () => {
+    writeLedger(["b@m"]);
+    const exec = async (_c: string, args: string[]) => ({
+      stdout: "boom",
+      exitCode: args[1] === "uninstall" ? 1 : 0,
+    });
+    await run(exec, []);
+    expect(JSON.parse(readFileSync(ledgerPath(), "utf8")).plugins).toEqual([
+      "b@m",
+    ]);
+  });
+
+  it("removes a ledger marketplace whose row was removed", async () => {
+    writeLedger([], ["gone", "kept"]);
+    const { calls, exec } = recordCalls();
+    await run(exec, [], [{ name: "kept", source: "o/kept", ref: null }]);
+    const removes = calls
+      .filter((c) => c.args[2] === "remove")
+      .map((c) => c.args[3]);
+    expect(removes).toEqual(["gone"]);
+    expect(JSON.parse(readFileSync(ledgerPath(), "utf8")).marketplaces).toEqual(
+      ["kept"],
+    );
+  });
+
+  it("does not record a failed install", async () => {
+    const exec = async (_c: string, args: string[]) => ({
+      stdout: "",
+      exitCode: args[1] === "install" ? 1 : 0,
+    });
+    await run(exec, [{ plugin: "a", marketplace: "m" }]);
+    expect(existsSync(ledgerPath())).toBe(false);
   });
 });

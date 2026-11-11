@@ -550,6 +550,47 @@ async function reconcileRemoteMarketplace(
   }
 }
 
+/** Ledger of what installPlugins installed from the config bundle. */
+interface PluginLedger {
+  plugins: string[];
+  marketplaces: string[];
+}
+
+const PLUGIN_LEDGER_FILENAME = "agent_plugin_ledger.json";
+
+/** Reads the ledger; a missing or unparsable file is an empty ledger. */
+function readPluginLedger(ledgerPath: string): PluginLedger {
+  const empty: PluginLedger = { plugins: [], marketplaces: [] };
+  if (!existsSync(ledgerPath)) return empty;
+  try {
+    const raw = JSON.parse(readFileSync(ledgerPath, "utf8"));
+    const strings = (v: unknown): string[] =>
+      Array.isArray(v)
+        ? v.filter((x): x is string => typeof x === "string")
+        : [];
+    return {
+      plugins: strings(raw?.plugins),
+      marketplaces: strings(raw?.marketplaces),
+    };
+  } catch (err) {
+    console.warn(
+      `[agent] could not read ${ledgerPath} (treating as empty): ${(err as Error).message}`,
+    );
+    return empty;
+  }
+}
+
+/** Writes the ledger; failure warns, never throws. */
+function writePluginLedger(ledgerPath: string, ledger: PluginLedger): void {
+  try {
+    writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+  } catch (err) {
+    console.warn(
+      `[agent] could not write ${ledgerPath}: ${(err as Error).message}`,
+    );
+  }
+}
+
 /**
  * Installs the plugins in the agent's own AgentPlugin rows (seeded from the
  * specialty manifest at create time). No plugin is installed by default. All commands are idempotent (exit 0 when already
@@ -566,6 +607,15 @@ async function reconcileRemoteMarketplace(
  *      passed directly via `extraMarketplaceDirs`)
  *   2. Built-in shipwright marketplace (`shipwrightRepoRoot`)
  *
+ * Reconciliation (PUI-1.1): the specs and remote marketplaces installed from
+ * the config bundle are recorded in a ledger next to `installed_plugins.json`.
+ * When `agentPlugins` (or `remoteMarketplaces`) is passed, ledger entries
+ * absent from it — a removed row, or a plugin with enabled=false, which the
+ * bundle omits — are uninstalled (marketplaces: removed). Only ledger entries
+ * are ever removed, so baked, built-in and hand-installed items are untouched;
+ * a failed removal stays in the ledger and retries next call. Omit the argument
+ * (the boot default call) to skip that half of reconciliation.
+ *
  * @param extraMarketplaceDirs - Explicit list of extra marketplace dirs to
  *   register. When provided, `extraMarketplacesRoot` is ignored. Useful for
  *   tests that inject dirs directly without touching the filesystem.
@@ -576,7 +626,7 @@ async function reconcileRemoteMarketplace(
 export async function installPlugins(
   execFn: ExecFn = defaultExec,
   cwd: string = process.cwd(),
-  agentPlugins: AgentPlugin[] = [],
+  agentPlugins?: AgentPlugin[],
   shipwrightRepoRootOverride?: string,
   pluginManifestPath: string = join(
     process.env.HOME ?? "/root",
@@ -587,7 +637,7 @@ export async function installPlugins(
   extraMarketplaceDirs?: string[],
   extraMarketplacesRoot: string = BAKED_MARKETPLACES_ROOT,
   env: Record<string, string | undefined> = process.env,
-  remoteMarketplaces: RemoteMarketplace[] = [],
+  remoteMarketplaces?: RemoteMarketplace[],
 ): Promise<void> {
   const shipwrightRepoRoot =
     shipwrightRepoRootOverride ?? resolveShipwrightRepoRoot(env);
@@ -664,7 +714,51 @@ export async function installPlugins(
     const managedLocalNames = new Set(extraDirs.map((dir) => basename(dir)));
     if (hasRepoMarketplace)
       managedLocalNames.add(builtinMarketplaceName(shipwrightRepoRoot));
-    for (const row of remoteMarketplaces) {
+
+    const ledgerPath = join(
+      dirname(pluginManifestPath),
+      PLUGIN_LEDGER_FILENAME,
+    );
+    const ledger = readPluginLedger(ledgerPath);
+    const nextLedger: PluginLedger = {
+      plugins: [...ledger.plugins],
+      marketplaces: [...ledger.marketplaces],
+    };
+    const allSpecs = (agentPlugins ?? []).map(
+      (p) => `${p.plugin}@${p.marketplace}`,
+    );
+
+    // Uninstall ledger plugins whose row was removed or disabled.
+    if (agentPlugins !== undefined) {
+      for (const spec of ledger.plugins) {
+        if (allSpecs.includes(spec)) continue;
+        const result = await execFn("claude", ["plugin", "uninstall", spec], {
+          cwd,
+        });
+        if (result.exitCode === 0) {
+          nextLedger.plugins = nextLedger.plugins.filter((x) => x !== spec);
+        } else {
+          console.warn(
+            `[agent] claude plugin uninstall ${spec} (row removed/disabled) exited ${result.exitCode}: ${result.stdout} — retrying next sync`,
+          );
+        }
+      }
+    }
+
+    // Remove ledger marketplaces whose row was removed (after their plugins).
+    if (remoteMarketplaces !== undefined) {
+      const rowNames = new Set(remoteMarketplaces.map((r) => r.name));
+      for (const name of ledger.marketplaces) {
+        if (rowNames.has(name) || managedLocalNames.has(name)) continue;
+        if (await runMarketplaceCommand(execFn, cwd, ["remove", name])) {
+          nextLedger.marketplaces = nextLedger.marketplaces.filter(
+            (x) => x !== name,
+          );
+        }
+      }
+    }
+
+    for (const row of remoteMarketplaces ?? []) {
       await reconcileRemoteMarketplace(
         row,
         managedLocalNames,
@@ -672,9 +766,13 @@ export async function installPlugins(
         execFn,
         cwd,
       );
+      if (
+        !managedLocalNames.has(row.name) &&
+        !nextLedger.marketplaces.includes(row.name)
+      ) {
+        nextLedger.marketplaces.push(row.name);
+      }
     }
-
-    const allSpecs = agentPlugins.map((p) => `${p.plugin}@${p.marketplace}`);
 
     // Uninstall any plugin whose recorded installPath no longer exists. This
     // clears stale manifest entries left over from a different-HOME container
@@ -708,6 +806,8 @@ export async function installPlugins(
         console.warn(
           `[agent] claude plugin install ${spec} exited ${install.exitCode}: ${install.stdout}`,
         );
+      } else if (!nextLedger.plugins.includes(spec)) {
+        nextLedger.plugins.push(spec);
       }
     }
 
@@ -723,6 +823,13 @@ export async function installPlugins(
           `[agent] claude plugin update ${spec} exited ${update.exitCode}: ${update.stdout}`,
         );
       }
+    }
+
+    if (
+      nextLedger.plugins.join("\n") !== ledger.plugins.join("\n") ||
+      nextLedger.marketplaces.join("\n") !== ledger.marketplaces.join("\n")
+    ) {
+      writePluginLedger(ledgerPath, nextLedger);
     }
   } catch (err) {
     console.warn(
