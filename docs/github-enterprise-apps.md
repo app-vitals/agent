@@ -19,25 +19,34 @@ Permissions were verified against GitHub's REST API description and the "permiss
 
 | App | Permission | Level | Why |
 |-----|------------|-------|-----|
-| Installer | Enterprise: `enterprise_organization_installations` | **write** (read covers the list calls only) | Read for listing installable orgs and an org's installations; write for installing (and removing) an App on an org. |
-| Lookup | Repository: `metadata` | **read** | Collaborator-permission lookups are listed under Metadata read, not Administration. |
+| Installer | Enterprise: `enterprise_organization_installations` | **Read and write** (read covers the list calls only) | Read for listing installable orgs and an org's installations; write for installing (and removing) an App on an org. Required: validation fails without it. |
+| Installer | Enterprise: `enterprise_organization_installation_repositories` | **Read and write** | For the repository add/remove endpoints used by repository management (Phase 3). The settings page asks for it now; it is **needed from Phase 3**, so validation only warns when it is missing. |
+| Lookup | Repository: `metadata` | **read** | Collaborator-permission lookups are listed under Metadata read, not Administration. Required: validation fails without it. |
+| Lookup | Organization: `members` | **read** | Lets the lookup see organization membership. Optional: validation only warns when it is missing. |
 
 Notes:
 
 - The enterprise endpoints exist only on GitHub Enterprise Cloud, and "can only be called by a GitHub App installed on the enterprise that owns the organization". The installer App must therefore be installed on the enterprise itself.
-- `enterprise_organization_installation_repositories` is for the repository add/remove endpoints, a later phase, and is not needed now.
-- Validation checks exactly these: installer needs `enterprise_organization_installations` at `write`; lookup needs `metadata` at `read` or `write`.
-- Whether Metadata read alone suffices for the collaborator-permission lookup at runtime was not verified live.
+- Validation fails only for the required permissions: installer needs `enterprise_organization_installations` at `write`; lookup needs `metadata` at `read` or `write`.
+- The two optional permissions above produce non-failing warnings (see Setup step 4).
+- **Unverified:** whether Metadata read alone suffices for the collaborator-permission lookup at runtime has not been verified live. This stays flagged until GHE-2.7 checks it.
 
 ## Setup
 
 Admin only. Credentials are pasted; admin does not create these Apps for you.
 
-1. **Create the installer App** in GitHub (enterprise settings, or an org owned by the enterprise) with the enterprise permission above. Install it on the enterprise. Generate a private key.
-2. **Create the lookup App** with Metadata read only. Install it on every org, choosing all repositories. Generate a private key.
-3. Open `/admin/settings/github-enterprise` (admin-only; **Settings** in the nav). On each card paste the App id, the App slug and the private key PEM. The installer card also takes the **enterprise slug**.
-4. Use **Validate** on each card. Validation authenticates as the App, checks the required permission and records the result and time on the card. A failure shows a generic reason, except that a 404 on the installer's `GET /enterprises/{slug}/installation` lookup reports that the App is not installed on that enterprise or the slug is wrong. Missing optional permissions appear as non-failing warnings on the card and in the validate response (`warnings`): the installer without `enterprise_organization_installation_repositories` (write, needed for repository management) and the lookup without Organization Members (read). Warnings never change a valid result to invalid. Keys are never echoed.
-5. To install an agent's App on an org, use the org list on the same page. The agent needs `GH_APP_SLUG` set and its App must be public: install resolves the slug through the public `GET /apps/{slug}`, and a private App or a slug-less agent is refused with a 422. The install call needs the target App's `client_id`, not its numeric id.
+The settings page shows these same steps on each card, and notes that a GitHub Enterprise Cloud enterprise is required. On each App, ignore the callback URL, request user authorization, expire user authorization tokens and device flow options, and uncheck webhook Active.
+
+1. **Create the installer App** in GitHub under your enterprise's Settings, GitHub Apps, New GitHub App (an enterprise-owned App). Under Enterprise permissions grant both `enterprise_organization_installations` and `enterprise_organization_installation_repositories` at Read and write. Install it on the enterprise. Generate a private key.
+2. **Create the lookup App** under your organization's Settings, Developer settings, GitHub Apps, New GitHub App. Grant Repository `Metadata` at Read and Organization `Members` at Read. Install it on every org, choosing **all repositories** (not selected repositories only). Generate a private key.
+3. Open `/admin/settings/github-enterprise` (admin-only; **Settings** in the nav). On each card enter the App id (on the App's settings page), the App slug (the last part of `github.com/apps/<slug>`) and the private key, pasted as PEM or uploaded as a `.pem` file. The installer card also takes the **enterprise slug** (the last part of `github.com/enterprises/<slug>`).
+4. Use **Validate** on each card. Validation authenticates as the App, checks the required permission and records the result and time on the card. A failure shows a generic reason, except that a 404 on the installer's `GET /enterprises/{slug}/installation` lookup reports that the App is not installed on that enterprise or the slug is wrong. Missing optional permissions appear as non-failing warnings on the card and in the validate response (`warnings`): the installer without `enterprise_organization_installation_repositories` (write) and the lookup without Organization Members (read). Warnings never change a valid result to invalid. Keys are never echoed.
+5. To install an agent's App on an org, use the org list on the same page. Install resolves the App's `client_id` (the install call needs it, not the numeric id) in this order:
+   - the agent's stored `GH_APP_CLIENT_ID`, when set and well-formed. This is the only route for a **private** App.
+   - otherwise the agent's `GH_APP_SLUG`, resolved through the public `GET /apps/{slug}`. This needs the App to be public.
+
+   An agent with neither is refused with a 422, as is a private App with no stored client id (the message says to store its `GH_APP_CLIENT_ID`). The org list shows the same reason up front when an agent is selected.
+6. **The agent's installations card stays empty until the agent has `GH_APP_ID` and a private key.** Installing an App on an org does not populate the card: it shows what the agent runtime reports from its own credentials ([`github-multi-org.md`](./github-multi-org.md)), and admin never calls GitHub on the agent's behalf for it. Until those are set the runtime reports nothing.
 
 The same operations are available over the API: `GET`/`PUT`/`DELETE /github-enterprise/apps[/{role}]`, `POST /github-enterprise/apps/{role}/validate`, `GET /github-enterprise/orgs`, `POST /github-enterprise/orgs/{org}/install` (see [`admin-service.md`](./admin-service.md)).
 
