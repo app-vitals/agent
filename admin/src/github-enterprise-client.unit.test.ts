@@ -8,6 +8,7 @@ import {
   GithubEnterpriseClient,
   GithubEnterpriseError,
   type GithubEnterpriseErrorKind,
+  batchRepositoryNames,
   mapGithubEnterpriseError,
 } from "./github-enterprise-client.ts";
 
@@ -91,6 +92,60 @@ describe("GithubEnterpriseClient validation", () => {
   it("rejects a missing clientId", async () => {
     const err = await client
       .installOnOrg("o", { clientId: "", repositorySelection: "all" })
+      .catch((e) => e);
+    expect(err.kind).toBe("validation");
+  });
+});
+
+describe("batchRepositoryNames", () => {
+  const n = (c: number) => Array.from({ length: c }, (_, i) => `r${i}`);
+  const sizes = (c: number) => batchRepositoryNames(n(c)).map((b) => b.length);
+
+  it("returns no batches for an empty list", () => {
+    expect(sizes(0)).toEqual([]);
+  });
+  it("keeps up to 50 names in one batch", () => {
+    expect(sizes(1)).toEqual([1]);
+    expect(sizes(50)).toEqual([50]);
+  });
+  it("splits above 50 and preserves order", () => {
+    expect(sizes(51)).toEqual([50, 1]);
+    expect(sizes(100)).toEqual([50, 50]);
+    expect(sizes(120)).toEqual([50, 50, 20]);
+    expect(batchRepositoryNames(n(51)).flat()).toEqual(n(51));
+  });
+  it("drops duplicates and blank names", () => {
+    expect(batchRepositoryNames(["a", "b", "a", ""])).toEqual([["a", "b"]]);
+  });
+});
+
+describe("repository client validation", () => {
+  const neverFetch = (async () => {
+    throw new Error("fetch must not be called");
+  }) as unknown as typeof fetch;
+  const client = new GithubEnterpriseClient({
+    appId: "1",
+    enterprise: "acme",
+    privateKey: "unused",
+    fetchFn: neverFetch,
+  });
+
+  it("rejects a non-integer installation id before any network call", async () => {
+    const err = await client.listInstallationRepositories("o", Number.NaN).catch((e) => e);
+    expect(err.kind).toBe("validation");
+  });
+
+  it("rejects selected without repositories before any network call", async () => {
+    const err = await client
+      .setRepositorySelection("o", 1, { repositorySelection: "selected" })
+      .catch((e) => e);
+    expect(err.kind).toBe("validation");
+  });
+
+  it("rejects selected with more than 50 repositories", async () => {
+    const repositories = Array.from({ length: 51 }, (_, i) => `r${i}`);
+    const err = await client
+      .setRepositorySelection("o", 1, { repositorySelection: "selected", repositories })
       .catch((e) => e);
     expect(err.kind).toBe("validation");
   });
