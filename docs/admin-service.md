@@ -45,6 +45,7 @@ All paths are under `admin/src/`. Most modules have sibling `*.unit.test.ts`,
 | `reconcile-planner.ts` | GHE-3.2: GitHub repo reconciliation planning. `planReconcile` is a pure function that turns a GitHub username, the bound user's repository access (via `UserRepoAccessResolver`), the agent's configured repos, and the agent App's installation repositories into a typed diff and a stable hash. The hash lets an admin review a plan; `reconcile-apply-service.ts` verifies the hash matches before applying. Planned over an already-reconciled state returns an empty diff with the same hash, so re-planning is idempotent. |
 | `reconcile-apply-service.ts`, `reconcile-open-work.ts` | GHE-3.3: GitHub repo reconciliation apply layer. `ReconcileApplyService` re-plans server-side via `planReconcile` and applies only when the fresh plan matches the hash the admin reviewed. Execution order: skip check → empty-plan no-op → stale hash check → removal cap check → apply (installation changes, agent config update, audit write). Open work on removed repos is optionally blocked through an injected `OpenWorkPort` (a consumer like shipwright may supply this so work gets marked as blocked); port failures are warnings. `removedRepoBlockReason()` is the helper for standardizing block messages. Also writes `GitHubReconcileAudit` rows (one per apply attempt, successful or failed). |
 | `github-reconcile-wiring.ts` | GHE-3.9: `createGithubReconcile` composes `ReconcileApplyService` for admin boot from the stored installer App and the extension's optional `OpenWorkPort`, injected as the `githubReconcile` dep. Needs `SHIPWRIGHT_GITHUB_AGENT_APP_ID` (the agent App whose installations are reconciled); unset leaves the reconcile routes reporting `skipped`. |
+| `admin-ui-github-reconcile-pages.ts` | GHE-3.5: Admin UI for reconciliation (thin proxies over the GHE-3.4 plan/apply routes in the agents API), returning HTML fragments for the Reconcile card rendered on the agent detail page. Exported types: `GithubReconcileDiffView`, `GithubReconcilePlanView`, `GithubReconcileApplyView`; `RECONCILE_REMOVAL_CAP` mirrors the backend limit. The card lets platform admins review and apply repository access changes when a GitHub username is bound and the enterprise apps are configured. Every dynamic value is escaped; inputs carry repo names and ids only (no tokens or keys). |
 
 ### HTTP API and auth
 
@@ -127,6 +128,7 @@ route modules `admin-ui-account.ts` (`/admin/account`) and `admin-ui-accounts.ts
 (`/admin/accounts`, platform admin). Rendering is pure string functions in
 `admin-ui-pages.ts`, `admin-ui-account-pages.ts`, `admin-ui-accounts-pages.ts`,
 `admin-ui-github-identity-pages.ts` (GHE-2.5 GitHub username and access preview),
+`admin-ui-github-reconcile-pages.ts` (GHE-3.5 reconciliation UI),
 `admin-ui-layout.ts`, `admin-ui-styles.ts`; `admin-ui-account-nav.ts` carries a
 per-request nav flag. `pwa.ts` builds the manifest and service worker (austere
 caching: nothing authenticated is cached); icons come from `admin/pwa-assets/`.
