@@ -165,6 +165,11 @@ import {
   UpsertChatTokenDailyBodySchema,
 } from "./openapi-schemas.ts";
 import type { ReconcileApplyService } from "./reconcile-apply-service.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
+import {
+  blockRepoRemovalWork,
+  previewRepoRemovalWork,
+} from "./repo-removal-open-work.ts";
 import type { SelfServeConfig } from "./self-serve-config.ts";
 import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
 import type { SpecialtyTypeResolver } from "./specialty-types.ts";
@@ -268,6 +273,13 @@ export interface AdminDeps {
    * `skipped`.
    */
   githubReconcile?: Pick<ReconcileApplyService, "planWithOpenWork" | "apply">;
+  /**
+   * IRM-1.7: optional host-supplied open-work port. When an agent's own repos
+   * lose a repo (DELETE /agents/{id}/repos/{owner}/{name} or a PATCH that
+   * drops repos) its open work there is blocked; absent means nothing is
+   * listed or blocked.
+   */
+  openWork?: OpenWorkPort;
   /**
    * Retained solely as a pass-through to deleteAgentFully() (DELETE /agents/:id),
    * which has its own internal prisma.agent/prisma.agentEnv access — out of
@@ -855,12 +867,43 @@ const removeAgentRepoRoute = createRoute({
   path: "/agents/{id}/repos/{owner}/{name}",
   summary: "Remove a repo from an agent",
   description:
-    "Admin, the agent's own key, or platform.ops. Removes one `owner/name` repo from the agent's `repos`, preserving the order of the rest. 404 when the agent does not have that repo. Returns the full updated agent.",
+    "Admin, the agent's own key, or platform.ops. Removes one `owner/name` repo from the agent's `repos`, preserving the order of the rest. The agent's open work on the repo is blocked through the optional open-work port (a failure there is a warning; the removal still succeeds), whoever the caller is; re-adding the repo never unblocks it. 404 when the agent does not have that repo. Returns the full updated agent.",
   request: { params: AgentRepoParamSchema },
   responses: {
     200: {
       description: "Repo removed",
       content: { "application/json": { schema: GetAgentResultSchema } },
+    },
+    403: { description: "Forbidden", ...jsonError },
+    404: { description: "Agent or repo not found", ...jsonError },
+  },
+});
+
+const repoRemovalPreviewRoute = createRoute({
+  method: "get",
+  path: "/agents/{id}/repos/{owner}/{name}/removal-preview",
+  summary: "Preview the open work blocked by removing a repo from an agent",
+  description:
+    "Admin or session member. Read-only: lists the agent's open tasks and PRs that removing `owner/name` from its repos would block (via the optional open-work port); nothing is changed. `openWork` is empty when no port is wired; a port failure is reported in `warnings`. 404 when the agent does not have that repo.",
+  request: { params: AgentRepoParamSchema },
+  responses: {
+    200: {
+      description: "Open work that would be blocked",
+      content: {
+        "application/json": {
+          schema: z.object({
+            repo: z.string(),
+            openWork: z.array(
+              z.object({
+                id: z.string(),
+                repo: z.string(),
+                title: z.string().optional(),
+              }),
+            ),
+            warnings: z.array(z.string()),
+          }),
+        },
+      },
     },
     403: { description: "Forbidden", ...jsonError },
     404: { description: "Agent or repo not found", ...jsonError },
@@ -2103,6 +2146,12 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     if (collision) {
       throw new BadRequestError(collision);
     }
+    const droppedRepos =
+      body.repos !== undefined
+        ? ((await agentService.getDetail(agentId))?.repos ?? []).filter(
+            (r) => !body.repos?.includes(r),
+          )
+        : [];
     const agent = await agentService
       .updateSelfHosted(agentId, {
         selfHosted: body.selfHosted,
@@ -2209,8 +2258,19 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         );
       }
     }
+    const blockWarnings = await blockRepoRemovalWork(
+      deps.openWork,
+      agentId,
+      droppedRepos,
+    );
     const warning =
-      [slackWarning, reconcileWarning, specialtyWarning, podSaWarning]
+      [
+        slackWarning,
+        reconcileWarning,
+        specialtyWarning,
+        podSaWarning,
+        ...blockWarnings,
+      ]
         .filter(Boolean)
         .join("; ") || undefined;
     return c.json(serializeAgent(agent, warning), 200);
@@ -2262,7 +2322,32 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       selfHosted: current.selfHosted,
       repos: current.repos.filter((r) => r !== repo),
     });
-    return c.json(serializeAgent(agent), 200);
+    const warning =
+      (await blockRepoRemovalWork(deps.openWork, agentId, [repo])).join("; ") ||
+      undefined;
+    return c.json(serializeAgent(agent, warning), 200);
+  });
+
+  // GET /agents/:id/repos/:owner/:name/removal-preview — read-only.
+  app.openapi(repoRemovalPreviewRoute, async (c) => {
+    if (!isAdminOrSessionMember(c)) {
+      throw new ForbiddenError("Admin access required to preview repo removal");
+    }
+    const { id: agentId, owner, name } = c.req.valid("param");
+    const current = await agentService.getDetail(agentId);
+    if (!current) {
+      throw new NotFoundError(`agent ${agentId} not found`);
+    }
+    const repo = `${owner}/${name}`;
+    if (!current.repos.includes(repo)) {
+      throw new NotFoundError(`agent ${agentId} does not have repo ${repo}`);
+    }
+    const { openWork, warnings } = await previewRepoRemovalWork(
+      deps.openWork,
+      agentId,
+      [repo],
+    );
+    return c.json({ repo, openWork, warnings }, 200);
   });
 
   // DELETE /agents/:id — delete an agent and tear down its workload (admin only)

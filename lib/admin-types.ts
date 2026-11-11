@@ -438,7 +438,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a repo from an agent
-         * @description Admin, the agent's own key, or platform.ops. Removes one `owner/name` repo from the agent's `repos`, preserving the order of the rest. 404 when the agent does not have that repo. Returns the full updated agent.
+         * @description Admin, the agent's own key, or platform.ops. Removes one `owner/name` repo from the agent's `repos`, preserving the order of the rest. The agent's open work on the repo is blocked through the optional open-work port (a failure there is a warning; the removal still succeeds), whoever the caller is; re-adding the repo never unblocks it. 404 when the agent does not have that repo. Returns the full updated agent.
          */
         delete: {
             parameters: {
@@ -482,6 +482,75 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/repos/{owner}/{name}/removal-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview the open work blocked by removing a repo from an agent
+         * @description Admin or session member. Read-only: lists the agent's open tasks and PRs that removing `owner/name` from its repos would block (via the optional open-work port); nothing is changed. `openWork` is empty when no port is wired; a port failure is reported in `warnings`. 404 when the agent does not have that repo.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    owner: string;
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Open work that would be blocked */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            repo: string;
+                            openWork: {
+                                id: string;
+                                repo: string;
+                                title?: string;
+                            }[];
+                            warnings: string[];
+                        };
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent or repo not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
