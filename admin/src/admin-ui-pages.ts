@@ -16,6 +16,7 @@ import {
   renderGithubAccessCard,
   renderGithubUsernameRow,
 } from "./admin-ui-github-identity-pages.ts";
+import { renderGithubReconcileCard } from "./admin-ui-github-reconcile-pages.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
 import {
   BREAKPOINT_MOBILE_MAX,
@@ -1806,7 +1807,7 @@ export function renderAgentDetailPage(
         ${identityRow("Federation rule ID", agent.anthropicFederationRuleId, true)}
         ${showGithubIdentity ? renderGithubUsernameRow(agent.id, agent.githubUsername) : ""}
       </tbody></table>
-    </div>${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}`;
+    </div>${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity && agent.githubUsername ? renderGithubReconcileCard(agent.id) : ""}`;
 
   // Only agents with a GitHub App can make API-signed commits. Checked state
   // is the SHIPWRIGHT_SIGNED_COMMITS env row; when the box is hidden the field
