@@ -17,6 +17,24 @@
       }
     }
   },
+  "org_installation_selected": {
+    "status": 200,
+    "body": {
+      "id": 7001,
+      "app_id": 555,
+      "app_slug": "example-lookup",
+      "target_type": "Organization",
+      "account": {
+        "login": "acme-eng",
+        "id": 11,
+        "type": "Organization"
+      },
+      "repository_selection": "selected",
+      "permissions": {
+        "metadata": "read"
+      }
+    }
+  },
   "org_installation_403": {
     "status": 403,
     "body": {

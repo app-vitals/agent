@@ -27,6 +27,8 @@ export interface GithubAccessOrg {
   status: GithubAccessOrgStatus;
   repos: GithubAccessRepo[];
   unresolved: number;
+  /** Optional cause shown in the partial-results banner. */
+  reason?: string;
 }
 
 /** JSON body of GET /agents/:id/github-access. */
@@ -127,9 +129,13 @@ export function renderGithubAccessResult(
   if (!access) return renderGithubAccessError("No preview was returned.");
 
   const orgs = access.orgs;
+  const reasons = orgs
+    .filter((o) => o.reason)
+    .map((o) => `${escapeHtml(o.org)}: ${escapeHtml(o.reason ?? "")}`)
+    .join("; ");
   const warn =
     !access.complete || orgs.some((o) => o.status !== "ok")
-      ? `<div class="alert alert-warning">Partial results: some organizations or repos could not be checked${access.unresolved > 0 ? ` (${access.unresolved} unresolved)` : ""}. Repos that are not listed are unknown, not necessarily inaccessible.</div>`
+      ? `<div class="alert alert-warning">Partial results: some organizations or repos could not be checked${access.unresolved > 0 ? ` (${access.unresolved} unresolved)` : ""}. Repos that are not listed are unknown, not necessarily inaccessible.${reasons ? ` ${reasons}.` : ""}</div>`
       : "";
   if (orgs.length === 0) {
     return `${warn}<p class="empty-state">No organizations to check.</p>`;

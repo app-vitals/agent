@@ -126,6 +126,7 @@ describe("getOrgToken", () => {
       token: "ghs_lookupInstallationTokenSecret",
       expiresAt: "2026-11-09T13:00:00Z",
       installationId: 7001,
+      repositorySelection: "all",
     });
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([INST, MINT]);
     for (const c of calls) {
@@ -133,6 +134,13 @@ describe("getOrgToken", () => {
         /^Bearer [\w-]+\.[\w-]+\.[\w-]+$/,
       );
     }
+  });
+
+  it("reports repository_selection selected from the installation", async () => {
+    const { client } = makeClient({ [INST]: "org_installation_selected" });
+    expect((await client.getOrgToken("acme-eng")).repositorySelection).toBe(
+      "selected",
+    );
   });
 
   it("caches per org until near expiry", async () => {

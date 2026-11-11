@@ -73,6 +73,12 @@ export interface LookupToken {
   token: string;
   expiresAt: string;
   installationId: number;
+  /**
+   * The lookup App's own installation scope on the org, from GET
+   * /orgs/{org}/installation (read with the App JWT, so it describes this
+   * App's installation). Absent when GitHub did not report a known value.
+   */
+  repositorySelection?: "all" | "selected";
 }
 
 export interface GithubLookupClientOptions {
@@ -119,7 +125,7 @@ export class GithubLookupClient {
       privateKey: this.privateKey,
       now: this.now(),
     });
-    const inst = await this.request<{ id?: number }>(
+    const inst = await this.request<{ id?: number; repository_selection?: unknown }>(
       "GET",
       `/orgs/${encodeURIComponent(org)}/installation`,
       jwt,
@@ -148,6 +154,10 @@ export class GithubLookupClient {
       expiresAt: minted.data.expires_at,
       installationId: inst.data.id,
     };
+    const selection = inst.data.repository_selection;
+    if (selection === "all" || selection === "selected") {
+      token.repositorySelection = selection;
+    }
     this.cached.set(key, token);
     return token;
   }

@@ -39,6 +39,7 @@ describe("renderGithubEnterpriseSettingsPage", () => {
     expect(html).toContain("optional");
     expect(html).toContain("Installer app");
     expect(html).toContain("Lookup app");
+    expect(html).toContain("installed on all repositories");
     expect(html).toContain(
       'action="/admin/settings/github-enterprise/apps/installer"',
     );
