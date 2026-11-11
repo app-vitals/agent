@@ -102,6 +102,27 @@ describe("renderGithubEnterpriseSettingsPage", () => {
     expect(html).not.toContain("<b>x</b>");
   });
 
+  test("warnings render on the matching card only, as non-error notes", () => {
+    const html = renderGithubEnterpriseSettingsPage({
+      ...base,
+      status: { configured: true, installer: app(), lookup: app({ role: "lookup", enterpriseSlug: null }) },
+      warnings: ["installer_repositories_write"],
+    });
+    expect(html).toContain("enterprise_organization_installation_repositories");
+    expect(html.match(/gh-ent-warning/g)?.length).toBe(1);
+    expect(html).not.toContain("Organization Members");
+  });
+
+  test("unknown warning codes are ignored", () => {
+    const html = renderGithubEnterpriseSettingsPage({
+      ...base,
+      status: { configured: true, installer: app(), lookup: null },
+      warnings: ["<script>alert(1)</script>"],
+    });
+    expect(html).not.toContain("gh-ent-warning");
+    expect(html).not.toContain("<script>alert");
+  });
+
   test("key not set shows 'Key not set'", () => {
     const html = renderGithubEnterpriseSettingsPage({
       ...base,
