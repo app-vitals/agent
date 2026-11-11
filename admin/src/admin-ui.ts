@@ -313,7 +313,9 @@ export interface AdminUIDeps {
     AgentTokenService,
     "listForAgent" | "create" | "revoke"
   >;
-  agentPluginService: Pick<AgentPluginService, "list" | "add" | "remove">;
+  /** `remove` is optional (additive to the exported AdminUIDeps); absent makes the remove route a no-op. */
+  agentPluginService: Pick<AgentPluginService, "list" | "add"> &
+    Partial<Pick<AgentPluginService, "remove">>;
   /**
    * PMK-1.5: remote marketplaces for the agent page. Optional (additive to the
    * exported AdminUIDeps); absent hides the add/remove routes' effect and
@@ -2694,7 +2696,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     }
     if (pluginId) {
       try {
-        await agentPluginService.remove(agentId, pluginId);
+        await agentPluginService.remove?.(agentId, pluginId);
       } catch {
         // already gone, ignore
       }
