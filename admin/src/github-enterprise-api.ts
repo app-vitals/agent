@@ -84,6 +84,8 @@ const REQUIRED_PERMISSION: Record<
 };
 
 const SLUG_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+/** GitHub App client ids look like Iv1.<hex> / Iv23li<alnum>; no path or query chars. */
+const CLIENT_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const ORG_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -178,6 +180,14 @@ const OrgsResultSchema = z
   .object({
     configured: z.boolean(),
     agentAppSlug: z.string().nullable().optional(),
+    agentAppReason: z
+      .string()
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          "Why the agent's App cannot be installed through the enterprise API (private App with no stored GH_APP_CLIENT_ID, or no App at all). Null when it can; present only with agentId.",
+      }),
     orgs: z.array(
       z.object({
         id: z.number(),
@@ -339,7 +349,7 @@ const installRoute = createRoute({
   tags,
   summary: "Install an agent's App on an organization",
   description:
-    "Admin-only. Resolves the agent's stored GH_APP_SLUG, looks the App up through the public GET /apps/{slug} to get its client id, and installs it on the org with the installer App. 422 for an agent with no slug and for a private App (not visible to the public lookup); 409 when the installer App is not configured.",
+    "Admin-only. Uses the agent's stored GH_APP_CLIENT_ID when set; otherwise resolves the stored GH_APP_SLUG and looks the App up through the public GET /apps/{slug} to get its client id. Installs it on the org with the installer App. 422 for an agent with neither a stored client id nor a slug, and for a private App (not visible to the public lookup) with no stored client id; 409 when the installer App is not configured.",
   request: {
     params: OrgParamSchema,
     body: { content: { "application/json": { schema: InstallBodySchema } } },
@@ -567,20 +577,53 @@ export function createGithubEnterpriseApp(
     });
   };
 
-  /** Agent's stored App slug: null when absent/invalid. 404 when the agent is unknown. */
-  const agentSlug = async (
+  /**
+   * Agent's stored App slug (null when absent/invalid) and stored client id
+   * (null when absent/malformed). 404 when the agent is unknown.
+   */
+  const agentApp = async (
     agentId: string,
-  ): Promise<{ slug: string | null; invalid: boolean }> => {
+  ): Promise<{
+    slug: string | null;
+    invalid: boolean;
+    clientId: string | null;
+  }> => {
     if (!(await deps.agentService.getSummary(agentId))) {
       throw new NotFoundError(`agent ${agentId} not found`);
     }
-    const slug = (await deps.agentEnvService.getByAgentId(agentId))?.env
-      .GH_APP_SLUG;
-    if (!slug) return { slug: null, invalid: false };
+    const env = (await deps.agentEnvService.getByAgentId(agentId))?.env;
+    const storedClientId = env?.GH_APP_CLIENT_ID?.trim();
+    const clientId =
+      storedClientId && CLIENT_ID_RE.test(storedClientId)
+        ? storedClientId
+        : null;
+    const slug = env?.GH_APP_SLUG;
+    if (!slug) return { slug: null, invalid: false, clientId };
     return SLUG_RE.test(slug)
-      ? { slug, invalid: false }
-      : { slug: null, invalid: true };
+      ? { slug, invalid: false, clientId }
+      : { slug: null, invalid: true, clientId };
   };
+
+  /** Public-lookup client id; reason is set when the App is private (404). */
+  const publicClientId = async (
+    slug: string,
+  ): Promise<{ clientId: string | null; privateApp: boolean }> => {
+    try {
+      const app = await fetchPublicApp(slug, {
+        apiBase: deps.apiBase,
+        fetchFn: deps.fetchFn,
+      });
+      return { clientId: app.clientId, privateApp: false };
+    } catch (err) {
+      if (err instanceof GithubEnterpriseError && err.kind === "not_found") {
+        return { clientId: null, privateApp: true };
+      }
+      throw err;
+    }
+  };
+
+  const privateAppMessage = (slug: string) =>
+    `the agent's App '${slug}' is private (not visible to the public lookup) and cannot be installed through the enterprise API; store its GH_APP_CLIENT_ID on the agent`;
 
   app.openapi(statusRoute, async (c) => {
     requireAdmin(c);
@@ -712,7 +755,25 @@ export function createGithubEnterpriseApp(
     if (!installer) return c.json({ configured: false, orgs: [] }, 200);
 
     let agentAppSlug: string | null = null;
-    if (agentId) agentAppSlug = (await agentSlug(agentId)).slug;
+    let agentAppReason: string | null = null;
+    if (agentId) {
+      const agent = await agentApp(agentId);
+      agentAppSlug = agent.slug;
+      if (!agent.clientId) {
+        if (!agent.slug) {
+          agentAppReason =
+            "the agent has no GH_APP_SLUG or GH_APP_CLIENT_ID; it has no GitHub App to install";
+        } else {
+          try {
+            if ((await publicClientId(agent.slug)).privateApp) {
+              agentAppReason = privateAppMessage(agent.slug);
+            }
+          } catch {
+            // The reason is advisory; a lookup failure must not fail the listing.
+          }
+        }
+      }
+    }
     const lookup = await appService.get("lookup");
 
     const client = await clientFor(installer);
@@ -739,7 +800,7 @@ export function createGithubEnterpriseApp(
     return c.json(
       {
         configured: true,
-        ...(agentId ? { agentAppSlug } : {}),
+        ...(agentId ? { agentAppSlug, agentAppReason } : {}),
         orgs: result,
       },
       200,
@@ -755,38 +816,29 @@ export function createGithubEnterpriseApp(
     if (!installer) {
       throw new ConflictError("the installer App is not configured");
     }
-    const { slug, invalid } = await agentSlug(body.agentId);
-    if (invalid) {
-      throw new UnprocessableEntityError(
-        "the agent's stored GH_APP_SLUG is not a valid GitHub App slug",
-      );
-    }
-    if (!slug) {
-      throw new UnprocessableEntityError(
-        "the agent has no GH_APP_SLUG; it has no GitHub App to install",
-      );
-    }
-
-    let clientId: string | null;
-    try {
-      clientId = (
-        await fetchPublicApp(slug, {
-          apiBase: deps.apiBase,
-          fetchFn: deps.fetchFn,
-        })
-      ).clientId;
-    } catch (err) {
-      if (err instanceof GithubEnterpriseError && err.kind === "not_found") {
+    const agent = await agentApp(body.agentId);
+    let clientId = agent.clientId;
+    if (!clientId) {
+      if (agent.invalid) {
         throw new UnprocessableEntityError(
-          `the agent's App '${slug}' is private (not visible to the public lookup) and cannot be installed through the enterprise API`,
+          "the agent's stored GH_APP_SLUG is not a valid GitHub App slug",
         );
       }
-      throw err;
-    }
-    if (!clientId) {
-      throw new UnprocessableEntityError(
-        `the agent's App '${slug}' did not expose a client id and cannot be installed`,
-      );
+      if (!agent.slug) {
+        throw new UnprocessableEntityError(
+          "the agent has no GH_APP_SLUG or GH_APP_CLIENT_ID; it has no GitHub App to install",
+        );
+      }
+      const lookedUp = await publicClientId(agent.slug);
+      if (lookedUp.privateApp) {
+        throw new UnprocessableEntityError(privateAppMessage(agent.slug));
+      }
+      clientId = lookedUp.clientId;
+      if (!clientId) {
+        throw new UnprocessableEntityError(
+          `the agent's App '${agent.slug}' did not expose a client id and cannot be installed`,
+        );
+      }
     }
 
     const client = await clientFor(installer);

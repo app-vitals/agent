@@ -207,6 +207,45 @@ describeOrSkip("github-enterprise API (integration)", () => {
     expect(await res.json()).toMatchObject({ created: true, org: "org-1" });
   });
 
+  it("install prefers the stored GH_APP_CLIENT_ID and skips the public lookup", async () => {
+    const agent = await prisma.agent.create({ data: { name: "Ghe Agent" } });
+    await new AgentEnvService(prisma, identityCrypto).upsert(agent.id, {
+      GH_APP_SLUG: "example-agent-app",
+      GH_APP_CLIENT_ID: "Iv1.targetapp0001",
+    });
+    // No "GET /apps/..." route: a public lookup would throw.
+    const app = build({
+      "POST /enterprises/acme/apps/organizations/org-1/installations":
+        "install_created",
+    });
+    await put(app);
+    const res = await app.request("/github-enterprise/orgs/org-1/install", {
+      method: "POST",
+      headers: { ...ADMIN, "Content-Type": "application/json" },
+      body: JSON.stringify({ agentId: agent.id }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ created: true, org: "org-1" });
+  });
+
+  it("install refuses a private App when no client id is stored", async () => {
+    const agent = await prisma.agent.create({ data: { name: "Ghe Agent" } });
+    await new AgentEnvService(prisma, identityCrypto).upsert(agent.id, {
+      GH_APP_SLUG: "example-agent-app",
+    });
+    const app = build({
+      "GET /apps/example-agent-app": "public_app_private_404",
+    });
+    await put(app);
+    const res = await app.request("/github-enterprise/orgs/org-1/install", {
+      method: "POST",
+      headers: { ...ADMIN, "Content-Type": "application/json" },
+      body: JSON.stringify({ agentId: agent.id }),
+    });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toMatch(/private/i);
+  });
+
   it("isolation: no agent-facing path returns the stored key", async () => {
     const agent = await prisma.agent.create({ data: { name: "Iso Agent" } });
     const envService = new AgentEnvService(prisma, identityCrypto);
