@@ -100,7 +100,7 @@ const ROLE_COPY = {
       "In GitHub, open your organization's Settings &rarr; Developer settings &rarr; GitHub Apps &rarr; New GitHub App.",
       "Grant Repository <code>Metadata</code> at <strong>Read</strong> and Organization <code>Members</code> at <strong>Read</strong>.",
       "Create the App. The App ID is on the App's settings page; the App slug is the last part of its public URL (<code>github.com/apps/&lt;slug&gt;</code>).",
-      "Install it on <strong>all repositories</strong> of each organization, not selected repositories only.",
+      "It must be installed on all repositories of each organization, not selected repositories only.",
       "Under Private keys, choose Generate a private key and paste the downloaded PEM below.",
     ],
   },
