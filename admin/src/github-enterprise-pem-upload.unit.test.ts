@@ -56,6 +56,16 @@ describe("readPrivateKeyField", () => {
     expect(r).toEqual({ ok: true, pem: PEM });
   });
 
+  it("stores CRLF uploads and pastes identically (LF)", async () => {
+    const crlf = PEM.replace(/\n/g, "\r\n");
+    const up = await readPrivateKeyField(
+      formWith({ privateKeyFile: pemFile(crlf) }),
+    );
+    const paste = await readPrivateKeyField(formWith({ privateKey: crlf }));
+    expect(up).toEqual({ ok: true, pem: PEM });
+    expect(paste).toEqual(up);
+  });
+
   it("rejects a non-PEM file without echoing its content", async () => {
     const r = await readPrivateKeyField(
       formWith({ privateKeyFile: pemFile("hunter2-SECRET not a key") }),

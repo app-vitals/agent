@@ -31,13 +31,17 @@ export async function readPrivateKeyField(form: FormData): Promise<PemResult> {
   if (!pasted.trim()) {
     return { ok: false, error: "Paste a private key or choose a .pem file." };
   }
-  // Pasted values keep their bytes as before; the API validates them.
-  return { ok: true, pem: pasted };
+  // Multipart and browser textareas submit CRLF; the API validates the key.
+  return { ok: true, pem: normalizeNewlines(pasted) };
 }
 
 function checkPem(text: string, error: string): PemResult {
-  // Validated trimmed, stored as-is so an upload matches a paste byte for byte.
   return PEM_PRIVATE_KEY.test(text.trim())
-    ? { ok: true, pem: text }
+    ? { ok: true, pem: normalizeNewlines(text) }
     : { ok: false, error };
+}
+
+/** Both paths store LF so an upload and a paste save identical rows. */
+function normalizeNewlines(text: string): string {
+  return text.replace(/\r\n/g, "\n");
 }
