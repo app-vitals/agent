@@ -2,12 +2,12 @@
  * admin/src/github-reconcile-wiring.ts
  * Composition of the GitHub reconcile service for admin boot (GHE-3.9).
  * Builds ReconcileApplyService from the stored enterprise Apps and an
- * optional host-supplied OpenWorkPort. Without an agent App id the reconcile
- * is not wired (routes report `skipped`); without an open-work port nothing is
- * listed or blocked.
+ * optional host-supplied OpenWorkPort. The agent App id comes from each agent's
+ * own stored GH_APP_ID; without an open-work port nothing is listed or blocked.
  */
 
 import type { PrismaClient } from "../prisma/client/client.ts";
+import type { AgentEnvService } from "./agent-envs.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import type { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import { GithubEnterpriseClient } from "./github-enterprise-client.ts";
@@ -25,8 +25,8 @@ export interface GithubReconcileWiringDeps {
   prisma: PrismaClient;
   appService: Pick<GitHubEnterpriseAppService, "get" | "getPrivateKey">;
   access: GithubAccessPreviewFn;
-  /** Numeric id of the agent App whose installations are reconciled. */
-  agentAppId: number | undefined;
+  /** Reads each agent's stored GH_APP_ID (its own GitHub App). */
+  agentEnv: Pick<AgentEnvService, "getConfigBundle">;
   openWork?: OpenWorkPort;
   /** Test seam: replaces the installer-App-backed installation port. */
   installation?: ReconcileInstallationPort;
@@ -34,12 +34,6 @@ export interface GithubReconcileWiringDeps {
   fetchFn?: typeof fetch;
   apiBase?: string;
   now?: () => Date;
-}
-
-/** Parses SHIPWRIGHT_GITHUB_AGENT_APP_ID; unset or non-numeric -> undefined. */
-export function parseAgentAppId(raw: string | undefined): number | undefined {
-  const n = Number(raw?.trim());
-  return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
 /** Builds the installer client per call so key rotations are picked up. */
@@ -78,17 +72,18 @@ function lazyInstallerClient(
   };
 }
 
-/** The `githubReconcile` dep for createAdminApp, or undefined when unwired. */
+/**
+ * The `githubReconcile` dep for createAdminApp. The agent App id is resolved
+ * per agent from its stored GH_APP_ID, so this is always wired.
+ */
 export function createGithubReconcile(
   deps: GithubReconcileWiringDeps,
-): ReconcileApplyService | undefined {
-  if (deps.agentAppId === undefined) return undefined;
+): ReconcileApplyService {
   return new ReconcileApplyService({
-    agents: new PrismaReconcileAgents(deps.prisma),
+    agents: new PrismaReconcileAgents(deps.prisma, deps.agentEnv),
     access: deps.access,
     installation:
-      deps.installation ??
-      createInstallationPort(lazyInstallerClient(deps), deps.agentAppId),
+      deps.installation ?? createInstallationPort(lazyInstallerClient(deps)),
     audit: new PrismaReconcileAudit(deps.prisma),
     ...(deps.openWork ? { openWork: deps.openWork } : {}),
   });

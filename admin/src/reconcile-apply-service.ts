@@ -12,6 +12,7 @@
  */
 
 import type { PrismaClient } from "../prisma/client/client.ts";
+import type { AgentEnvService } from "./agent-envs.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import {
   type OpenWorkItem,
@@ -25,6 +26,12 @@ import {
   repoOrg,
 } from "./reconcile-planner.ts";
 
+/** Parses a stored GH_APP_ID; unset or non-numeric -> undefined. */
+function parseAppId(raw: string | undefined): number | undefined {
+  const n = Number(raw?.trim());
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 /** More removals than this need confirmRemovals. */
 export const MAX_UNCONFIRMED_REMOVALS = 10;
 
@@ -32,6 +39,8 @@ export interface ReconcileAgentRecord {
   id: string;
   repos: string[];
   githubUsername: string | null;
+  /** The agent's own GitHub App id (its stored GH_APP_ID); undefined when unset or not numeric. */
+  appId?: number;
 }
 
 export interface ReconcileAgentsPort {
@@ -39,13 +48,23 @@ export interface ReconcileAgentsPort {
   setRepos(agentId: string, repos: string[]): Promise<void>;
 }
 
-/** Repo access on the agent App's installations, per org login. */
+/**
+ * Repo access on an agent App's installations, per org login. Each agent has
+ * its own App, so every call names the App (`appId`) whose installation is used.
+ */
 export interface ReconcileInstallationPort {
   /** Repos the agent App covers in each org; only the named orgs are needed. */
-  listRepos(orgs: readonly string[]): Promise<Record<string, string[]>>;
+  listRepos(
+    appId: number,
+    orgs: readonly string[],
+  ): Promise<Record<string, string[]>>;
   /** Grant the installation access to repos (owner/repo, all in `org`). */
-  addRepos(org: string, repos: readonly string[]): Promise<void>;
-  removeRepos(org: string, repos: readonly string[]): Promise<void>;
+  addRepos(appId: number, org: string, repos: readonly string[]): Promise<void>;
+  removeRepos(
+    appId: number,
+    org: string,
+    repos: readonly string[],
+  ): Promise<void>;
 }
 
 export interface ReconcileAuditEntry {
@@ -103,6 +122,10 @@ export type ReconcileApplyResult =
       auditId: string;
       error: string;
     };
+
+/** Skip reason when the agent has no usable GH_APP_ID in its stored env. */
+export const MISSING_APP_ID_REASON =
+  "agent has no GH_APP_ID in its stored env (its own GitHub App is not set up)";
 
 const orgsOf = (repos: readonly string[]): string[] =>
   [...new Set(repos.map(repoOrg))].sort();
@@ -176,7 +199,17 @@ export class ReconcileApplyService {
         ? { ...plan, skipReason: "GitHub Apps are not configured" }
         : plan;
     }
+    if (agent.appId === undefined) {
+      const plan = planReconcile({
+        username,
+        access: null,
+        agentRepos: agent.repos,
+        installationRepos: {},
+      });
+      return { ...plan, skipReason: MISSING_APP_ID_REASON };
+    }
     const installationRepos = await this.deps.installation.listRepos(
+      agent.appId,
       orgsOf([...agent.repos, ...(namedAdds ?? [])]),
     );
     return planReconcile({
@@ -209,7 +242,7 @@ export class ReconcileApplyService {
       diff: plan.diff,
     };
     try {
-      await this.applyInstallation(plan.diff);
+      await this.applyInstallation(agent, plan.diff);
       await this.applyConfig(agent, plan.diff);
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
@@ -230,13 +263,22 @@ export class ReconcileApplyService {
     return { status: "applied", plan, auditId, warnings };
   }
 
-  private async applyInstallation(diff: ReconcileDiff): Promise<void> {
+  private async applyInstallation(
+    agent: ReconcileAgentRecord,
+    diff: ReconcileDiff,
+  ): Promise<void> {
     const { installation } = this.deps;
+    const hasChanges =
+      diff.installationAdds.length + diff.installationRemoves.length > 0;
+    if (agent.appId === undefined) {
+      if (hasChanges) throw new Error(MISSING_APP_ID_REASON);
+      return;
+    }
     for (const [org, repos] of groupByOrg(diff.installationAdds)) {
-      await installation.addRepos(org, repos);
+      await installation.addRepos(agent.appId, org, repos);
     }
     for (const [org, repos] of groupByOrg(diff.installationRemoves)) {
-      await installation.removeRepos(org, repos);
+      await installation.removeRepos(agent.appId, org, repos);
     }
   }
 
@@ -290,13 +332,20 @@ export class PrismaReconcileAudit implements ReconcileAuditPort {
 
 /** Prisma-backed agent reads/writes for the reconcile. */
 export class PrismaReconcileAgents implements ReconcileAgentsPort {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly env: Pick<AgentEnvService, "getConfigBundle">,
+  ) {}
 
   async get(agentId: string): Promise<ReconcileAgentRecord | null> {
-    return this.prisma.agent.findUnique({
+    const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
       select: { id: true, repos: true, githubUsername: true },
     });
+    if (!agent) return null;
+    const raw = (await this.env.getConfigBundle(agentId))?.env.GH_APP_ID;
+    const appId = parseAppId(raw);
+    return appId === undefined ? agent : { ...agent, appId };
   }
 
   async setRepos(agentId: string, repos: string[]): Promise<void> {
@@ -329,43 +378,49 @@ export interface InstallationRepoClient {
 const baseName = (fullName: string): string => fullName.split("/")[1] ?? "";
 
 /**
- * ReconcileInstallationPort over GithubEnterpriseClient (GHE-3.1), scoped to
- * the agent App's installation (`agentAppId`) on each org.
+ * ReconcileInstallationPort over GithubEnterpriseClient (GHE-3.1). Each call
+ * is scoped to the named agent App's installation on the org.
  */
 export function createInstallationPort(
   client: InstallationRepoClient,
-  agentAppId: number,
 ): ReconcileInstallationPort {
-  const installationId = async (org: string): Promise<number> => {
+  const installationId = async (
+    appId: number,
+    org: string,
+  ): Promise<number> => {
     const found = (await client.listOrgInstallations(org)).find(
-      (i) => i.appId === agentAppId,
+      (i) => i.appId === appId,
     );
-    if (!found) throw new Error(`agent App is not installed on ${org}`);
+    if (!found) {
+      throw new Error(
+        `agent App ${appId} (the agent's GH_APP_ID) is not installed on org ${org}`,
+      );
+    }
     return found.id;
   };
   return {
-    async listRepos(orgs) {
+    async listRepos(appId, orgs) {
       const out: Record<string, string[]> = {};
       for (const org of orgs) {
         const repos = await client.listInstallationRepositories(
           org,
-          await installationId(org),
+          await installationId(appId, org),
         );
         out[org] = repos.map((r) => r.fullName);
       }
       return out;
     },
-    async addRepos(org, repos) {
+    async addRepos(appId, org, repos) {
       await client.addRepositories(
         org,
-        await installationId(org),
+        await installationId(appId, org),
         repos.map(baseName),
       );
     },
-    async removeRepos(org, repos) {
+    async removeRepos(appId, org, repos) {
       await client.removeRepositories(
         org,
-        await installationId(org),
+        await installationId(appId, org),
         repos.map(baseName),
       );
     },
