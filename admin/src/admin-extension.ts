@@ -62,6 +62,7 @@ import type { AdminDeps, parseAdminApiKeys } from "./agents-api.ts";
 import type { AgentPhaseMethodologyServiceLike } from "./api.ts";
 import type { createCallerScopeResolver } from "./caller-scope.ts";
 import type { PushService } from "./push-service.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import type { ServiceIntegration } from "./service-integration.ts";
 import type {
   SpecialtyDefaults,
@@ -128,6 +129,12 @@ export interface AdminExtensionServices {
    * the runtime app omits the field.
    */
   agentPhaseMethodologyService?: AgentPhaseMethodologyServiceLike;
+  /**
+   * Supplies the GitHub reconcile's open-work port (GHE-3.9): plan lists the
+   * open work on repos it would remove and apply blocks it. Absent from every
+   * extension → nothing is listed or blocked.
+   */
+  openWork?: OpenWorkPort;
 }
 
 export interface AgentDetailCardContext {
@@ -212,6 +219,7 @@ export interface ResolvedAdminExtensions {
   apiDeps: Partial<AdminDeps>;
   uiDeps: Partial<AdminUIDeps>;
   agentPhaseMethodologyService?: AgentPhaseMethodologyServiceLike;
+  openWork?: OpenWorkPort;
   apiRoutes: AdminRouteContribution[];
   adminUiRoutes: AdminRouteContribution[];
   agentDetailCards: AgentDetailCardSlot[];
@@ -238,8 +246,13 @@ export function resolveAdminExtensions(
     .map((s) => s.agentPhaseMethodologyService)
     .filter((svc) => svc !== undefined)
     .at(-1);
+  const openWork = services
+    .map((s) => s.openWork)
+    .filter((port) => port !== undefined)
+    .at(-1);
   return {
     ...(agentPhaseMethodologyService ? { agentPhaseMethodologyService } : {}),
+    ...(openWork ? { openWork } : {}),
     apiDeps: Object.assign({}, ...services.map((s) => s.api ?? {})),
     uiDeps: Object.assign({}, ...services.map((s) => s.ui ?? {})),
     apiRoutes,

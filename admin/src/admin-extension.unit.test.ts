@@ -18,12 +18,32 @@ import {
   startBackgroundPasses,
   withExtensionAgentTypes,
 } from "./admin-extension.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
 
 // The seam only hands the context through to hooks, so an opaque stand-in is
 // enough — no hook under test reads from it.
 const ctx = { env: {} } as unknown as AdminExtensionContext;
 
 describe("resolveAdminExtensions", () => {
+  it("openWork: absent from every extension is omitted; the last supplier wins", () => {
+    const mk = (id: string): OpenWorkPort => ({
+      listOpenWork: async () => [{ id, repo: "acme/x" }],
+      blockOpenWork: async () => {},
+    });
+    expect("openWork" in resolveAdminExtensions([{}], ctx)).toBe(false);
+    const first = mk("first");
+    const last = mk("last");
+    const resolved = resolveAdminExtensions(
+      [
+        { services: () => ({ openWork: first }) },
+        { services: () => ({}) },
+        { services: () => ({ openWork: last }) },
+      ],
+      ctx,
+    );
+    expect(resolved.openWork).toBe(last);
+  });
+
   it("no extensions resolves to empty contributions", () => {
     expect(resolveAdminExtensions([], ctx)).toEqual({
       apiDeps: {},

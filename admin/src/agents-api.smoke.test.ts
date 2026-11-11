@@ -22,6 +22,12 @@ import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AdminDeps } from "./agents-api.ts";
 import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
 import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
+import { createGithubReconcile } from "./github-reconcile-wiring.ts";
+import {
+  accessFor,
+  fakeOpenWork,
+  fakePrisma,
+} from "./github-reconcile-wiring.unit.test.ts";
 import type { SpecialtyType } from "./specialty-types.ts";
 import { identityCrypto } from "./token-crypto.ts";
 
@@ -7176,5 +7182,54 @@ describe("admin API — GitHub reconcile routes (GHE-3.4)", () => {
   it("400 when apply has no planHash", async () => {
     const { app } = withPort();
     expect((await post(app, "apply", asAdmin, {})).status).toBe(400);
+  });
+});
+
+describe("admin API — reconcile open-work seam, in-process composition (GHE-3.9)", () => {
+  const compose = (openWork?: ReturnType<typeof fakeOpenWork>["port"]) => {
+    const { prisma, state } = fakePrisma(["acme/old"]);
+    const githubReconcile = createGithubReconcile({
+      prisma,
+      appService: { get: async () => null, getPrivateKey: async () => null },
+      access: accessFor(["acme/api"]),
+      agentAppId: 42,
+      installation: {
+        listRepos: async () => ({ acme: ["acme/old", "acme/api"] }),
+        addRepos: async () => {},
+        removeRepos: async () => {},
+      },
+      openWork,
+    });
+    const app = createAdminApp({
+      ...makeMockDeps(),
+      adminApiKeys: parseAdminApiKeys(`root:${ADMIN_API_KEY}:*`),
+      githubReconcile,
+    });
+    const plan = () =>
+      app.request(`/agents/${AGENT_ID}/github-reconcile/plan`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${ADMIN_API_KEY}` },
+      });
+    return { plan, state };
+  };
+
+  it("plan returns the port's items and retires nothing", async () => {
+    const { port, calls } = fakeOpenWork();
+    const { plan, state } = compose(port);
+    const res = await plan();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { affectedOpenWork: unknown[] };
+    expect(body.affectedOpenWork).toEqual([
+      { id: "T-1", repo: "acme/old", title: "fix it" },
+    ]);
+    expect(calls.map((c) => c.fn)).toEqual(["list"]);
+    expect(state.repos).toEqual(["acme/old"]);
+  });
+
+  it("without a port plan lists nothing", async () => {
+    const res = await compose().plan();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { affectedOpenWork: unknown[] };
+    expect(body.affectedOpenWork).toEqual([]);
   });
 });
