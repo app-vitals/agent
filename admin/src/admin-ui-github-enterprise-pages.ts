@@ -42,6 +42,8 @@ export interface GheOrg {
 export interface GheOrgs {
   configured: boolean;
   agentAppSlug?: string | null;
+  /** Why the agent's App cannot be installed (e.g. private, no client id). */
+  agentAppReason?: string | null;
   orgs: GheOrg[];
 }
 
@@ -177,7 +179,10 @@ function orgsCard(opts: GithubEnterpriseSettingsPageOpts): string {
     </tr>`;
             })
             .join("\n");
-    body = `<table class="data-table">
+    const reason = opts.orgs?.agentAppReason
+      ? `<div class="alert alert-error">${escapeHtml(opts.orgs.agentAppReason)}</div>`
+      : "";
+    body = `${reason}<table class="data-table">
         <thead><tr><th>Organization</th><th>Lookup app</th><th>Agent app</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;

@@ -159,6 +159,29 @@ describe("renderGithubEnterpriseSettingsPage", () => {
     expect(html).toContain("Installed");
   });
 
+  test("check agent shows the private-App reason, escaped", () => {
+    const html = renderGithubEnterpriseSettingsPage({
+      ...base,
+      agentId: "agent-1",
+      status: { configured: true, installer: app(), lookup: null },
+      orgs: {
+        configured: true,
+        agentAppSlug: "agent-app",
+        agentAppReason: "the agent's App 'agent-app' is private <b>",
+        orgs: [
+          {
+            id: 1,
+            login: "org-a",
+            lookupAppInstalled: null,
+            agentAppInstalled: false,
+          },
+        ],
+      },
+    });
+    expect(html).toContain("is private &lt;b&gt;");
+    expect(html).not.toContain("private <b>");
+  });
+
   test("org list failure and top-level error/notice are escaped messages", () => {
     const html = renderGithubEnterpriseSettingsPage({
       ...base,

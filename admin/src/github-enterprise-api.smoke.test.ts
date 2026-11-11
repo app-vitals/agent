@@ -452,6 +452,53 @@ describe("GET orgs", () => {
     });
   });
 
+  it("check agent reports the private-App reason when no client id is stored", async () => {
+    const h = build({
+      routes: {
+        [ORGS]: "installable_orgs_success",
+        [INSTS]: "org_installations_success",
+        "GET /enterprises/acme/apps/organizations/org-2/installations":
+          "installable_orgs_empty",
+        "GET /apps/example-agent-app": "public_app_private_404",
+      },
+    });
+    await seed(h);
+    const res = await h.app.request("/github-enterprise/orgs?agentId=agent-1", {
+      headers: ADMIN,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { agentAppReason: string | null };
+    expect(body.agentAppReason).toMatch(/private/i);
+  });
+
+  it("check agent has no reason when a client id is stored (no public lookup)", async () => {
+    const h = build({
+      agents: {
+        "agent-1": {
+          GH_APP_SLUG: "example-agent-app",
+          GH_APP_CLIENT_ID: "Iv1.targetapp0001",
+        },
+      },
+      routes: {
+        [ORGS]: "installable_orgs_success",
+        [INSTS]: "org_installations_success",
+        "GET /enterprises/acme/apps/organizations/org-2/installations":
+          "installable_orgs_empty",
+      },
+    });
+    await seed(h);
+    const res = await h.app.request("/github-enterprise/orgs?agentId=agent-1", {
+      headers: ADMIN,
+    });
+    expect(res.status).toBe(200);
+    expect(
+      ((await res.json()) as { agentAppReason: string | null }).agentAppReason,
+    ).toBeNull();
+    expect(h.calls.some((k) => k.includes("/apps/example-agent-app"))).toBe(
+      false,
+    );
+  });
+
   it("without agentId or lookup app the flags are null", async () => {
     const h = build({
       routes: {
@@ -517,6 +564,34 @@ describe("POST install", () => {
     expect(res.status).toBe(422);
     expect(((await res.json()) as { error: string }).error).toMatch(/private/i);
     expect(h.calls).not.toContain(INSTALL);
+  });
+
+  it("uses the agent's stored GH_APP_CLIENT_ID and skips the public lookup", async () => {
+    const h = build({
+      agents: {
+        "agent-1": {
+          GH_APP_SLUG: "example-agent-app",
+          GH_APP_CLIENT_ID: "Iv1.targetapp0001",
+        },
+      },
+      routes: { [INSTALL]: "install_created" },
+    });
+    await seed(h);
+    const res = await post(h, { agentId: "agent-1" });
+    expect(res.status).toBe(200);
+    expect(h.calls).toContain(INSTALL);
+    expect(h.calls.some((k) => k.includes("/apps/example-agent-app"))).toBe(
+      false,
+    );
+  });
+
+  it("installs a slug-less agent that has a stored client id", async () => {
+    const h = build({
+      agents: { "agent-1": { GH_APP_CLIENT_ID: "Iv1.targetapp0001" } },
+      routes: { [INSTALL]: "install_created" },
+    });
+    await seed(h);
+    expect((await post(h, { agentId: "agent-1" })).status).toBe(200);
   });
 
   it("refuses an App with no client id", async () => {

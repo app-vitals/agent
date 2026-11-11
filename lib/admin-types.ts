@@ -3448,7 +3448,7 @@ export interface paths {
         put?: never;
         /**
          * Install an agent's App on an organization
-         * @description Admin-only. Resolves the agent's stored GH_APP_SLUG, looks the App up through the public GET /apps/{slug} to get its client id, and installs it on the org with the installer App. 422 for an agent with no slug and for a private App (not visible to the public lookup); 409 when the installer App is not configured.
+         * @description Admin-only. Uses the agent's stored GH_APP_CLIENT_ID when set; otherwise resolves the stored GH_APP_SLUG and looks the App up through the public GET /apps/{slug} to get its client id. Installs it on the org with the installer App. 422 for an agent with neither a stored client id nor a slug, and for a private App (not visible to the public lookup) with no stored client id; 409 when the installer App is not configured.
          */
         post: {
             parameters: {
@@ -4950,6 +4950,8 @@ export interface components {
         GithubEnterpriseOrgs: {
             configured: boolean;
             agentAppSlug?: string | null;
+            /** @description Why the agent's App cannot be installed through the enterprise API (private App with no stored GH_APP_CLIENT_ID, or no App at all). Null when it can; present only with agentId. */
+            agentAppReason?: string | null;
             orgs: {
                 id: number;
                 login: string;
