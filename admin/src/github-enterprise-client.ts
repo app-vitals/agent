@@ -69,17 +69,20 @@ export class GithubEnterpriseError extends Error {
   readonly kind: GithubEnterpriseErrorKind;
   readonly status?: number;
   readonly retryAfterSeconds?: number;
+  /** Set when the failure came from the enterprise installation lookup step. */
+  readonly step?: "installation_lookup";
 
   constructor(
     kind: GithubEnterpriseErrorKind,
     message: string,
-    opts?: { status?: number; retryAfterSeconds?: number },
+    opts?: { status?: number; retryAfterSeconds?: number; step?: "installation_lookup" },
   ) {
     super(message);
     this.name = "GithubEnterpriseError";
     this.kind = kind;
     this.status = opts?.status;
     this.retryAfterSeconds = opts?.retryAfterSeconds;
+    this.step = opts?.step;
   }
 }
 
@@ -210,12 +213,24 @@ export class GithubEnterpriseClient {
       now: this.now(),
     });
     const ent = encodeURIComponent(this.enterprise);
-    const inst = await this.request<{ id?: number }>(
-      "GET",
-      `/enterprises/${ent}/installation`,
-      jwt,
-      "GitHub enterprise installation lookup",
-    );
+    let inst: { data: { id?: number } };
+    try {
+      inst = await this.request<{ id?: number }>(
+        "GET",
+        `/enterprises/${ent}/installation`,
+        jwt,
+        "GitHub enterprise installation lookup",
+      );
+    } catch (err) {
+      if (err instanceof GithubEnterpriseError && err.kind === "not_found") {
+        throw new GithubEnterpriseError("not_found", err.message, {
+          status: err.status,
+          retryAfterSeconds: err.retryAfterSeconds,
+          step: "installation_lookup",
+        });
+      }
+      throw err;
+    }
     if (typeof inst.data?.id !== "number") {
       throw new GithubEnterpriseError(
         "unexpected",

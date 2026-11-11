@@ -97,6 +97,7 @@ function setup(opts: { isAdmin?: boolean; fetchStatus?: number } = {}) {
         expires_at: "2099-01-01T00:00:00Z",
         permissions: { enterprise_organization_installations: "write" },
       });
+    if (url.endsWith("/installation")) return json({ id: 1 });
     return json({});
   }) as unknown as typeof fetch;
   const api = createGithubEnterpriseApp({
@@ -217,6 +218,26 @@ describe("form posts", () => {
     const html = await (await app.request(BASE)).text();
     expect(html).toContain("valid");
     expect(html).not.toContain("Not validated yet");
+  });
+
+  it("shows non-failing permission warnings on the card after validate", async () => {
+    const { app } = setup();
+    await app.request(
+      `${BASE}/apps/installer`,
+      form({
+        appId: "42",
+        slug: "acme-inst",
+        enterpriseSlug: "acme",
+        privateKey: PEM,
+      }),
+    );
+    const res = await app.request(`${BASE}/apps/installer/validate`, form({}));
+    expect(res.status).toBe(302);
+    const loc = res.headers.get("location") as string;
+    expect(loc).toContain("warn=installer_repositories_write");
+    const html = await (await app.request(loc)).text();
+    expect(html).toContain("enterprise_organization_installation_repositories");
+    expect(html).toContain("gh-ent-warning");
   });
 
   it("validate on an unconfigured role is a readable 404 message", async () => {

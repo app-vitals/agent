@@ -4945,6 +4945,8 @@ export interface components {
                 [key: string]: string;
             };
             error: string | null;
+            /** @description Advisory, non-failing notes (e.g. missing optional permissions). Never change `ok`. */
+            warnings?: string[];
             app: components["schemas"]["GithubEnterpriseApp"];
         };
         GithubEnterpriseOrgs: {

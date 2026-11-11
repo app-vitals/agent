@@ -8,6 +8,7 @@
  */
 
 import type { Context, Hono, MiddlewareHandler } from "hono";
+import { warningCodeFor } from "./github-enterprise-warnings.ts";
 import type { AdminUIEnv } from "./admin-ui.ts";
 import {
   ADMIN_GITHUB_ENTERPRISE_PATH as BASE,
@@ -127,6 +128,7 @@ export function registerAdminGithubEnterpriseRoutes(
         agentId,
         error: flash.error,
         notice,
+        warnings: c.req.query("warn")?.split(",").filter(Boolean),
       }),
       { status: flash.status ?? 200 },
     );
@@ -173,12 +175,20 @@ export function registerAdminGithubEnterpriseRoutes(
     async (c) => {
       const role = c.req.param("role");
       if (!isRole(role)) return new Response("Not Found", { status: 404 });
-      const r = await call(
+      const r = await call<{ warnings?: string[] }>(
         c,
         "POST",
         `/github-enterprise/apps/${role}/validate`,
       );
-      return r.ok ? back(c, "validated") : fail(c, r);
+      if (!r.ok) return fail(c, r);
+      // Warnings ride the redirect as stable codes, never free text.
+      const codes = (r.data?.warnings ?? [])
+        .map(warningCodeFor)
+        .filter((x): x is NonNullable<typeof x> => x !== undefined);
+      return c.redirect(
+        `${BASE}?notice=validated${codes.length ? `&warn=${codes.join(",")}` : ""}`,
+        302,
+      );
     },
   );
 

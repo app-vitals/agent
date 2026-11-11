@@ -7,6 +7,7 @@
  * never renders a key (the status API only reports `keySet`).
  */
 
+import { GHE_WARNINGS, type GheWarningCode } from "./github-enterprise-warnings.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
 import { escapeHtml, renderAdminToolbar } from "./admin-ui-styles.ts";
 
@@ -58,6 +59,8 @@ export interface GithubEnterpriseSettingsPageOpts {
   agentId?: string;
   error?: string;
   notice?: string;
+  /** Warning codes from the last validate (carried via ?warn=); unknown codes are ignored. */
+  warnings?: string[];
 }
 
 const BASE = ADMIN_GITHUB_ENTERPRISE_PATH;
@@ -107,12 +110,26 @@ function postButton(
   return `<form method="POST" action="${action}" style="display:inline;margin:0"><button type="submit" class="btn ${cls}" style="font-size:12px;padding:4px 10px">${label}</button></form>`;
 }
 
-function appCard(role: "installer" | "lookup", app: GheApp | null): string {
+function warningsBlock(role: "installer" | "lookup", codes: string[] | undefined): string {
+  return (codes ?? [])
+    .filter((c): c is GheWarningCode => c in GHE_WARNINGS && c.startsWith(`${role}_`))
+    .map(
+      (c) =>
+        `<div class="help-text gh-ent-warning" style="font-size:12px;margin-top:4px">Warning: ${escapeHtml(GHE_WARNINGS[c])}</div>`,
+    )
+    .join("");
+}
+
+function appCard(
+  role: "installer" | "lookup",
+  app: GheApp | null,
+  warnings?: string[],
+): string {
   const copy = ROLE_COPY[role];
   const action = `${BASE}/apps/${role}`;
   const summary = app
     ? `<p style="margin:8px 0">App ID <strong>${escapeHtml(app.appId)}</strong> &middot; slug <strong>${escapeHtml(app.slug)}</strong>${app.enterpriseSlug ? ` &middot; enterprise <strong>${escapeHtml(app.enterpriseSlug)}</strong>` : ""}</p>
-    ${statusLine(app)}
+    ${statusLine(app)}${warningsBlock(role, warnings)}
     <div style="display:flex;gap:8px;margin:12px 0">${postButton(`${action}/validate`, "Validate")}${postButton(`${action}/delete`, "Delete", "btn-danger")}</div>`
     : `<p class="help-text" style="font-size:12px;margin:8px 0">Not configured.</p>`;
   const enterprise =
@@ -216,8 +233,8 @@ export function renderGithubEnterpriseSettingsPage(
   <div class="vos-page">
     <div class="page-header"><h1 class="page-title">GitHub Enterprise apps</h1></div>
     ${error}${notice}${emptyState}
-    ${appCard("installer", status.installer)}
-    ${appCard("lookup", status.lookup)}
+    ${appCard("installer", status.installer, opts.warnings)}
+    ${appCard("lookup", status.lookup, opts.warnings)}
     ${orgsCard(opts)}
   </div>`,
   });

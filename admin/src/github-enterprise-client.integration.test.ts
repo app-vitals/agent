@@ -117,6 +117,20 @@ function expectNoSecrets(e: Error) {
 }
 
 describe("getInstallationToken", () => {
+  it("tags a 404 on the enterprise installation lookup with its step (GHE-1.10)", async () => {
+    const { client } = makeClient({ [ENT]: "enterprise_installation_404" });
+    const e = await errOf(client.getInstallationToken());
+    expect(e.kind).toBe("not_found");
+    expect((e as { step?: string }).step).toBe("installation_lookup");
+  });
+
+  it("does not tag a 404 on the access-token mint as an installation lookup", async () => {
+    const { client } = makeClient({ [MINT]: "access_token_404" });
+    const e = await errOf(client.getInstallationToken());
+    expect(e.kind).toBe("not_found");
+    expect((e as { step?: string }).step).toBeUndefined();
+  });
+
   it("looks up the enterprise installation with a JWT then mints a token", async () => {
     const { client, calls } = makeClient({});
     const t = await client.getInstallationToken();

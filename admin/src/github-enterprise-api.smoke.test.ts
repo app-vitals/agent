@@ -381,6 +381,110 @@ describe("POST validate", () => {
     );
   });
 
+  it("installer: a 404 on the installation lookup names the enterprise and the likely causes", async () => {
+    const h = build({ routes: { [ENT]: "enterprise_installation_404" } });
+    await seed(h);
+    const res = await h.app.request(
+      "/github-enterprise/apps/installer/validate",
+      { method: "POST", headers: ADMIN },
+    );
+    const body = (await res.json()) as { ok: boolean; status: string; error: string };
+    expect(body).toMatchObject({ ok: false, status: "error" });
+    expect(body.error).toContain("not installed on enterprise acme");
+    expect(body.error).toContain("slug");
+    expect(h.appService.rows.get("installer")?.lastValidationError).toBe(body.error);
+  });
+
+  it("installer: a 404 on the token mint keeps the generic reason", async () => {
+    const h = build({ routes: { [MINT]: "access_token_404" } });
+    await seed(h);
+    const res = await h.app.request(
+      "/github-enterprise/apps/installer/validate",
+      { method: "POST", headers: ADMIN },
+    );
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe(
+      "GitHub could not find the enterprise, organization or App for this request.",
+    );
+  });
+
+  it("installer: warns (still valid) when the repositories permission is missing", async () => {
+    const h = build();
+    await seed(h);
+    const res = await h.app.request(
+      "/github-enterprise/apps/installer/validate",
+      { method: "POST", headers: ADMIN },
+    );
+    const body = (await res.json()) as { ok: boolean; status: string; warnings: string[] };
+    expect(body).toMatchObject({ ok: true, status: "valid" });
+    expect(body.warnings).toHaveLength(1);
+    expect(body.warnings[0]).toContain("enterprise_organization_installation_repositories");
+  });
+
+  it("installer: read-only repositories permission also warns; write does not", async () => {
+    const ro = build({ routes: { [MINT]: "access_token_repositories_read_only" } });
+    await seed(ro);
+    const r1 = await ro.app.request("/github-enterprise/apps/installer/validate", {
+      method: "POST",
+      headers: ADMIN,
+    });
+    expect(((await r1.json()) as { warnings: string[] }).warnings).toHaveLength(1);
+
+    const full = build({ routes: { [MINT]: "access_token_all_permissions" } });
+    await seed(full);
+    const r2 = await full.app.request("/github-enterprise/apps/installer/validate", {
+      method: "POST",
+      headers: ADMIN,
+    });
+    expect(await r2.json()).toMatchObject({ ok: true, status: "valid", warnings: [] });
+  });
+
+  it("lookup: warns (still valid) without Organization Members read; none with it", async () => {
+    const seedLookup = (h: ReturnType<typeof build>) =>
+      h.appService.save({
+        role: "lookup",
+        appId: "555",
+        slug: "example-lookup-app",
+        privateKey: PEM,
+      });
+    const h = build({ routes: { "GET /app": "app_get_success" } });
+    await seedLookup(h);
+    const res = await h.app.request("/github-enterprise/apps/lookup/validate", {
+      method: "POST",
+      headers: ADMIN,
+    });
+    const body = (await res.json()) as { ok: boolean; warnings: string[] };
+    expect(body.ok).toBe(true);
+    expect(body.warnings).toHaveLength(1);
+    expect(body.warnings[0]).toContain("Members");
+
+    const h2 = build({ routes: { "GET /app": "app_get_all_permissions" } });
+    await seedLookup(h2);
+    const res2 = await h2.app.request("/github-enterprise/apps/lookup/validate", {
+      method: "POST",
+      headers: ADMIN,
+    });
+    expect(await res2.json()).toMatchObject({ ok: true, status: "valid", warnings: [] });
+  });
+
+  it("warnings never flip validity: a missing required permission stays invalid, an error has none", async () => {
+    const h = build({ routes: { [MINT]: "access_token_no_installer_permission" } });
+    await seed(h);
+    const res = await h.app.request("/github-enterprise/apps/installer/validate", {
+      method: "POST",
+      headers: ADMIN,
+    });
+    expect(await res.json()).toMatchObject({ ok: false, status: "missing_permission" });
+
+    const e = build({ routes: { [ENT]: "enterprise_installation_403" } });
+    await seed(e);
+    const r = await e.app.request("/github-enterprise/apps/installer/validate", {
+      method: "POST",
+      headers: ADMIN,
+    });
+    expect(await r.json()).toMatchObject({ ok: false, status: "error", warnings: [] });
+  });
+
   it("lookup: checks metadata read via GET /app", async () => {
     const h = build({ routes: { "GET /app": "app_get_success" } });
     await h.appService.save({

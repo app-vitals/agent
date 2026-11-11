@@ -51,6 +51,7 @@ import {
 import { GithubLookupClient } from "./github-lookup-client.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import { ErrorSchema } from "./openapi-schemas.ts";
+import { resolveValidation } from "./github-enterprise-warnings.ts";
 import { UserRepoAccessResolver } from "./user-repo-access-resolver.ts";
 
 // ─── Deps ─────────────────────────────────────────────────────────────────────
@@ -164,6 +165,10 @@ const ValidateResultSchema = z
     requiredPermission: z.string(),
     grantedPermissions: z.record(z.string(), z.string()),
     error: z.string().nullable(),
+    warnings: z.array(z.string()).optional().openapi({
+      description:
+        "Advisory, non-failing notes (e.g. missing optional permissions). Never change `ok`.",
+    }),
     app: AppMetadataSchema.nullable(),
   })
   .openapi("GithubEnterpriseValidateResult");
@@ -687,6 +692,7 @@ export function createGithubEnterpriseApp(
     let granted: Record<string, string> = {};
     let status: "valid" | "missing_permission" | "error";
     let error: string | null = null;
+    let warnings: string[] = [];
     try {
       if (role === "installer") {
         if (!meta.enterpriseSlug) {
@@ -714,15 +720,19 @@ export function createGithubEnterpriseApp(
           })
         ).permissions;
       }
-      status = required.levels.includes(granted[required.name] ?? "")
-        ? "valid"
-        : "missing_permission";
-      if (status === "missing_permission") {
-        error = `the App does not hold ${required.name} (${required.levels.join(" or ")})`;
-      }
+      const resolved = resolveValidation(role, required, granted);
+      status = resolved.status;
+      error = resolved.error;
+      warnings = resolved.warnings;
     } catch (err) {
       status = "error";
-      if (err instanceof GithubEnterpriseError) {
+      if (
+        err instanceof GithubEnterpriseError &&
+        err.kind === "not_found" &&
+        err.step === "installation_lookup"
+      ) {
+        error = `the App is not installed on enterprise ${meta.enterpriseSlug}, or the enterprise slug is wrong`;
+      } else if (err instanceof GithubEnterpriseError) {
         error = mapEnterpriseFailure(err.kind).message;
       } else if (err instanceof ApiError) {
         error = err.message;
@@ -742,6 +752,7 @@ export function createGithubEnterpriseApp(
         requiredPermission: required.name,
         grantedPermissions: granted,
         error,
+        warnings,
         app: updated ? serializeApp(updated) : null,
       },
       200,
