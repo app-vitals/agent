@@ -101,6 +101,7 @@ import {
 } from "./cron-run-transcripts.ts";
 import {
   ApiError,
+  BadGatewayError,
   BadRequestError,
   ConflictError,
   ForbiddenError,
@@ -164,6 +165,7 @@ import {
   UpsertAgentMarketplaceBodySchema,
   UpsertChatTokenDailyBodySchema,
 } from "./openapi-schemas.ts";
+import type { InstallationReposService } from "./installation-repos-service.ts";
 import type { ReconcileApplyService } from "./reconcile-apply-service.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import {
@@ -280,6 +282,15 @@ export interface AdminDeps {
    * listed or blocked.
    */
   openWork?: OpenWorkPort;
+  /**
+   * IRM-1.2: backs the admin-only /agents/:id/github-installation/repos
+   * routes. Optional (additive); absent means the enterprise Apps are not
+   * wired and the routes answer 503.
+   */
+  githubInstallationRepos?: Pick<
+    InstallationReposService,
+    "list" | "add" | "remove"
+  >;
   /**
    * Retained solely as a pass-through to deleteAgentFully() (DELETE /agents/:id),
    * which has its own internal prisma.agent/prisma.agentEnv access — out of
@@ -690,6 +701,43 @@ const GithubReconcileApplyResultSchema = z
     error: z.string().optional(),
   })
   .openapi("GithubReconcileApplyResult");
+
+const InstallationReposBodySchema = z
+  .object({
+    repos: z.array(RepoFullNameSchema).min(1).max(100).openapi({
+      description:
+        "Repos (owner/repo) to change on the agent App's installation.",
+    }),
+  })
+  .openapi("GithubInstallationReposBody");
+
+const GithubInstallationReposListSchema = z
+  .object({
+    appId: z.number().int(),
+    orgs: z.array(
+      z.object({
+        org: z.string(),
+        repos: z.array(
+          z.object({
+            fullName: z.string(),
+            userCanPush: z.boolean().optional().openapi({
+              description:
+                "Whether the agent's bound GitHub user can push. Omitted when no username is bound or the org's access lookup is incomplete; never reported as false for unknown.",
+            }),
+          }),
+        ),
+      }),
+    ),
+  })
+  .openapi("GithubInstallationReposList");
+
+const GithubInstallationReposChangeSchema = z
+  .object({
+    status: z.enum(["applied"]),
+    auditId: z.string(),
+    repos: z.array(z.string()),
+  })
+  .openapi("GithubInstallationReposChange");
 
 // ─── Route definitions ──────────────────────────────────────────────────────────
 
@@ -1670,6 +1718,88 @@ const githubReconcileApplyRoute = createRoute({
     404: { description: "Agent not found", ...jsonError },
     409: { description: "Plan hash is stale; re-plan", ...jsonError },
     422: { description: "Removal cap needs confirmRemovals", ...jsonError },
+  },
+});
+
+const installationReposErrors = {
+  401: { description: "Unauthorized", ...jsonError },
+  403: { description: "Platform admin required", ...jsonError },
+  404: { description: "Agent not found", ...jsonError },
+  422: {
+    description: "Agent has no GH_APP_ID (its own GitHub App is not set up)",
+    ...jsonError,
+  },
+  503: { description: "GitHub Apps are not configured", ...jsonError },
+};
+
+const listInstallationReposRoute = createRoute({
+  method: "get",
+  path: "/agents/{id}/github-installation/repos",
+  summary: "List the repos on the agent App's installation",
+  description:
+    "Platform-admin only (session members, ops keys and agent keys get 403). Per org the agent's own GitHub App (its GH_APP_ID) is installed on, lists the installation's repos. When the agent has a bound githubUsername, each repo carries `userCanPush` from the access lookup only when that org's lookup result is complete; otherwise the field is omitted (never false). 404 for an unknown agent; 422 when the agent has no GH_APP_ID.",
+  request: { params: AgentIdParamSchema },
+  responses: {
+    200: {
+      description: "Installation repos",
+      content: {
+        "application/json": { schema: GithubInstallationReposListSchema },
+      },
+    },
+    ...installationReposErrors,
+    502: { description: "GitHub unavailable or refused", ...jsonError },
+  },
+});
+
+const addInstallationReposRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/github-installation/repos",
+  summary: "Add repos to the agent App's installation",
+  description:
+    "Platform-admin only. Grants the agent's own GitHub App installation access to the named repos, with no plan step; the agent's configured repos are not changed. Writes one audit entry (GitHubReconcileAudit, planHash `direct:add`) recording the caller and repos. 404 unknown agent; 422 no GH_APP_ID; 409 when the App is not installed on a repo's org (nothing is changed or audited); 502 when GitHub refuses (a failed audit entry is written).",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      required: true,
+      content: { "application/json": { schema: InstallationReposBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Repos added",
+      content: {
+        "application/json": { schema: GithubInstallationReposChangeSchema },
+      },
+    },
+    ...installationReposErrors,
+    409: { description: "Agent App not installed on the org", ...jsonError },
+    502: { description: "GitHub unavailable or refused", ...jsonError },
+  },
+});
+
+const removeInstallationReposRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/github-installation/repos/remove",
+  summary: "Remove repos from the agent App's installation",
+  description:
+    "Platform-admin only. Revokes the agent's own GitHub App installation access to the named repos, with no plan step; the agent's configured repos are not changed. Writes one audit entry (GitHubReconcileAudit, planHash `direct:remove`) recording the caller and repos. Same errors as the add route.",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      required: true,
+      content: { "application/json": { schema: InstallationReposBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Repos removed",
+      content: {
+        "application/json": { schema: GithubInstallationReposChangeSchema },
+      },
+    },
+    ...installationReposErrors,
+    409: { description: "Agent App not installed on the org", ...jsonError },
+    502: { description: "GitHub unavailable or refused", ...jsonError },
   },
 });
 
@@ -3291,6 +3421,100 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         );
     }
   });
+
+  // /agents/:id/github-installation/repos — IRM-1.2. Platform admin only;
+  // responses carry repo names and ids, never tokens.
+  const installationReposService = (c: {
+    get(k: "isAdmin"): boolean | undefined;
+  }) => {
+    if (c.get("isAdmin") !== true) {
+      throw new ForbiddenError(
+        "Admin access required to manage installation repos",
+      );
+    }
+    const svc = deps.githubInstallationRepos;
+    if (!svc) throw new ApiError(503, GITHUB_RECONCILE_UNCONFIGURED);
+    return svc;
+  };
+  const installationFailure = (
+    agentId: string,
+    result:
+      | { status: "agent_not_found" }
+      | { status: "no_app_id"; reason: string }
+      | { status: "not_installed"; reason: string },
+  ): never => {
+    if (result.status === "agent_not_found") {
+      throw new NotFoundError(`agent ${agentId} not found`);
+    }
+    if (result.status === "no_app_id") {
+      throw new UnprocessableEntityError(result.reason);
+    }
+    throw new ConflictError(result.reason);
+  };
+
+  app.openapi(listInstallationReposRoute, async (c) => {
+    const svc = installationReposService(c);
+    const { id: agentId } = c.req.valid("param");
+    const result = await svc.list(agentId);
+    if (result.status !== "ok") return installationFailure(agentId, result);
+    return c.json({ appId: result.appId, orgs: result.orgs }, 200);
+  });
+
+  const changeInstallationRepos = async (
+    kind: "add" | "remove",
+    c: {
+      get(k: "isAdmin"): boolean | undefined;
+      get(k: "caller"): { name: string } | undefined;
+    },
+    agentId: string,
+    repos: string[],
+  ) => {
+    const svc = installationReposService(c);
+    const caller = c.get("caller")?.name ?? "anonymous";
+    const result = await svc[kind](agentId, caller, repos);
+    if (
+      result.status === "agent_not_found" ||
+      result.status === "no_app_id" ||
+      result.status === "not_installed"
+    ) {
+      return installationFailure(agentId, result);
+    }
+    console.log(
+      `[agents-api] github installation repos ${kind} ${result.status}: agent=${agentId} audit=${result.auditId} caller=${caller}`,
+    );
+    if (result.status === "failed") {
+      throw new BadGatewayError(
+        `GitHub refused the ${kind}; audit ${result.auditId} records the failure: ${result.error}`,
+      );
+    }
+    return {
+      status: "applied" as const,
+      auditId: result.auditId,
+      repos: result.repos,
+    };
+  };
+  app.openapi(addInstallationReposRoute, async (c) =>
+    c.json(
+      await changeInstallationRepos(
+        "add",
+        c,
+        c.req.valid("param").id,
+        c.req.valid("json").repos,
+      ),
+      200,
+    ),
+  );
+  app.openapi(removeInstallationReposRoute, async (c) =>
+    c.json(
+      await changeInstallationRepos(
+        "remove",
+        c,
+        c.req.valid("param").id,
+        c.req.valid("json").repos,
+      ),
+      200,
+    ),
+  );
 
   // GET /agents/:id/github-installations — latest snapshot, 404 if none yet
   app.openapi(getGitHubInstallationsRoute, async (c) => {

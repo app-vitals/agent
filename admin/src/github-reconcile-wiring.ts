@@ -19,6 +19,12 @@ import {
   ReconcileApplyService,
   type ReconcileInstallationPort,
 } from "./reconcile-apply-service.ts";
+import {
+  createInstallationReposPort,
+  type InstalledOrgsClient,
+  InstallationReposService,
+  type InstallationReposPort,
+} from "./installation-repos-service.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 
 export interface GithubReconcileWiringDeps {
@@ -42,7 +48,7 @@ function lazyInstallerClient(
     GithubReconcileWiringDeps,
     "appService" | "fetchFn" | "apiBase" | "now"
   >,
-): InstallationRepoClient {
+): InstallationRepoClient & InstalledOrgsClient {
   const client = async (): Promise<GithubEnterpriseClient> => {
     const [installer, privateKey] = await Promise.all([
       deps.appService.get("installer"),
@@ -61,6 +67,8 @@ function lazyInstallerClient(
     });
   };
   return {
+    listInstallableOrganizations: async () =>
+      (await client()).listInstallableOrganizations(),
     listOrgInstallations: async (org) =>
       (await client()).listOrgInstallations(org),
     listInstallationRepositories: async (org, id) =>
@@ -86,5 +94,29 @@ export function createGithubReconcile(
       deps.installation ?? createInstallationPort(lazyInstallerClient(deps)),
     audit: new PrismaReconcileAudit(deps.prisma),
     ...(deps.openWork ? { openWork: deps.openWork } : {}),
+  });
+}
+
+export interface InstallationReposWiringDeps extends GithubReconcileWiringDeps {
+  /** Test seam: replaces the installer-App-backed port. */
+  installationRepos?: InstallationReposPort;
+}
+
+/**
+ * The `githubInstallationRepos` dep for createAdminApp (IRM-1.2): direct
+ * list/add/remove on the agent App's installation, audited in the reconcile
+ * audit table.
+ */
+export function createGithubInstallationRepos(
+  deps: InstallationReposWiringDeps,
+): InstallationReposService {
+  const client = lazyInstallerClient(deps);
+  return new InstallationReposService({
+    agents: new PrismaReconcileAgents(deps.prisma, deps.agentEnv),
+    access: deps.access,
+    installation:
+      deps.installationRepos ??
+      createInstallationReposPort(createInstallationPort(client), client),
+    audit: new PrismaReconcileAudit(deps.prisma),
   });
 }

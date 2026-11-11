@@ -105,7 +105,10 @@ import {
   createGithubEnterpriseApp,
 } from "./github-enterprise-api.ts";
 import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
-import { createGithubReconcile } from "./github-reconcile-wiring.ts";
+import {
+  createGithubInstallationRepos,
+  createGithubReconcile,
+} from "./github-reconcile-wiring.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";
@@ -479,12 +482,19 @@ export async function startAdmin(
     agentEnv: agentEnvService,
     openWork: resolvedExtensions.openWork,
   });
+  const githubInstallationRepos = createGithubInstallationRepos({
+    prisma,
+    appService: githubEnterpriseAppService,
+    access: githubAccessPreview,
+    agentEnv: agentEnvService,
+  });
   const adminApiApp = createAdminApp({
     githubAccessPreview,
     githubReconcile,
     ...(resolvedExtensions.openWork
       ? { openWork: resolvedExtensions.openWork }
       : {}),
+    githubInstallationRepos,
     agentService,
     agentEnvService,
     agentCronJobService,
