@@ -1826,3 +1826,77 @@ describe("installPlugins — remote marketplaces", () => {
     expect(secondCalls).toEqual([["plugin", "marketplace", "update", "mkt"]]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// installPlugins — ledger reconciliation against real registry shapes (PUI-1.1)
+// ---------------------------------------------------------------------------
+
+describe("installPlugins — removed/disabled reconciliation", () => {
+  it("uninstalls a removed plugin and removes a removed marketplace, leaving untracked items alone", async () => {
+    const pluginsDir = join(testHome, "plugins");
+    mkdirSync(pluginsDir, { recursive: true });
+    const manifest = join(pluginsDir, "installed_plugins.json");
+    writeFileSync(
+      manifest,
+      JSON.stringify({
+        version: 2,
+        plugins: {
+          "kept@mk": [{ scope: "user", installPath: pluginsDir }],
+          "gone@mk": [{ scope: "user", installPath: pluginsDir }],
+          "hand@other": [{ scope: "user", installPath: pluginsDir }],
+        },
+      }),
+    );
+    writeFileSync(
+      join(pluginsDir, "known_marketplaces.json"),
+      JSON.stringify({
+        mk: {
+          source: { source: "github", repo: "o/mk" },
+          installLocation: pluginsDir,
+        },
+        other: {
+          source: { source: "github", repo: "o/other" },
+          installLocation: pluginsDir,
+        },
+      }),
+    );
+    writeFileSync(
+      join(pluginsDir, "agent_plugin_ledger.json"),
+      JSON.stringify({ plugins: ["kept@mk", "gone@mk"], marketplaces: ["mk"] }),
+    );
+
+    const calls: string[][] = [];
+    const exec = async (_c: string, args: string[]) => {
+      calls.push(args);
+      return { stdout: "", exitCode: 0 };
+    };
+    await installPlugins(
+      exec,
+      "/tmp/cwd",
+      [{ plugin: "kept", marketplace: "mk" }],
+      "/tmp/no-such-repo-root",
+      manifest,
+      [],
+      "/tmp/nonexistent-baked-root",
+      {},
+      [],
+    );
+
+    const uninstalled = calls
+      .filter((a) => a[1] === "uninstall")
+      .map((a) => a[2]);
+    expect(uninstalled).toEqual(["gone@mk"]);
+    expect(calls).toContainEqual(["plugin", "marketplace", "remove", "mk"]);
+    expect(calls.flat()).not.toContain("hand@other");
+    expect(calls).not.toContainEqual([
+      "plugin",
+      "marketplace",
+      "remove",
+      "other",
+    ]);
+    const ledger = JSON.parse(
+      readFileSync(join(pluginsDir, "agent_plugin_ledger.json"), "utf8"),
+    );
+    expect(ledger).toEqual({ plugins: ["kept@mk"], marketplaces: [] });
+  });
+});
