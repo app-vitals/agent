@@ -3544,6 +3544,191 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/github-lost-access/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview removing the repos the bound user can no longer push to
+         * @description Platform-admin only (session members, ops keys and agent keys get 403). Read-only: nothing is changed or audited. Lists the repos on the agent App's installation or in the agent's repos that the bound githubUsername can no longer push to, and the agent's open tasks and PRs on them (via the optional open-work port; a port failure is a warning). Orgs whose access listing is missing, partial or failed, or whose lookup App is installed on selected repositories only, are skipped and reported. 200 with `status: skipped` when the user is unbound, not found or unverified, the agent has no GH_APP_ID, or the Apps are not configured.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Lost-access removal preview */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubLostAccessPreview"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Platform admin required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or refused */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub Apps are not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/github-lost-access/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove the confirmed repos the bound user can no longer push to
+         * @description Platform-admin only. Never adds repos. Takes the repos the admin confirmed from the preview, re-checks each against the bound user's current access, and removes only those still without push access: first from the agent App's installation, then from the agent's repos; then writes one audit entry (GitHubReconcileAudit, planHash `lost-access:remove`) and blocks the agent's open work on the removed repos through the optional open-work port (a failure there is a warning). Named repos left alone are reported in `notRemoved`. Same skip rules as the preview: a skipped call (200 `status: skipped`) changes and audits nothing; `noop` when nothing named still lacks access. 422 when more than 10 repos would be removed without `confirmRemovals: true`. 502 when GitHub refuses (a failed audit entry records only what landed).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GithubLostAccessRemoveBody"];
+                };
+            };
+            responses: {
+                /** @description Removal result */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubLostAccessRemoveResult"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Platform admin required */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Removal cap needs confirmRemovals */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or refused */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub Apps are not configured */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/config": {
         parameters: {
             query?: never;
@@ -5387,6 +5572,55 @@ export interface components {
         GithubInstallationReposBody: {
             /** @description Repos (owner/repo) to change on the agent App's installation. */
             repos: string[];
+        };
+        GithubLostAccessPreview: {
+            /**
+             * @description `skipped` (not an error) when no GitHub username is bound, the user is not found or unverified, the agent has no GH_APP_ID, or the Apps are not configured; `reason` says why.
+             * @enum {string}
+             */
+            status: "previewed" | "skipped";
+            reason?: string;
+            /** @description Every repo the bound user can no longer push to that would be removed from the installation or the agent's repos. */
+            repos?: string[];
+            installationRemoves?: string[];
+            configRemoves?: string[];
+            /** @description Orgs whose access listing is missing, partial or failed, or whose lookup App is installed on selected repositories only; nothing there is removed. */
+            skippedOrgs?: {
+                org: string;
+                reason: string;
+            }[];
+            /** @description The agent's open tasks and PRs on those repos that removing them would block; empty when no open-work port is wired. */
+            openWork?: {
+                id: string;
+                repo: string;
+                title?: string;
+            }[];
+            warnings?: string[];
+        };
+        GithubLostAccessRemoveResult: {
+            /** @enum {string} */
+            status: "applied" | "noop" | "skipped";
+            reason?: string;
+            auditId?: string;
+            repos?: string[];
+            installationRemoves?: string[];
+            configRemoves?: string[];
+            /** @description Named repos left alone: the user can still push, the org was skipped, or the repo is on neither the installation nor the agent. */
+            notRemoved?: {
+                repo: string;
+                reason: string;
+            }[];
+            skippedOrgs?: {
+                org: string;
+                reason: string;
+            }[];
+            warnings?: string[];
+        };
+        GithubLostAccessRemoveBody: {
+            /** @description The repos (owner/repo) the admin confirmed from the preview. Each is re-checked; only those the user still cannot push to are removed. */
+            repos: string[];
+            /** @description Required when more than 10 repos would be removed. */
+            confirmRemovals?: boolean;
         };
         AgentConfigResponse: {
             /**

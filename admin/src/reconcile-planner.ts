@@ -84,7 +84,13 @@ export function repoBasename(fullName: string): string {
 
 const sorted = (xs: Iterable<string>): string[] => [...xs].sort();
 
-function orgSkipReason(
+/**
+ * Why removals in one org must be skipped (unknown is never none): the org
+ * was not checked, its listing is partial or failed, or the lookup App is
+ * installed on selected repositories only. Undefined when the listing is
+ * complete. Shared with the lost-access removal (IRM-1.3).
+ */
+export function orgSkipReason(
   result: OrgAccessResult | undefined,
 ): string | undefined {
   if (!result) return "org was not checked";
@@ -148,18 +154,27 @@ function skippedPlan(username: string, reason: string): ReconcilePlan {
   });
 }
 
+/**
+ * Why a whole plan must be skipped: no bound user, access not resolved, user
+ * not found or not verified. Undefined when the access result is usable.
+ * Shared with the lost-access removal (IRM-1.3).
+ */
+export function accessSkipReason(
+  username: string | null | undefined,
+  access: UserRepoAccessResult | null,
+): string | undefined {
+  if (!username?.trim()) return "no GitHub username bound to the agent";
+  if (!access) return "access was not resolved";
+  if (access.outcome === "user_not_found") return "GitHub user not found";
+  if (!access.userVerified) return "GitHub user could not be verified";
+  return undefined;
+}
+
 export function planReconcile(input: ReconcilePlanInput): ReconcilePlan {
   const username = input.username?.trim() ?? "";
-  if (!username)
-    return skippedPlan("", "no GitHub username bound to the agent");
-  const access = input.access;
-  if (!access) return skippedPlan(username, "access was not resolved");
-  if (access.outcome === "user_not_found") {
-    return skippedPlan(username, "GitHub user not found");
-  }
-  if (!access.userVerified) {
-    return skippedPlan(username, "GitHub user could not be verified");
-  }
+  const skipReason = accessSkipReason(username, input.access);
+  if (skipReason) return skippedPlan(username, skipReason);
+  const access = input.access as UserRepoAccessResult;
 
   const orgResults = new Map(access.orgs.map((o) => [o.org, o]));
   const pushable = new Set<string>();

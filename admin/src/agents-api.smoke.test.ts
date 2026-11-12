@@ -26,6 +26,7 @@ import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
 import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
 import {
   createGithubInstallationRepos,
+  createGithubLostAccessRemoval,
   createGithubReconcile,
 } from "./github-reconcile-wiring.ts";
 import {
@@ -35,7 +36,10 @@ import {
   fakePrisma,
 } from "./github-reconcile-wiring.unit.test.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
-import { repoRemovedFromAgentBlockReason } from "./repo-removal-open-work.ts";
+import {
+  repoLostAccessBlockReason,
+  repoRemovedFromAgentBlockReason,
+} from "./repo-removal-open-work.ts";
 import type { SpecialtyType } from "./specialty-types.ts";
 import { identityCrypto } from "./token-crypto.ts";
 
@@ -7774,5 +7778,277 @@ describe("admin API — agent App installation repos (IRM-1.2)", () => {
       adminApiKeys: parseAdminApiKeys(`root:${ADMIN_API_KEY}:*`),
     });
     expect((await app.request(url(), { headers: asAdmin })).status).toBe(503);
+  });
+});
+
+// ─── IRM-1.3: /agents/:id/github-lost-access ──────────────────────────────────
+
+describe("admin API — remove repos the bound user lost access to (IRM-1.3)", () => {
+  const OPS = "irm13-ops-token";
+  const AGENT_KEY = "irm13-agent-token";
+
+  function setup(
+    opts: {
+      repos?: string[];
+      installed?: string[];
+      username?: string | null;
+      known?: boolean;
+      openWork?: Partial<OpenWorkPort> | null;
+      access?: AdminDeps["githubAccessPreview"];
+    } = {},
+  ) {
+    const state = {
+      repos: [...(opts.repos ?? ["acme/api", "acme/old"])],
+      installed: [...(opts.installed ?? ["acme/api", "acme/old", "acme/gone"])],
+    };
+    const audits: Array<Record<string, unknown>> = [];
+    const calls: unknown[][] = [];
+    const prisma = {
+      agent: {
+        findUnique: async () =>
+          opts.known === false
+            ? null
+            : {
+                id: AGENT_ID,
+                repos: [...state.repos],
+                githubUsername:
+                  opts.username === undefined ? "dev" : opts.username,
+              },
+        update: async (args: { data: { repos: string[] } }) => {
+          calls.push(["setRepos", args.data.repos]);
+          state.repos = args.data.repos;
+        },
+      },
+      gitHubReconcileAudit: {
+        create: async (args: { data: Record<string, unknown> }) => {
+          calls.push(["audit"]);
+          audits.push(args.data);
+          return { id: `audit-${audits.length}` };
+        },
+      },
+    } as unknown as Parameters<
+      typeof createGithubLostAccessRemoval
+    >[0]["prisma"];
+    const openWork: OpenWorkPort | undefined =
+      opts.openWork === null
+        ? undefined
+        : {
+            listOpenWork: async (...a) => {
+              calls.push(["list", ...a]);
+              return [{ id: "T-1", repo: "acme/old", title: "fix it" }];
+            },
+            blockOpenWork: async (...a) => {
+              calls.push(["block", ...a]);
+            },
+            ...opts.openWork,
+          };
+    const githubLostAccessRemoval = createGithubLostAccessRemoval({
+      prisma,
+      appService: { get: async () => null, getPrivateKey: async () => null },
+      access: opts.access ?? accessFor(["acme/api"]),
+      agentEnv: envWith({ GH_APP_ID: "42" }),
+      installationRepos: {
+        listInstalled: async () => [
+          { org: "acme", repos: [...state.installed] },
+        ],
+        listRepos: async () => ({ acme: [...state.installed] }),
+        addRepos: async () => {},
+        removeRepos: async (_appId, org, repos) => {
+          calls.push(["removeRepos", org, [...repos]]);
+          state.installed = state.installed.filter((r) => !repos.includes(r));
+        },
+      },
+      ...(openWork ? { openWork } : {}),
+    });
+    const base = makeMockDeps();
+    const app = createAdminApp({
+      ...base,
+      adminApiKeys: parseAdminApiKeys(
+        `root:${ADMIN_API_KEY}:*,operator:${OPS}:platform.ops`,
+      ),
+      agentTokenService: {
+        ...base.agentTokenService,
+        validate: async (t: string) =>
+          t === AGENT_KEY ? { agentId: AGENT_ID } : null,
+      },
+      githubLostAccessRemoval,
+    });
+    return { app, audits, calls, state };
+  }
+
+  const asAdmin = { Authorization: `Bearer ${ADMIN_API_KEY}` };
+  const previewUrl = `/agents/${AGENT_ID}/github-lost-access/preview`;
+  const removeUrl = `/agents/${AGENT_ID}/github-lost-access/remove`;
+  const remove = (
+    app: ReturnType<typeof createAdminApp>,
+    body: unknown,
+    headers: Record<string, string> = asAdmin,
+  ) =>
+    app.request(removeUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it("preview lists the repos that would be removed and their open work, changing nothing", async () => {
+    const { app, audits, calls, state } = setup();
+    const res = await app.request(previewUrl, { headers: asAdmin });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      status: "previewed",
+      repos: ["acme/gone", "acme/old"],
+      installationRemoves: ["acme/gone", "acme/old"],
+      configRemoves: ["acme/old"],
+      skippedOrgs: [],
+      openWork: [{ id: "T-1", repo: "acme/old", title: "fix it" }],
+      warnings: [],
+    });
+    expect(audits).toEqual([]);
+    expect(calls.map((c) => c[0])).toEqual(["list"]);
+    expect(state.repos).toEqual(["acme/api", "acme/old"]);
+  });
+
+  it("preview reports a failing open-work port as a warning", async () => {
+    const { app } = setup({
+      openWork: {
+        listOpenWork: async () => {
+          throw new Error("store down");
+        },
+      },
+    });
+    const body = (await (
+      await app.request(previewUrl, { headers: asAdmin })
+    ).json()) as { openWork: unknown[]; warnings: string[] };
+    expect(body.openWork).toEqual([]);
+    expect(body.warnings.join()).toContain("store down");
+  });
+
+  it("remove applies the confirmed repos in order, audits once, and blocks open work", async () => {
+    const { app, audits, calls, state } = setup();
+    const res = await remove(app, { repos: ["acme/old", "acme/api"] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      status: "applied",
+      auditId: "audit-1",
+      repos: ["acme/old"],
+      installationRemoves: ["acme/old"],
+      configRemoves: ["acme/old"],
+      notRemoved: [
+        {
+          repo: "acme/api",
+          reason: "the bound user can still push to this repo",
+        },
+      ],
+      skippedOrgs: [],
+      warnings: [],
+    });
+    expect(calls).toEqual([
+      ["removeRepos", "acme", ["acme/old"]],
+      ["setRepos", ["acme/api"]],
+      ["audit"],
+      ["block", AGENT_ID, ["acme/old"], repoLostAccessBlockReason("acme/old")],
+    ]);
+    expect(state.repos).toEqual(["acme/api"]);
+    expect(state.installed).toEqual(["acme/api", "acme/gone"]);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      agentId: AGENT_ID,
+      caller: "root",
+      planHash: "lost-access:remove",
+      result: { status: "applied" },
+    });
+  });
+
+  it("a failing open-work port is a warning, not a failed call", async () => {
+    const { app, state, audits } = setup({
+      openWork: {
+        blockOpenWork: async () => {
+          throw new Error("store down");
+        },
+      },
+    });
+    const res = await remove(app, { repos: ["acme/old"] });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; warnings: string[] };
+    expect(body.status).toBe("applied");
+    expect(body.warnings[0]).toContain("acme/old");
+    expect(body.warnings[0]).toContain("store down");
+    expect(state.repos).toEqual(["acme/api"]);
+    expect(audits).toHaveLength(1);
+  });
+
+  it("skipped for an unbound user: nothing changed, no audit", async () => {
+    const { app, audits, calls } = setup({ username: null });
+    const res = await remove(app, { repos: ["acme/old"] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "skipped" });
+    expect((await app.request(previewUrl, { headers: asAdmin })).status).toBe(
+      200,
+    );
+    expect(audits).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it("skipped for an unverified user: nothing changed, no audit", async () => {
+    const verified = accessFor(["acme/api"]);
+    const { app, audits, calls } = setup({
+      access: async (u) => {
+        const r = await verified(u);
+        return r.status === "ok"
+          ? { ...r, access: { ...r.access, userVerified: false } }
+          : r;
+      },
+    });
+    const res = await remove(app, { repos: ["acme/old"] });
+    const body = (await res.json()) as { status: string; reason: string };
+    expect(body.status).toBe("skipped");
+    expect(body.reason).toContain("verified");
+    expect(audits).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it("422 for more than 10 removals without confirmRemovals; nothing changed", async () => {
+    const many = Array.from({ length: 11 }, (_, i) => `acme/r${i}`);
+    const { app, audits, state } = setup({ repos: many, installed: many });
+    const res = await remove(app, { repos: many });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(await res.json())).toContain("confirmRemovals");
+    expect(audits).toEqual([]);
+    expect(state.repos).toEqual(many);
+    const ok = await remove(app, { repos: many, confirmRemovals: true });
+    expect(ok.status).toBe(200);
+    expect(state.repos).toEqual([]);
+  });
+
+  it("noop when nothing named still lacks access; no audit", async () => {
+    const { app, audits } = setup();
+    const res = await remove(app, { repos: ["acme/api"] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "noop", repos: [] });
+    expect(audits).toEqual([]);
+  });
+
+  it("403 for ops and agent keys; 404 unknown agent; 400 bad body; 503 unwired", async () => {
+    const { app, audits } = setup();
+    for (const key of [OPS, AGENT_KEY]) {
+      const h = { Authorization: `Bearer ${key}` };
+      expect((await app.request(previewUrl, { headers: h })).status).toBe(403);
+      expect((await remove(app, { repos: ["acme/old"] }, h)).status).toBe(403);
+    }
+    expect((await remove(app, { repos: [] })).status).toBe(400);
+    expect((await remove(app, { repos: ["nope"] })).status).toBe(400);
+    expect(audits).toEqual([]);
+    const unknown = setup({ known: false }).app;
+    expect(
+      (await unknown.request(previewUrl, { headers: asAdmin })).status,
+    ).toBe(404);
+    expect((await remove(unknown, { repos: ["acme/old"] })).status).toBe(404);
+    const unwired = createAdminApp({
+      ...makeMockDeps(),
+      adminApiKeys: parseAdminApiKeys(`root:${ADMIN_API_KEY}:*`),
+    });
+    expect(
+      (await unwired.request(previewUrl, { headers: asAdmin })).status,
+    ).toBe(503);
   });
 });

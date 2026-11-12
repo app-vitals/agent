@@ -25,6 +25,7 @@ import {
   InstallationReposService,
   type InstallationReposPort,
 } from "./installation-repos-service.ts";
+import { LostAccessRemovalService } from "./lost-access-removal.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 
 export interface GithubReconcileWiringDeps {
@@ -118,5 +119,26 @@ export function createGithubInstallationRepos(
       deps.installationRepos ??
       createInstallationReposPort(createInstallationPort(client), client),
     audit: new PrismaReconcileAudit(deps.prisma),
+  });
+}
+
+/**
+ * The `githubLostAccessRemoval` dep for createAdminApp (IRM-1.3): removes the
+ * repos the bound user can no longer push to from the agent App's
+ * installation and the agent's repos, blocking open work through the
+ * optional host OpenWorkPort.
+ */
+export function createGithubLostAccessRemoval(
+  deps: InstallationReposWiringDeps,
+): LostAccessRemovalService {
+  const client = lazyInstallerClient(deps);
+  return new LostAccessRemovalService({
+    agents: new PrismaReconcileAgents(deps.prisma, deps.agentEnv),
+    access: deps.access,
+    installation:
+      deps.installationRepos ??
+      createInstallationReposPort(createInstallationPort(client), client),
+    audit: new PrismaReconcileAudit(deps.prisma),
+    ...(deps.openWork ? { openWork: deps.openWork } : {}),
   });
 }

@@ -3,6 +3,7 @@ import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import {
   blockRepoRemovalWork,
   previewRepoRemovalWork,
+  repoLostAccessBlockReason,
   repoRemovedFromAgentBlockReason,
 } from "./repo-removal-open-work.ts";
 
@@ -77,5 +78,28 @@ describe("blockRepoRemovalWork", () => {
     const w = await blockRepoRemovalWork(p, "ag", ["a/one", "b/two"]);
     expect(w).toHaveLength(1);
     expect(w[0]).toContain("a/one");
+  });
+});
+
+describe("blockRepoRemovalWork with a lost-access reason (IRM-1.3)", () => {
+  it("names the repo and that the bound user lost access", () => {
+    const r = repoLostAccessBlockReason("a/one");
+    expect(r).toContain("a/one");
+    expect(r).toContain("lost");
+    expect(r).toContain("access");
+    expect(r).not.toBe(repoRemovedFromAgentBlockReason("a/one"));
+  });
+  it("blocks each repo with the given reason", async () => {
+    const { p, calls } = port();
+    await blockRepoRemovalWork(
+      p,
+      "ag",
+      ["a/one", "b/two"],
+      repoLostAccessBlockReason,
+    );
+    expect(calls).toEqual([
+      ["block", "ag", ["a/one"], repoLostAccessBlockReason("a/one")],
+      ["block", "ag", ["b/two"], repoLostAccessBlockReason("b/two")],
+    ]);
   });
 });

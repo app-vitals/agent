@@ -100,6 +100,15 @@ Every apply attempt that gets past the skip and no-op checks, successful or fail
 
 A host can supply an optional `OpenWorkPort` through the admin extension's `services.openWork`. Plan lists the open work on repos the plan removes (`affectedOpenWork`); apply then blocks it with the reason `repo removed from agent by GitHub reconcile (<repo>)`. Blocking happens after the audit write and a port failure is a warning on an otherwise `applied` result, never a failed apply. With no port, nothing is listed or blocked.
 
+### Removing repos the bound user lost access to
+
+A platform admin can remove, from both the agent App's installation and the agent's `repos`, every repo the bound `githubUsername` can no longer push to. It never adds repos, and there is no plan hash: the admin confirms an explicit list and the server re-checks it. Same auth as reconcile (session members, ops keys and agent keys get `403`).
+
+- `GET /agents/{id}/github-lost-access/preview` is read-only (nothing changed or audited). It returns `repos` (with `installationRemoves` and `configRemoves`), `skippedOrgs`, `warnings` and `openWork`: the agent's open tasks and PRs on those repos that the removal would block (empty with no open-work port; a port failure is a warning).
+- `POST /agents/{id}/github-lost-access/remove` takes `{repos: ["owner/repo"], confirmRemovals?}`. Each named repo is re-checked against the user's current access; only those still without push access are removed. Named repos left alone (the user can still push, the org is skipped, or the repo is on neither side) are reported in `notRemoved`.
+
+The reconcile safety rules apply: orgs whose listing is missing, `partial` or failed, or whose lookup App is installed on selected repositories only, are skipped and reported; an unbound, not-found or unverified user (or no `GH_APP_ID`, or unconfigured Apps) makes the whole call `skipped` with nothing changed and no audit row; more than 10 removals without `confirmRemovals: true` is `422`. `noop` when nothing named still lacks access. Order of effects: installation removals, the agent's `repos`, one `GitHubReconcileAudit` row (`planHash` `lost-access:remove`), then the agent's open work on the removed repos is blocked through the `OpenWorkPort` with a reason naming the repo and that the bound user lost push access (a port failure is a warning, not a failed call). GitHub refusing a removal is `502`, with a `failed` audit row recording only what landed.
+
 ### The member-edit caveat
 
 Reconcile is not a live guard. Session members can still change an agent's `repos` through `PATCH /agents/{id}` and the repo add routes, and nothing rechecks the bound user's access at that moment. A repo the user cannot push to can therefore sit in the scope until an admin plans and applies a reconcile. Run it after membership or access changes, and treat it as the enforcer rather than the validator.
