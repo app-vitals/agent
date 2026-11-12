@@ -166,6 +166,7 @@ import {
   UpsertChatTokenDailyBodySchema,
 } from "./openapi-schemas.ts";
 import type { InstallationReposService } from "./installation-repos-service.ts";
+import type { LostAccessRemovalService } from "./lost-access-removal.ts";
 import type { ReconcileApplyService } from "./reconcile-apply-service.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import {
@@ -290,6 +291,15 @@ export interface AdminDeps {
   githubInstallationRepos?: Pick<
     InstallationReposService,
     "list" | "add" | "remove"
+  >;
+  /**
+   * IRM-1.3: backs the admin-only /agents/:id/github-lost-access/{preview,remove}
+   * routes. Optional (additive); absent means the enterprise Apps are not
+   * wired and the routes answer 503.
+   */
+  githubLostAccessRemoval?: Pick<
+    LostAccessRemovalService,
+    "preview" | "remove"
   >;
   /**
    * Retained solely as a pass-through to deleteAgentFully() (DELETE /agents/:id),
@@ -738,6 +748,73 @@ const GithubInstallationReposChangeSchema = z
     repos: z.array(z.string()),
   })
   .openapi("GithubInstallationReposChange");
+
+const OpenWorkItemSchema = z.object({
+  id: z.string(),
+  repo: z.string(),
+  title: z.string().optional(),
+});
+
+const SkippedOrgsSchema = z.array(
+  z.object({ org: z.string(), reason: z.string() }),
+);
+
+const GithubLostAccessPreviewSchema = z
+  .object({
+    status: z.enum(["previewed", "skipped"]).openapi({
+      description:
+        "`skipped` (not an error) when no GitHub username is bound, the user is not found or unverified, the agent has no GH_APP_ID, or the Apps are not configured; `reason` says why.",
+    }),
+    reason: z.string().optional(),
+    repos: z.array(z.string()).optional().openapi({
+      description:
+        "Every repo the bound user can no longer push to that would be removed from the installation or the agent's repos.",
+    }),
+    installationRemoves: z.array(z.string()).optional(),
+    configRemoves: z.array(z.string()).optional(),
+    skippedOrgs: SkippedOrgsSchema.optional().openapi({
+      description:
+        "Orgs whose access listing is missing, partial or failed, or whose lookup App is installed on selected repositories only; nothing there is removed.",
+    }),
+    openWork: z.array(OpenWorkItemSchema).optional().openapi({
+      description:
+        "The agent's open tasks and PRs on those repos that removing them would block; empty when no open-work port is wired.",
+    }),
+    warnings: z.array(z.string()).optional(),
+  })
+  .openapi("GithubLostAccessPreview");
+
+const GithubLostAccessRemoveBodySchema = z
+  .object({
+    repos: z.array(RepoFullNameSchema).min(1).max(100).openapi({
+      description:
+        "The repos (owner/repo) the admin confirmed from the preview. Each is re-checked; only those the user still cannot push to are removed.",
+    }),
+    confirmRemovals: z.boolean().optional().openapi({
+      description: "Required when more than 10 repos would be removed.",
+    }),
+  })
+  .openapi("GithubLostAccessRemoveBody");
+
+const GithubLostAccessRemoveResultSchema = z
+  .object({
+    status: z.enum(["applied", "noop", "skipped"]),
+    reason: z.string().optional(),
+    auditId: z.string().optional(),
+    repos: z.array(z.string()).optional(),
+    installationRemoves: z.array(z.string()).optional(),
+    configRemoves: z.array(z.string()).optional(),
+    notRemoved: z
+      .array(z.object({ repo: z.string(), reason: z.string() }))
+      .optional()
+      .openapi({
+        description:
+          "Named repos left alone: the user can still push, the org was skipped, or the repo is on neither the installation nor the agent.",
+      }),
+    skippedOrgs: SkippedOrgsSchema.optional(),
+    warnings: z.array(z.string()).optional(),
+  })
+  .openapi("GithubLostAccessRemoveResult");
 
 // ─── Route definitions ──────────────────────────────────────────────────────────
 
@@ -1800,6 +1877,59 @@ const removeInstallationReposRoute = createRoute({
     ...installationReposErrors,
     409: { description: "Agent App not installed on the org", ...jsonError },
     502: { description: "GitHub unavailable or refused", ...jsonError },
+  },
+});
+
+const lostAccessErrors = {
+  401: { description: "Unauthorized", ...jsonError },
+  403: { description: "Platform admin required", ...jsonError },
+  404: { description: "Agent not found", ...jsonError },
+  502: { description: "GitHub unavailable or refused", ...jsonError },
+  503: { description: "GitHub Apps are not configured", ...jsonError },
+};
+
+const githubLostAccessPreviewRoute = createRoute({
+  method: "get",
+  path: "/agents/{id}/github-lost-access/preview",
+  summary: "Preview removing the repos the bound user can no longer push to",
+  description:
+    "Platform-admin only (session members, ops keys and agent keys get 403). Read-only: nothing is changed or audited. Lists the repos on the agent App's installation or in the agent's repos that the bound githubUsername can no longer push to, and the agent's open tasks and PRs on them (via the optional open-work port; a port failure is a warning). Orgs whose access listing is missing, partial or failed, or whose lookup App is installed on selected repositories only, are skipped and reported. 200 with `status: skipped` when the user is unbound, not found or unverified, the agent has no GH_APP_ID, or the Apps are not configured.",
+  request: { params: AgentIdParamSchema },
+  responses: {
+    200: {
+      description: "Lost-access removal preview",
+      content: {
+        "application/json": { schema: GithubLostAccessPreviewSchema },
+      },
+    },
+    ...lostAccessErrors,
+  },
+});
+
+const githubLostAccessRemoveRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/github-lost-access/remove",
+  summary: "Remove the confirmed repos the bound user can no longer push to",
+  description:
+    "Platform-admin only. Never adds repos. Takes the repos the admin confirmed from the preview, re-checks each against the bound user's current access, and removes only those still without push access: first from the agent App's installation, then from the agent's repos; then writes one audit entry (GitHubReconcileAudit, planHash `lost-access:remove`) and blocks the agent's open work on the removed repos through the optional open-work port (a failure there is a warning). Named repos left alone are reported in `notRemoved`. Same skip rules as the preview: a skipped call (200 `status: skipped`) changes and audits nothing; `noop` when nothing named still lacks access. 422 when more than 10 repos would be removed without `confirmRemovals: true`. 502 when GitHub refuses (a failed audit entry records only what landed).",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      required: true,
+      content: {
+        "application/json": { schema: GithubLostAccessRemoveBodySchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Removal result",
+      content: {
+        "application/json": { schema: GithubLostAccessRemoveResultSchema },
+      },
+    },
+    ...lostAccessErrors,
+    422: { description: "Removal cap needs confirmRemovals", ...jsonError },
   },
 });
 
@@ -3515,6 +3645,102 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       200,
     ),
   );
+
+  // /agents/:id/github-lost-access/{preview,remove} — IRM-1.3. Platform admin
+  // only; responses carry repo names and ids, never tokens.
+  const lostAccessService = (c: { get(k: "isAdmin"): boolean | undefined }) => {
+    if (c.get("isAdmin") !== true) {
+      throw new ForbiddenError(
+        "Admin access required to remove repos the bound user lost access to",
+      );
+    }
+    const svc = deps.githubLostAccessRemoval;
+    if (!svc) throw new ApiError(503, GITHUB_RECONCILE_UNCONFIGURED);
+    return svc;
+  };
+
+  app.openapi(githubLostAccessPreviewRoute, async (c) => {
+    const svc = lostAccessService(c);
+    const { id: agentId } = c.req.valid("param");
+    const result = await svc.preview(agentId);
+    if (result.status === "agent_not_found") {
+      throw new NotFoundError(`agent ${agentId} not found`);
+    }
+    if (result.status === "skipped") {
+      return c.json({ status: "skipped" as const, reason: result.reason }, 200);
+    }
+    const { plan } = result;
+    return c.json(
+      {
+        status: "previewed" as const,
+        repos: plan.repos,
+        installationRemoves: plan.installationRemoves,
+        configRemoves: plan.configRemoves,
+        skippedOrgs: plan.skippedOrgs,
+        openWork: result.openWork,
+        warnings: result.warnings,
+      },
+      200,
+    );
+  });
+
+  app.openapi(githubLostAccessRemoveRoute, async (c) => {
+    const svc = lostAccessService(c);
+    const { id: agentId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    const caller = c.get("caller")?.name ?? "anonymous";
+    const result = await svc.remove({
+      agentId,
+      caller,
+      repos: body.repos,
+      confirmRemovals: body.confirmRemovals,
+    });
+    switch (result.status) {
+      case "agent_not_found":
+        throw new NotFoundError(`agent ${agentId} not found`);
+      case "skipped":
+        return c.json(
+          { status: "skipped" as const, reason: result.reason },
+          200,
+        );
+      case "removal_cap":
+        throw new UnprocessableEntityError(
+          `${result.removals} repos would be removed; resend with confirmRemovals: true to apply`,
+        );
+      case "failed":
+        console.log(
+          `[agents-api] github lost-access removal failed: agent=${agentId} audit=${result.auditId} caller=${caller}`,
+        );
+        throw new BadGatewayError(
+          `GitHub refused the removal; audit ${result.auditId} records the failure: ${result.error}`,
+        );
+      case "noop":
+      case "applied": {
+        const { plan } = result;
+        if (result.status === "applied") {
+          console.log(
+            `[agents-api] github lost-access removal applied: agent=${agentId} audit=${result.auditId} caller=${caller}`,
+          );
+        }
+        return c.json(
+          {
+            status: result.status,
+            ...(result.status === "applied" ? { auditId: result.auditId } : {}),
+            repos: plan.repos,
+            installationRemoves: plan.installationRemoves,
+            configRemoves: plan.configRemoves,
+            notRemoved: plan.notRemoved,
+            skippedOrgs: plan.skippedOrgs,
+            warnings:
+              result.status === "applied"
+                ? [...plan.warnings, ...result.warnings]
+                : plan.warnings,
+          },
+          200,
+        );
+      }
+    }
+  });
 
   // GET /agents/:id/github-installations — latest snapshot, 404 if none yet
   app.openapi(getGitHubInstallationsRoute, async (c) => {

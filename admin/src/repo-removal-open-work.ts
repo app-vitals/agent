@@ -12,6 +12,11 @@ export function repoRemovedFromAgentBlockReason(repo: string): string {
   return `repo ${repo} was removed from the agent's repos`;
 }
 
+/** IRM-1.3: reason for work on a repo the agent's bound user can no longer push to. */
+export function repoLostAccessBlockReason(repo: string): string {
+  return `repo ${repo} was removed from the agent because its bound GitHub user lost push access`;
+}
+
 export interface RepoRemovalPreview {
   openWork: OpenWorkItem[];
   warnings: string[];
@@ -35,21 +40,21 @@ export async function previewRepoRemovalWork(
   }
 }
 
-/** Blocks the agent's open work on each removed repo; returns warnings. */
+/**
+ * Blocks the agent's open work on each removed repo; returns warnings.
+ * `reason` builds the human-facing block reason per repo.
+ */
 export async function blockRepoRemovalWork(
   port: OpenWorkPort | undefined,
   agentId: string,
   repos: readonly string[],
+  reason: (repo: string) => string = repoRemovedFromAgentBlockReason,
 ): Promise<string[]> {
   if (!port) return [];
   const warnings: string[] = [];
   for (const repo of repos) {
     try {
-      await port.blockOpenWork(
-        agentId,
-        [repo],
-        repoRemovedFromAgentBlockReason(repo),
-      );
+      await port.blockOpenWork(agentId, [repo], reason(repo));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       warnings.push(`open work for ${repo} was not blocked: ${msg}`);

@@ -107,6 +107,7 @@ import {
 import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import {
   createGithubInstallationRepos,
+  createGithubLostAccessRemoval,
   createGithubReconcile,
 } from "./github-reconcile-wiring.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
@@ -488,6 +489,13 @@ export async function startAdmin(
     access: githubAccessPreview,
     agentEnv: agentEnvService,
   });
+  const githubLostAccessRemoval = createGithubLostAccessRemoval({
+    prisma,
+    appService: githubEnterpriseAppService,
+    access: githubAccessPreview,
+    agentEnv: agentEnvService,
+    openWork: resolvedExtensions.openWork,
+  });
   const adminApiApp = createAdminApp({
     githubAccessPreview,
     githubReconcile,
@@ -495,6 +503,7 @@ export async function startAdmin(
       ? { openWork: resolvedExtensions.openWork }
       : {}),
     githubInstallationRepos,
+    githubLostAccessRemoval,
     agentService,
     agentEnvService,
     agentCronJobService,
