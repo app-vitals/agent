@@ -12,8 +12,8 @@ import {
 } from "./installation-repos-service.ts";
 import {
   AppNotInstalledError,
-  type ReconcileAuditEntry,
-} from "./reconcile-apply-service.ts";
+  type InstallationAuditEntry,
+} from "./installation-ports.ts";
 import type {
   OrgAccessResult,
   UserRepoAccessResult,
@@ -115,7 +115,7 @@ function build(
     notInstalled?: string;
   } = {},
 ) {
-  const audits: ReconcileAuditEntry[] = [];
+  const audits: InstallationAuditEntry[] = [];
   const calls: string[] = [];
   const installation: InstallationReposPort = {
     listInstalled: async () => [

@@ -130,9 +130,9 @@ export interface AdminExtensionServices {
    */
   agentPhaseMethodologyService?: AgentPhaseMethodologyServiceLike;
   /**
-   * Supplies the GitHub reconcile's open-work port (GHE-3.9): plan lists the
-   * open work on repos it would remove and apply blocks it. Absent from every
-   * extension → nothing is listed or blocked.
+   * Supplies the open-work port: removing a repo from an agent (or the
+   * lost-access removal) previews and blocks the open work on it. Absent from
+   * every extension → nothing is listed or blocked.
    */
   openWork?: OpenWorkPort;
 }

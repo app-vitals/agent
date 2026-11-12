@@ -1,7 +1,7 @@
 /**
  * admin/src/admin-ui-installation-repos-pages.ts
  * Pure renderers for the agent detail page's "Installation repos" card
- * (IRM-1.4), which replaces the plan-first Reconcile card: the repos on the
+ * (IRM-1.4), the repos on the
  * agent App's installation per org with add/remove, the user-can-push hint,
  * and a button that removes repos the bound user can no longer push to (IRM-1.3)
  * after an explicit confirmation. It also renders the open-work lists shown
@@ -11,7 +11,7 @@
  */
 
 import { escapeHtml } from "./admin-ui-styles.ts";
-import { MAX_UNCONFIRMED_REMOVALS } from "./reconcile-apply-service.ts";
+import { MAX_UNCONFIRMED_REMOVALS } from "./installation-ports.ts";
 
 export interface OpenWorkView {
   id: string;

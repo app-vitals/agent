@@ -111,7 +111,6 @@ describe("admin UI — installation repos card (IRM-1.4)", () => {
       const { app } = setup({ agentsApi: () => json(INSTALLED) });
       const html = await (await get(app, "")).text();
       expect(html).toContain('id="github-installation-card"');
-      expect(html).not.toContain('id="github-reconcile-card"');
     });
 
     it("is absent for an agent with no GH_APP_ID", async () => {

@@ -3087,168 +3087,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/agents/{id}/github-reconcile/plan": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Plan a GitHub repo reconcile for the agent
-         * @description Platform-admin only (session members, ops keys and agent keys get 403). Read-only: nothing is persisted or changed. Returns the diff, warnings, `planHash` and the open work the removals would affect. 200 with `status: skipped` and a `reason` when no githubUsername is bound or the enterprise Apps are not configured. 404 for an unknown agent.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": components["schemas"]["GithubReconcilePlanBody"];
-                };
-            };
-            responses: {
-                /** @description Reconcile plan */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["GithubReconcilePlanResult"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Platform admin required */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Agent not found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/agents/{id}/github-reconcile/apply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Apply a reviewed GitHub repo reconcile plan
-         * @description Platform-admin only (session members, ops keys and agent keys get 403). Re-plans server-side and applies only when the fresh plan still matches `planHash` (409 otherwise). More than 10 removals need `confirmRemovals: true` (422 otherwise). Returns the audit id and result. 200 with `status: skipped` (unbound user or unconfigured Apps) or `status: noop` (nothing to change) is not an error. Open work on removed repos is blocked through the optional open-work port; a failure there is a warning.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["GithubReconcileApplyBody"];
-                };
-            };
-            responses: {
-                /** @description Apply result */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["GithubReconcileApplyResult"];
-                    };
-                };
-                /** @description Unauthorized */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Platform admin required */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Agent not found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Plan hash is stale; re-plan */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-                /** @description Removal cap needs confirmRemovals */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Error"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/agents/{id}/github-installation/repos": {
         parameters: {
             query?: never;
@@ -3339,7 +3177,7 @@ export interface paths {
         put?: never;
         /**
          * Add repos to the agent App's installation
-         * @description Platform-admin only. Grants the agent's own GitHub App installation access to the named repos, with no plan step; the agent's configured repos are not changed. Writes one audit entry (GitHubReconcileAudit, planHash `direct:add`) recording the caller and repos. 404 unknown agent; 422 no GH_APP_ID; 409 when the App is not installed on a repo's org (nothing is changed or audited); 502 when GitHub refuses (a failed audit entry is written).
+         * @description Platform-admin only. Grants the agent's own GitHub App installation access to the named repos; the agent's configured repos are not changed. Writes one audit entry (GitHubReconcileAudit, planHash `direct:add`) recording the caller and repos. 404 unknown agent; 422 no GH_APP_ID; 409 when the App is not installed on a repo's org (nothing is changed or audited); 502 when GitHub refuses (a failed audit entry is written).
          */
         post: {
             parameters: {
@@ -3447,7 +3285,7 @@ export interface paths {
         put?: never;
         /**
          * Remove repos from the agent App's installation
-         * @description Platform-admin only. Revokes the agent's own GitHub App installation access to the named repos, with no plan step; the agent's configured repos are not changed. Writes one audit entry (GitHubReconcileAudit, planHash `direct:remove`) recording the caller and repos. Same errors as the add route.
+         * @description Platform-admin only. Revokes the agent's own GitHub App installation access to the named repos; the agent's configured repos are not changed. Writes one audit entry (GitHubReconcileAudit, planHash `direct:remove`) recording the caller and repos. Same errors as the add route.
          */
         post: {
             parameters: {
@@ -5493,64 +5331,6 @@ export interface components {
                 complete: boolean;
                 checkedAt: string;
             };
-        };
-        GithubReconcilePlanResult: {
-            /**
-             * @description `skipped` (not an error) when no GitHub username is bound or the Apps are not configured; `reason` says why.
-             * @enum {string}
-             */
-            status: "planned" | "skipped";
-            reason?: string;
-            planHash?: string;
-            empty?: boolean;
-            diff?: {
-                installationAdds: string[];
-                installationRemoves: string[];
-                configAdds: string[];
-                configRemoves: string[];
-            };
-            skippedOrgs?: {
-                org: string;
-                reason: string;
-            }[];
-            rejectedAdds?: {
-                repo: string;
-                reason: string;
-            }[];
-            warnings?: string[];
-            /** @description Open work the removals would block; empty when no open-work port is wired. */
-            affectedOpenWork?: {
-                id: string;
-                repo: string;
-                title?: string;
-            }[];
-        };
-        GithubReconcilePlanBody: {
-            /** @description Repos (owner/repo) to explicitly add to the agent's config and installation. */
-            addRepos?: string[];
-        };
-        GithubReconcileApplyResult: {
-            /** @enum {string} */
-            status: "applied" | "failed" | "noop" | "skipped";
-            reason?: string;
-            auditId?: string;
-            planHash?: string;
-            diff?: {
-                installationAdds: string[];
-                installationRemoves: string[];
-                configAdds: string[];
-                configRemoves: string[];
-            };
-            warnings?: string[];
-            error?: string;
-        };
-        GithubReconcileApplyBody: {
-            /** @description planHash of the plan the admin reviewed. */
-            planHash: string;
-            /** @description Must match the addRepos used when the plan was made. */
-            addRepos?: string[];
-            /** @description Required when the plan removes more than 10 repos. */
-            confirmRemovals?: boolean;
         };
         GithubInstallationReposList: {
             appId: number;

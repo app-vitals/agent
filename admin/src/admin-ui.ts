@@ -58,12 +58,6 @@ import {
   renderGithubAccessResult,
 } from "./admin-ui-github-identity-pages.ts";
 import {
-  type GithubReconcileApplyView,
-  type GithubReconcilePlanView,
-  renderGithubReconcileApplyResult,
-  renderGithubReconcilePlanResult,
-} from "./admin-ui-github-reconcile-pages.ts";
-import {
   actuallyBlockedWork,
   type InstallationReposView,
   type LostAccessPreviewView,
@@ -1923,82 +1917,6 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       renderGithubAccessResult((await res.json()) as GithubAccessPreviewView),
     );
   });
-
-  // GHE-3.5: thin proxies over the GHE-3.4 plan/apply routes. They return
-  // HTML fragments for the Reconcile card; the agents API enforces admin too.
-  const reconcileProxy = async (
-    c: Context<AdminUIEnv>,
-    step: "plan" | "apply",
-  ): Promise<{ res: Response | null; body: Record<string, unknown> }> => {
-    let body: Record<string, unknown> = {};
-    try {
-      const parsed = await c.req.json();
-      if (parsed && typeof parsed === "object") body = parsed;
-    } catch {
-      // empty body
-    }
-    const res = await callApi(
-      c,
-      agentsApi as NonNullable<typeof agentsApi>,
-      `/agents/${encodeURIComponent(c.req.param("id") ?? "")}/github-reconcile/${step}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      },
-    );
-    return { res, body };
-  };
-  const reconcileError = async (res: Response | null) => {
-    let message = "The reconcile request failed.";
-    try {
-      const j = (await res?.json()) as { error?: unknown };
-      if (typeof j.error === "string" && j.error) message = j.error;
-    } catch {
-      // keep the generic message
-    }
-    return html(renderGithubAccessError(message), {
-      status: res && res.status >= 400 ? res.status : 502,
-    });
-  };
-
-  app.post(
-    "/admin/agents/:id/github-reconcile/plan",
-    requireAuth,
-    async (c) => {
-      if (!c.var.isAdmin || !agentsApi) {
-        return new Response("Forbidden", { status: 403 });
-      }
-      const { res, body } = await reconcileProxy(c, "plan");
-      if (!res?.ok) return reconcileError(res);
-      const adds = Array.isArray(body.addRepos)
-        ? body.addRepos.filter((r): r is string => typeof r === "string")
-        : [];
-      return html(
-        renderGithubReconcilePlanResult(
-          (await res.json()) as GithubReconcilePlanView,
-          adds,
-        ),
-      );
-    },
-  );
-
-  app.post(
-    "/admin/agents/:id/github-reconcile/apply",
-    requireAuth,
-    async (c) => {
-      if (!c.var.isAdmin || !agentsApi) {
-        return new Response("Forbidden", { status: 403 });
-      }
-      const { res } = await reconcileProxy(c, "apply");
-      if (!res?.ok) return reconcileError(res);
-      return html(
-        renderGithubReconcileApplyResult(
-          (await res.json()) as GithubReconcileApplyView,
-        ),
-      );
-    },
-  );
 
   // IRM-1.4: thin proxies over the installation repos (IRM-1.2) and
   // lost-access (IRM-1.3) routes, plus the repo-removal preview (IRM-1.7).

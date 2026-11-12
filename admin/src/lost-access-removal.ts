@@ -7,7 +7,7 @@
  * The admin reviews a read-only preview, then sends the exact repos they
  * confirmed; the server re-checks each against the user's current access and
  * removes only those still without it (no plan hash). The safety rules are the
- * reconcile planner's (accessSkipReason / orgSkipReason): unknown is never
+ * shared access rules (accessSkipReason / orgSkipReason): unknown is never
  * none, so orgs with a missing, partial or failed listing, or a selected-only
  * lookup install, are skipped and reported; an unbound, not-found or
  * unverified user skips the whole call. More than MAX_UNCONFIRMED_REMOVALS
@@ -23,17 +23,17 @@ import type { InstallationReposPort } from "./installation-repos-service.ts";
 import {
   MAX_UNCONFIRMED_REMOVALS,
   MISSING_APP_ID_REASON,
-  type ReconcileAgentRecord,
-  type ReconcileAgentsPort,
-  type ReconcileAuditPort,
-} from "./reconcile-apply-service.ts";
+  type InstallationAgentRecord,
+  type InstallationAgentsPort,
+  type InstallationAuditPort,
+} from "./installation-ports.ts";
 import type { OpenWorkItem, OpenWorkPort } from "./reconcile-open-work.ts";
 import {
   accessSkipReason,
   type OrgSkip,
   orgSkipReason,
   repoOrg,
-} from "./reconcile-planner.ts";
+} from "./repo-access-rules.ts";
 import {
   blockRepoRemovalWork,
   previewRepoRemovalWork,
@@ -169,10 +169,10 @@ export function planLostAccessRemoval(
 }
 
 export interface LostAccessRemovalDeps {
-  agents: ReconcileAgentsPort;
+  agents: InstallationAgentsPort;
   access: GithubAccessPreviewFn;
   installation: Pick<InstallationReposPort, "listInstalled" | "removeRepos">;
-  audit: ReconcileAuditPort;
+  audit: InstallationAuditPort;
   /** Optional: with none, nothing is listed or blocked. */
   openWork?: OpenWorkPort;
 }
@@ -304,7 +304,7 @@ export class LostAccessRemovalService {
   }
 
   private async planFor(
-    agent: ReconcileAgentRecord,
+    agent: InstallationAgentRecord,
     requested?: readonly string[],
   ): Promise<LostAccessPlan> {
     const username = agent.githubUsername?.trim();
