@@ -60,15 +60,10 @@ import {
 import {
   actuallyBlockedWork,
   type InstallationReposView,
-  type LostAccessPreviewView,
-  type LostAccessRemoveView,
   type OpenWorkView,
   type RepoRemovalPreviewView,
-  renderInstallationChangeResult,
   renderInstallationReposBody,
   renderInstallationReposError,
-  renderLostAccessPreview,
-  renderLostAccessResult,
   renderRepoRemovalConfirm,
   renderRepoRemovalResult,
 } from "./admin-ui-installation-repos-pages.ts";
@@ -1918,8 +1913,8 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     );
   });
 
-  // IRM-1.4: thin proxies over the installation repos (IRM-1.2) and
-  // lost-access (IRM-1.3) routes, plus the repo-removal preview (IRM-1.7).
+  // IRM-1.4: thin proxies over the installation repos list (IRM-1.2) and
+  // the repo-removal preview (IRM-1.7).
   // They return HTML fragments for the Installation repos card and the agent's
   // repos list; the agents API enforces platform-admin too.
   const apiErrorFragment = async (res: Response | null, fallback: string) => {
@@ -1944,14 +1939,6 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     }
     return {} as Record<string, unknown>;
   };
-  const stringList = (v: unknown): string[] =>
-    Array.isArray(v) ? v.filter((r): r is string => typeof r === "string") : [];
-  const postJson = (c: Context<AdminUIEnv>, path: string, body: unknown) =>
-    callApi(c, agentsApi as NonNullable<typeof agentsApi>, path, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
   const apiId = (c: Context<AdminUIEnv>) =>
     encodeURIComponent(c.req.param("id") ?? "");
 
@@ -1959,7 +1946,6 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     if (!c.var.isAdmin || !agentsApi) {
       return new Response("Forbidden", { status: 403 });
     }
-    const agentId = c.req.param("id") ?? "";
     const res = await callApi(
       c,
       agentsApi,
@@ -1968,103 +1954,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     if (!res?.ok) {
       return apiErrorFragment(res, "Could not load the installation repos.");
     }
-    const agent = await agentService.getDetail(agentId);
     return html(
-      renderInstallationReposBody(
-        (await res.json()) as InstallationReposView,
-        agent?.githubUsername,
-      ),
+      renderInstallationReposBody((await res.json()) as InstallationReposView),
     );
   });
-
-  for (const kind of ["add", "remove"] as const) {
-    app.post(
-      `/admin/agents/:id/github-installation/repos/${kind}`,
-      requireAuth,
-      async (c) => {
-        if (!c.var.isAdmin || !agentsApi) {
-          return new Response("Forbidden", { status: 403 });
-        }
-        const repos = stringList((await readBody(c)).repos);
-        const res = await postJson(
-          c,
-          `/agents/${apiId(c)}/github-installation/repos${kind === "add" ? "" : "/remove"}`,
-          { repos },
-        );
-        if (!res?.ok) {
-          return apiErrorFragment(res, `Could not ${kind} the repos.`);
-        }
-        return html(
-          renderInstallationChangeResult(
-            kind,
-            (await res.json()) as { auditId?: string; repos?: string[] },
-          ),
-        );
-      },
-    );
-  }
-
-  app.get(
-    "/admin/agents/:id/github-lost-access/preview",
-    requireAuth,
-    async (c) => {
-      if (!c.var.isAdmin || !agentsApi) {
-        return new Response("Forbidden", { status: 403 });
-      }
-      const res = await callApi(
-        c,
-        agentsApi,
-        `/agents/${apiId(c)}/github-lost-access/preview`,
-      );
-      if (!res?.ok) {
-        return apiErrorFragment(res, "Could not preview the removal.");
-      }
-      return html(
-        renderLostAccessPreview((await res.json()) as LostAccessPreviewView),
-      );
-    },
-  );
-
-  app.post(
-    "/admin/agents/:id/github-lost-access/remove",
-    requireAuth,
-    async (c) => {
-      if (!c.var.isAdmin || !agentsApi) {
-        return new Response("Forbidden", { status: 403 });
-      }
-      const body = await readBody(c);
-      const repos = stringList(body.repos);
-      // The open work the removal will block, read just before it happens so
-      // the result can show what was actually blocked.
-      let seen: OpenWorkView[] = [];
-      const pre = await callApi(
-        c,
-        agentsApi,
-        `/agents/${apiId(c)}/github-lost-access/preview`,
-      );
-      if (pre?.ok) {
-        try {
-          seen = ((await pre.json()) as LostAccessPreviewView).openWork ?? [];
-        } catch {
-          // no preview: nothing is claimed as blocked
-        }
-      }
-      const res = await postJson(
-        c,
-        `/agents/${apiId(c)}/github-lost-access/remove`,
-        { repos, confirmRemovals: body.confirmRemovals === true },
-      );
-      if (!res?.ok) {
-        return apiErrorFragment(res, "Could not remove the repos.");
-      }
-      const result = (await res.json()) as LostAccessRemoveView;
-      const blocked =
-        result.status === "applied"
-          ? actuallyBlockedWork(seen, result.repos ?? [], result.warnings ?? [])
-          : [];
-      return html(renderLostAccessResult(result, blocked));
-    },
-  );
 
   const splitRepo = (repo: string): [string, string] | null =>
     isOrgRepo(repo) ? (repo.split("/") as [string, string]) : null;

@@ -7,7 +7,7 @@ import {
 } from "./github-installation.fixtures.ts";
 import {
   createGithubInstallationRepos,
-  createGithubLostAccessRemoval,
+  createGithubSync,
 } from "./github-installation-wiring.ts";
 import type { InstallationReposPort } from "./installation-repos-service.ts";
 
@@ -67,10 +67,10 @@ describe("createGithubInstallationRepos", () => {
   });
 });
 
-describe("createGithubLostAccessRemoval", () => {
+describe("createGithubSync", () => {
   const build = (openWork?: ReturnType<typeof fakeOpenWork>["port"]) => {
     const { prisma, state } = fakePrisma(["acme/old", "acme/api"]);
-    const svc = createGithubLostAccessRemoval({
+    const svc = createGithubSync({
       prisma,
       appService: noApp,
       access: accessFor(["acme/api"]),
@@ -81,15 +81,17 @@ describe("createGithubLostAccessRemoval", () => {
     return { svc, state };
   };
 
-  it("with a port: preview lists affected open work and remove blocks it", async () => {
+  it("with a port: preview lists affected open work and apply blocks it", async () => {
     const { port, calls } = fakeOpenWork();
     const { svc, state } = build(port);
     const preview = await svc.preview("a1");
     expect(preview.status).toBe("previewed");
-    const res = await svc.remove({
+    const res = await svc.apply({
       agentId: "a1",
       caller: "root",
-      repos: ["acme/old"],
+      appAdds: [],
+      appRemoves: ["acme/old"],
+      agentRemoves: ["acme/old"],
     });
     expect(res.status).toBe("applied");
     expect(state.repos).toEqual(["acme/api"]);
@@ -98,12 +100,14 @@ describe("createGithubLostAccessRemoval", () => {
     expect(block?.args[1]).toEqual(["acme/old"]);
   });
 
-  it("without a port: nothing is blocked, remove still works", async () => {
+  it("without a port: nothing is blocked, apply still works", async () => {
     const { svc, state } = build();
-    const res = await svc.remove({
+    const res = await svc.apply({
       agentId: "a1",
       caller: "root",
-      repos: ["acme/old"],
+      appAdds: [],
+      appRemoves: [],
+      agentRemoves: ["acme/old"],
     });
     expect(res.status).toBe("applied");
     expect(state.repos).toEqual(["acme/api"]);

@@ -1,6 +1,6 @@
 /**
  * admin/src/github-installation-wiring.ts
- * Composition of the installation repos and lost-access removal services for
+ * Composition of the installation repos list and GitHub Sync services for
  * admin boot, from the stored installer App and an optional host-supplied
  * OpenWorkPort. The agent App id comes from each agent's own stored
  * GH_APP_ID; without an open-work port nothing is listed or blocked.
@@ -23,7 +23,7 @@ import {
   InstallationReposService,
   type InstallationReposPort,
 } from "./installation-repos-service.ts";
-import { LostAccessRemovalService } from "./lost-access-removal.ts";
+import { GithubSyncService } from "./github-sync.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 
 export interface GithubInstallationWiringDeps {
@@ -85,8 +85,7 @@ export interface InstallationReposWiringDeps
 
 /**
  * The `githubInstallationRepos` dep for createAdminApp (IRM-1.2): direct
- * list/add/remove on the agent App's installation, audited in the
- * GitHubReconcileAudit table.
+ * list the repos on the agent App's installation.
  */
 export function createGithubInstallationRepos(
   deps: InstallationReposWiringDeps,
@@ -98,21 +97,20 @@ export function createGithubInstallationRepos(
     installation:
       deps.installationRepos ??
       createInstallationReposPort(createInstallationPort(client), client),
-    audit: new PrismaInstallationAudit(deps.prisma),
   });
 }
 
 /**
- * The `githubLostAccessRemoval` dep for createAdminApp (IRM-1.3): removes the
- * repos the bound user can no longer push to from the agent App's
- * installation and the agent's repos, blocking open work through the
- * optional host OpenWorkPort.
+ * The `githubSync` dep for createAdminApp (IRM-3.1): installation adds and
+ * removes plus agent-repo removals for the repos the bound user can or can no
+ * longer push to, audited once and blocking open work through the optional
+ * host OpenWorkPort.
  */
-export function createGithubLostAccessRemoval(
+export function createGithubSync(
   deps: InstallationReposWiringDeps,
-): LostAccessRemovalService {
+): GithubSyncService {
   const client = lazyInstallerClient(deps);
-  return new LostAccessRemovalService({
+  return new GithubSyncService({
     agents: new PrismaInstallationAgents(deps.prisma, deps.agentEnv),
     access: deps.access,
     installation:

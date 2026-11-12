@@ -1,7 +1,7 @@
 /**
  * admin/src/repo-access-rules.ts
  * Pure rules for deciding what a bound GitHub user's access result can safely
- * justify (reused by the lost-access removal, IRM-1.3). No I/O.
+ * justify (reused by the GitHub Sync, IRM-3.1). No I/O.
  *
  * - Unknown is never none: an org whose resolver result is missing, partial,
  *   failed, or whose lookup installation is selected-only is skipped (with a

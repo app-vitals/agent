@@ -1,6 +1,6 @@
 /**
  * admin/src/installation-repos-service.unit.test.ts
- * IRM-1.2: the user-can-push hint logic and the list/add/remove service, with
+ * IRM-1.2: the user-can-push hint logic and the list service, with
  * in-memory ports.
  */
 
@@ -10,10 +10,6 @@ import {
   type InstallationReposPort,
   userPushHints,
 } from "./installation-repos-service.ts";
-import {
-  AppNotInstalledError,
-  type InstallationAuditEntry,
-} from "./installation-ports.ts";
 import type {
   OrgAccessResult,
   UserRepoAccessResult,
@@ -111,29 +107,15 @@ function build(
       | { status: "unconfigured" }
       | { status: "ok"; access: UserRepoAccessResult }
     >;
-    failAdd?: boolean;
-    notInstalled?: string;
   } = {},
 ) {
-  const audits: InstallationAuditEntry[] = [];
-  const calls: string[] = [];
   const installation: InstallationReposPort = {
     listInstalled: async () => [
       { org: "acme", repos: ["acme/push", "acme/unlisted"] },
     ],
-    listRepos: async (appId, orgs) => {
-      if (opts.notInstalled && orgs.includes(opts.notInstalled)) {
-        throw new AppNotInstalledError(appId, opts.notInstalled);
-      }
-      return {};
-    },
-    addRepos: async (_a, org, repos) => {
-      if (opts.failAdd && org === "beta") throw new Error("boom");
-      calls.push(`add ${org} ${repos.join(",")}`);
-    },
-    removeRepos: async (_a, org, repos) => {
-      calls.push(`remove ${org} ${repos.join(",")}`);
-    },
+    listRepos: async () => ({}),
+    addRepos: async () => {},
+    removeRepos: async () => {},
   };
   const agent =
     opts.agent === undefined
@@ -145,14 +127,8 @@ function build(
       opts.access ??
       (async () => ({ status: "ok", access: accessOf([orgResult()]) })),
     installation,
-    audit: {
-      write: async (e) => {
-        audits.push(e);
-        return `audit-${audits.length}`;
-      },
-    },
   });
-  return { svc, audits, calls };
+  return { svc };
 }
 
 describe("InstallationReposService.list", () => {
@@ -205,66 +181,5 @@ describe("InstallationReposService.list", () => {
     });
     const r = await build({ agent: { githubUsername: "dev" } }).svc.list("a1");
     expect(r.status).toBe("no_app_id");
-  });
-});
-
-describe("InstallationReposService.add/remove", () => {
-  it("adds per org, dedupes, and writes one audit entry with the caller", async () => {
-    const { svc, audits, calls } = build();
-    const r = await svc.add("a1", "root", ["acme/a", "acme/a", "beta/b"]);
-    expect(r).toEqual({
-      status: "applied",
-      auditId: "audit-1",
-      repos: ["acme/a", "beta/b"],
-    });
-    expect(calls).toEqual(["add acme acme/a", "add beta beta/b"]);
-    expect(audits).toHaveLength(1);
-    expect(audits[0]).toMatchObject({
-      agentId: "a1",
-      caller: "root",
-      planHash: "direct:add",
-      diff: {
-        installationAdds: ["acme/a", "beta/b"],
-        installationRemoves: [],
-        configAdds: [],
-        configRemoves: [],
-      },
-      result: { status: "applied" },
-    });
-  });
-
-  it("remove records installationRemoves", async () => {
-    const { svc, audits } = build();
-    await svc.remove("a1", "root", ["acme/a"]);
-    expect(audits[0]?.diff.installationRemoves).toEqual(["acme/a"]);
-    expect(audits[0]?.planHash).toBe("direct:remove");
-  });
-
-  it("not installed: distinct status, nothing changed or audited", async () => {
-    const { svc, audits, calls } = build({ notInstalled: "beta" });
-    const r = await svc.add("a1", "root", ["acme/a", "beta/b"]);
-    expect(r).toMatchObject({ status: "not_installed", org: "beta" });
-    expect(calls).toEqual([]);
-    expect(audits).toEqual([]);
-  });
-
-  it("a mid-way GitHub failure audits a failed entry with only the repos that landed", async () => {
-    const { svc, audits } = build({ failAdd: true });
-    const r = await svc.add("a1", "root", ["acme/a", "beta/b"]);
-    expect(r).toEqual({ status: "failed", auditId: "audit-1", error: "boom" });
-    expect(audits[0]?.diff.installationAdds).toEqual(["acme/a"]);
-    expect(audits[0]?.result).toEqual({ status: "failed", error: "boom" });
-  });
-
-  it("unknown agent and no GH_APP_ID write nothing", async () => {
-    const a = build({ agent: null });
-    expect((await a.svc.add("x", "root", ["acme/a"])).status).toBe(
-      "agent_not_found",
-    );
-    const b = build({ agent: { githubUsername: null } });
-    expect((await b.svc.remove("a1", "root", ["acme/a"])).status).toBe(
-      "no_app_id",
-    );
-    expect(a.audits.concat(b.audits)).toEqual([]);
   });
 });

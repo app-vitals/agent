@@ -1,7 +1,7 @@
 /**
  * admin/src/installation-ports.ts
  * Ports and Prisma/GitHub-backed adapters shared by the installation repos
- * service (IRM-1.2) and the lost-access removal (IRM-1.3): the agent record
+ * service (IRM-1.2) and GitHub Sync (IRM-3.1): the agent record
  * with its own GH_APP_ID, installation list/add/remove scoped to that App, and
  * the audit table (GitHubReconcileAudit) every change is recorded in.
  */
