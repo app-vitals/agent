@@ -142,7 +142,12 @@ export interface InstallableOrganization {
 
 export interface AppInstallation {
   id: number;
-  appId: number;
+  /**
+   * GitHub's enterprise-organization-installation schema omits app_id, so this
+   * is undefined for installations listed through the enterprise API; match by
+   * clientId or appSlug instead.
+   */
+  appId?: number;
   appSlug: string;
   clientId?: string;
   accountLogin: string;
@@ -504,7 +509,7 @@ export class GithubEnterpriseClient {
 
 interface RawInstallation {
   id: number;
-  app_id: number;
+  app_id?: number;
   app_slug: string;
   client_id?: string;
   account?: { login?: string } | null;
@@ -521,10 +526,10 @@ function toRepository(r: RawRepository): AccessibleRepository {
   return { id: r.id, name: r.name, fullName: r.full_name };
 }
 
-function toInstallation(r: RawInstallation): AppInstallation {
+export function toInstallation(r: RawInstallation): AppInstallation {
   return {
     id: r.id,
-    appId: r.app_id,
+    ...(r.app_id === undefined ? {} : { appId: r.app_id }),
     appSlug: r.app_slug,
     ...(r.client_id ? { clientId: r.client_id } : {}),
     accountLogin: r.account?.login ?? "",

@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1000001,
+    "app_slug": "example-agent-app",
+    "client_id": "Iv1.0000000000000000",
+    "account": { "login": "example-org" },
+    "repository_selection": "selected",
+    "repositories_url": "https://api.github.com/enterprises/example-ent/apps/organizations/example-org/installations/1000001/repositories",
+    "permissions": { "contents": "write", "metadata": "read" },
+    "events": ["push"],
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-02T00:00:00Z"
+  },
+  {
+    "id": 1000002,
+    "app_slug": "example-other-app",
+    "client_id": "Iv1.1111111111111111",
+    "account": { "login": "example-org" },
+    "repository_selection": "all",
+    "repositories_url": "https://api.github.com/enterprises/example-ent/apps/organizations/example-org/installations/1000002/repositories",
+    "permissions": { "metadata": "read" },
+    "events": [],
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-01-02T00:00:00Z"
+  }
+]
