@@ -17,7 +17,7 @@ import {
   renderGithubUsernameRow,
 } from "./admin-ui-github-identity-pages.ts";
 import {
-  renderInstallationReposCard,
+  renderGithubSyncCard,
   renderUncoveredBadge,
   uncoveredRepos,
 } from "./admin-ui-installation-repos-pages.ts";
@@ -1855,7 +1855,7 @@ export function renderAgentDetailPage(
         ${identityRow("Federation rule ID", agent.anthropicFederationRuleId, true)}
         ${showGithubIdentity ? renderGithubUsernameRow(agent.id, agent.githubUsername) : ""}
       </tbody></table>
-    </div>${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity && "GH_APP_ID" in envVars ? renderInstallationReposCard(agent.id) : ""}`;
+    </div>${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity ? renderGithubSyncCard(agent.id, { hasAppId: "GH_APP_ID" in envVars, githubUsername: agent.githubUsername }) : ""}`;
 
   // Only agents with a GitHub App can make API-signed commits. Checked state
   // is the SHIPWRIGHT_SIGNED_COMMITS env row; when the box is hidden the field

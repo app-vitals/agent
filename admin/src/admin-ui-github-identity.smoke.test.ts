@@ -21,7 +21,7 @@ const json = (b: unknown, status = 200) =>
   });
 
 function setup(opts: {
-  configured?: boolean;
+  configured?: boolean | "installer-only";
   agentsApi?: (path: string, init?: RequestInit) => Response;
 }) {
   const calls: { path: string; init?: RequestInit }[] = [];
@@ -45,7 +45,22 @@ function setup(opts: {
         githubUsername: "octo",
       }),
     },
-    githubEnterpriseApi: () => json({ configured: opts.configured ?? true }),
+    githubEnterpriseApi: () =>
+      json(
+        opts.configured === false
+          ? { configured: false, installer: null, lookup: null }
+          : opts.configured === "installer-only"
+            ? {
+                configured: true,
+                installer: { role: "installer" },
+                lookup: null,
+              }
+            : {
+                configured: true,
+                installer: { role: "installer" },
+                lookup: { role: "lookup" },
+              },
+      ),
     agentsApi: (path: string, init?: RequestInit) => {
       calls.push({ path, init });
       return opts.agentsApi ? opts.agentsApi(path, init) : json({});
@@ -94,6 +109,13 @@ describe("admin UI — GitHub identity (GHE-2.5)", () => {
 
   it("hides both when not configured", async () => {
     const { app } = setup({ configured: false });
+    const html = await (await get(app, admin)).text();
+    expect(html).not.toContain("GitHub username");
+    expect(html).not.toContain("github-access-btn");
+  });
+
+  it("hides both when only one App role is configured", async () => {
+    const { app } = setup({ configured: "installer-only" });
     const html = await (await get(app, admin)).text();
     expect(html).not.toContain("GitHub username");
     expect(html).not.toContain("github-access-btn");

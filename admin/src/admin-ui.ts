@@ -59,11 +59,15 @@ import {
 } from "./admin-ui-github-identity-pages.ts";
 import {
   actuallyBlockedWork,
+  type GithubSyncApplyView,
+  type GithubSyncPreviewView,
   type InstallationReposView,
   type OpenWorkView,
   type RepoRemovalPreviewView,
   renderInstallationReposBody,
   renderInstallationReposError,
+  renderSyncConfirm,
+  renderSyncResult,
   renderRepoRemovalConfirm,
   renderRepoRemovalResult,
 } from "./admin-ui-installation-repos-pages.ts";
@@ -1824,8 +1828,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     }
   };
 
-  // True only for a platform admin when the enterprise GitHub apps are
-  // configured (GHE-1.3 status) and the agents API seam is wired.
+  // True only for a platform admin when BOTH the installer and the lookup
+  // enterprise GitHub Apps are configured (GHE-1.3 status) and the agents API
+  // seam is wired. One role alone is not enough: the access preview and Sync
+  // both need the pair.
   const githubEnterpriseConfigured = async (
     c: Context<AdminUIEnv>,
   ): Promise<boolean> => {
@@ -1837,8 +1843,15 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     );
     if (!res?.ok) return false;
     try {
+      const status = (await res.json()) as {
+        configured?: unknown;
+        installer?: unknown;
+        lookup?: unknown;
+      };
       return (
-        ((await res.json()) as { configured?: unknown }).configured === true
+        status.configured === true &&
+        status.installer != null &&
+        status.lookup != null
       );
     } catch {
       return false;
@@ -1954,10 +1967,118 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     if (!res?.ok) {
       return apiErrorFragment(res, "Could not load the installation repos.");
     }
+    const view = (await res.json()) as InstallationReposView;
+    // No installation matched the numeric GH_APP_ID. If the agent still has an
+    // installation by slug (the Installations card), the id is probably wrong.
+    let appIdMismatch = false;
+    if (view.orgs.length === 0) {
+      const snap = await callApi(
+        c,
+        agentsApi,
+        `/agents/${apiId(c)}/github-installations`,
+      );
+      if (snap?.ok) {
+        try {
+          const j = (await snap.json()) as {
+            snapshot?: { installations?: unknown[] };
+          };
+          appIdMismatch = (j.snapshot?.installations?.length ?? 0) > 0;
+        } catch {
+          // unknown: not reported as a mismatch
+        }
+      }
+    }
+    return html(renderInstallationReposBody(view, { appIdMismatch }));
+  });
+
+  // IRM-3.2: the single Sync confirm (over the IRM-3.1 preview) and its apply.
+  app.get("/admin/agents/:id/github-sync/confirm", requireAuth, async (c) => {
+    if (!c.var.isAdmin || !agentsApi) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const res = await callApi(
+      c,
+      agentsApi,
+      `/agents/${apiId(c)}/github-sync/preview`,
+    );
+    if (!res?.ok) return apiErrorFragment(res, "Could not preview the sync.");
     return html(
-      renderInstallationReposBody((await res.json()) as InstallationReposView),
+      renderSyncConfirm(
+        c.req.param("id") ?? "",
+        (await res.json()) as GithubSyncPreviewView,
+      ),
     );
   });
+
+  app.post(
+    "/admin/agents/:id/github-sync/apply-confirmed",
+    requireAuth,
+    async (c) => {
+      if (!c.var.isAdmin || !agentsApi) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const body = await readBody(c);
+      const list = (v: unknown): string[] | null =>
+        v === undefined
+          ? []
+          : Array.isArray(v) &&
+              v.every((r) => typeof r === "string" && isOrgRepo(r))
+            ? (v as string[])
+            : null;
+      const appAdds = list(body.appAdds);
+      const appRemoves = list(body.appRemoves);
+      const agentRemoves = list(body.agentRemoves);
+      if (!appAdds || !appRemoves || !agentRemoves) {
+        return html(renderInstallationReposError(400, "Invalid repo list."), {
+          status: 400,
+        });
+      }
+      // The open work seen now, to report what the removals blocked.
+      let seen: OpenWorkView[] = [];
+      const pre = await callApi(
+        c,
+        agentsApi,
+        `/agents/${apiId(c)}/github-sync/preview`,
+      );
+      if (pre?.ok) {
+        try {
+          seen = ((await pre.json()) as GithubSyncPreviewView).openWork ?? [];
+        } catch {
+          // no preview: nothing is claimed as blocked
+        }
+      }
+      const res = await callApi(
+        c,
+        agentsApi,
+        `/agents/${apiId(c)}/github-sync/apply`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            appAdds,
+            appRemoves,
+            agentRemoves,
+            ...(body.confirmRemovals === true ? { confirmRemovals: true } : {}),
+          }),
+        },
+      );
+      if (!res?.ok) return apiErrorFragment(res, "Could not apply the sync.");
+      const result = (await res.json()) as GithubSyncApplyView;
+      const warnings = result.warnings ?? [];
+      return html(
+        renderSyncResult(
+          result,
+          result.status === "applied"
+            ? actuallyBlockedWork(
+                seen,
+                [...(result.appRemoves ?? []), ...(result.agentRemoves ?? [])],
+                warnings,
+              )
+            : [],
+        ),
+      );
+    },
+  );
 
   const splitRepo = (repo: string): [string, string] | null =>
     isOrgRepo(repo) ? (repo.split("/") as [string, string]) : null;
