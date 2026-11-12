@@ -88,7 +88,7 @@ export const NO_USERNAME_REASON =
   "No GitHub username is bound to this agent, so there is nothing to sync against. Bind one under Owner and identities.";
 
 export const APP_ID_MISMATCH_MESSAGE =
-  "No installation matches the GH_APP_ID of this agent, although the Installations card matches an installation by App slug. GH_APP_ID is probably set to the wrong numeric App id; correct it in the agent env.";
+  "No installation of the agent GitHub App was found on any org the installer can reach, although the Installations card lists one. The App is matched by client id or slug: check the App installation and the agent GH_APP_CLIENT_ID / GH_APP_SLUG.";
 
 /** JSON body of GET /agents/:id/github-sync/preview. */
 export interface GithubSyncPreviewView {

@@ -3251,6 +3251,10 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     const svc = installationReposService(c);
     const { id: agentId } = c.req.valid("param");
     const result = await svc.list(agentId);
+    if (result.status === "skipped") {
+      // No installation matched: the listing stays empty (additive shape).
+      return c.json({ appId: result.appId, orgs: [] }, 200);
+    }
     if (result.status !== "ok") return installationFailure(agentId, result);
     return c.json({ appId: result.appId, orgs: result.orgs }, 200);
   });

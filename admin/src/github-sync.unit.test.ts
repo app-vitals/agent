@@ -13,7 +13,10 @@ import type {
   InstallationAgentRecord,
   InstallationAuditEntry,
 } from "./installation-ports.ts";
-import type { InstallationReposPort } from "./installation-repos-service.ts";
+import {
+  type InstallationReposPort,
+  NO_INSTALLATION_REASON,
+} from "./installation-repos-service.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import { repoLostAccessBlockReason } from "./repo-removal-open-work.ts";
 import {
@@ -249,6 +252,7 @@ function harness(
     agent?: Partial<InstallationAgentRecord> | null;
     access?: Awaited<ReturnType<GithubAccessPreviewFn>>;
     installed?: { org: string; repos: string[] }[];
+    noInstallation?: boolean;
     removeFails?: boolean;
     openWork?: Partial<OpenWorkPort> | null;
   } = {},
@@ -269,7 +273,9 @@ function harness(
   > = {
     listInstalled: async (appId) => {
       calls.push(["listInstalled", appId]);
-      return installed;
+      return opts.noInstallation
+        ? { status: "none" }
+        : { status: "found", orgs: installed };
     },
     addRepos: async (appId, o, r) => {
       calls.push(["addRepos", appId, o, [...r]]);
@@ -337,6 +343,33 @@ const applyInput = (
   agentRemoves: [],
   ...lists,
   ...extra,
+});
+
+describe("GithubSyncService with no installation", () => {
+  it("preview is skipped with the no-installation reason", async () => {
+    const { svc } = harness({ noInstallation: true });
+    expect(await svc.preview("ag")).toEqual({
+      status: "skipped",
+      reason: NO_INSTALLATION_REASON,
+    });
+  });
+
+  it("apply is skipped, not noop, and changes nothing", async () => {
+    const { svc, calls, audits } = harness({ noInstallation: true });
+    expect(await svc.apply(applyInput({}))).toEqual({
+      status: "skipped",
+      reason: NO_INSTALLATION_REASON,
+    });
+    expect(calls.map((c) => c[0])).toEqual(["listInstalled"]);
+    expect(audits).toEqual([]);
+  });
+
+  it("an App matched to an org with nothing to change still returns noop", async () => {
+    const { svc } = harness({
+      installed: [{ org: "acme", repos: ["acme/a", "acme/b"] }],
+    });
+    expect((await svc.apply(applyInput({}))).status).toBe("noop");
+  });
 });
 
 describe("GithubSyncService.preview", () => {

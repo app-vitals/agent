@@ -7,6 +7,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   InstallationReposService,
+  NO_INSTALLATION_REASON,
   type InstallationReposPort,
   userPushHints,
 } from "./installation-repos-service.ts";
@@ -103,6 +104,7 @@ function noHint(r: { userCanPush?: boolean }): boolean {
 function build(
   opts: {
     agent?: { githubUsername: string | null; appId?: number } | null;
+    noInstallation?: boolean;
     access?: () => Promise<
       | { status: "unconfigured" }
       | { status: "ok"; access: UserRepoAccessResult }
@@ -110,9 +112,13 @@ function build(
   } = {},
 ) {
   const installation: InstallationReposPort = {
-    listInstalled: async () => [
-      { org: "acme", repos: ["acme/push", "acme/unlisted"] },
-    ],
+    listInstalled: async () =>
+      opts.noInstallation
+        ? { status: "none" }
+        : {
+            status: "found",
+            orgs: [{ org: "acme", repos: ["acme/push", "acme/unlisted"] }],
+          },
     listRepos: async () => ({}),
     addRepos: async () => {},
     removeRepos: async () => {},
@@ -173,6 +179,15 @@ describe("InstallationReposService.list", () => {
       const r = await build({ access }).svc.list("a1");
       expect(r.status === "ok" && r.orgs[0]?.repos.every(noHint)).toBe(true);
     }
+  });
+
+  it("is skipped with a reason when the App matches no installation", async () => {
+    const r = await build({ noInstallation: true }).svc.list("a1");
+    expect(r).toEqual({
+      status: "skipped",
+      appId: 42,
+      reason: NO_INSTALLATION_REASON,
+    });
   });
 
   it("reports unknown agent and a missing GH_APP_ID distinctly", async () => {
