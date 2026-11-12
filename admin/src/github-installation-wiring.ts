@@ -24,7 +24,7 @@ import {
   type InstallationReposPort,
 } from "./installation-repos-service.ts";
 import { LostAccessRemovalService } from "./lost-access-removal.ts";
-import type { OpenWorkPort } from "./open-work-port.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
 
 export interface GithubInstallationWiringDeps {
   prisma: PrismaClient;

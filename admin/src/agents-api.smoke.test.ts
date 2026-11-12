@@ -29,7 +29,7 @@ import {
   createGithubLostAccessRemoval,
 } from "./github-installation-wiring.ts";
 import { accessFor, envWith } from "./github-installation.fixtures.ts";
-import type { OpenWorkPort } from "./open-work-port.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import {
   repoLostAccessBlockReason,
   repoRemovedFromAgentBlockReason,

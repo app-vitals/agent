@@ -62,7 +62,7 @@ import type { AdminDeps, parseAdminApiKeys } from "./agents-api.ts";
 import type { AgentPhaseMethodologyServiceLike } from "./api.ts";
 import type { createCallerScopeResolver } from "./caller-scope.ts";
 import type { PushService } from "./push-service.ts";
-import type { OpenWorkPort } from "./open-work-port.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import type { ServiceIntegration } from "./service-integration.ts";
 import type {
   SpecialtyDefaults,

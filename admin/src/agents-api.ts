@@ -167,7 +167,7 @@ import {
 } from "./openapi-schemas.ts";
 import type { InstallationReposService } from "./installation-repos-service.ts";
 import type { LostAccessRemovalService } from "./lost-access-removal.ts";
-import type { OpenWorkPort } from "./open-work-port.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import {
   blockRepoRemovalWork,
   previewRepoRemovalWork,

@@ -27,7 +27,7 @@ import {
   type InstallationAgentsPort,
   type InstallationAuditPort,
 } from "./installation-ports.ts";
-import type { OpenWorkItem, OpenWorkPort } from "./open-work-port.ts";
+import type { OpenWorkItem, OpenWorkPort } from "./reconcile-open-work.ts";
 import {
   accessSkipReason,
   type OrgSkip,

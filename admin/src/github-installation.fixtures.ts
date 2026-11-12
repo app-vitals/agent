@@ -5,7 +5,7 @@
 
 import type { PrismaClient } from "../prisma/client/client.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
-import type { OpenWorkPort } from "./open-work-port.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
 
 export const accessFor = (pushable: string[]): GithubAccessPreviewFn => {
   return async () => ({

@@ -13,7 +13,7 @@ import type {
   InstallationAgentRecord,
   InstallationAuditEntry,
 } from "./installation-ports.ts";
-import type { OpenWorkPort } from "./open-work-port.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import { repoLostAccessBlockReason } from "./repo-removal-open-work.ts";
 import {
   type OrgAccessResult,
