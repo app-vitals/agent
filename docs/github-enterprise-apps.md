@@ -1,6 +1,6 @@
 # Enterprise GitHub apps
 
-Two optional, platform-level GitHub Apps let admin automate work that otherwise needs a human on GitHub: installing an agent's App on an enterprise-owned org (the **installer** App), and, in a later phase, reconciling repository access (the **lookup** App). This page covers what each App is for, the exact permissions, setup, why there is no shared published App, the admin isolation exception, and how keys are stored. Per-agent App auth is a different thing and is covered in [`github-multi-org.md`](./github-multi-org.md). File map: [`agent-key-files.md`](./agent-key-files.md).
+Two optional, platform-level GitHub Apps let admin automate work that otherwise needs a human on GitHub: installing an agent's App on an enterprise-owned org (the **installer** App), and checking which repositories a bound GitHub user can push to (the **lookup** App). This page covers what each App is for, the exact permissions, setup, why there is no shared published App, the admin isolation exception, and how keys are stored. Per-agent App auth is a different thing and is covered in [`github-multi-org.md`](./github-multi-org.md). File map: [`agent-key-files.md`](./agent-key-files.md).
 
 The feature is **optional and per deployment**. With no rows configured it is off and nothing else changes; agents keep installing their Apps by hand as described in [`github-multi-org.md`](./github-multi-org.md).
 
@@ -9,13 +9,13 @@ The feature is **optional and per deployment**. With no rows configured it is of
 | Role | Used for | Installed on |
 |------|----------|--------------|
 | `installer` | Installing an agent's App on an enterprise-owned org (`POST /github-enterprise/orgs/{org}/install`) and listing the orgs it can install on. | The **enterprise** (not an org). |
-| `lookup` | Read-only lookups, such as collaborator permission, used by later repository reconciliation. It has no install route. | **Every org**, with **all repositories**. |
+| `lookup` | Read-only lookups, such as collaborator permission, used by the installation repos card and the lost-access removal. It has no install route. | **Every org**, with **all repositories**. |
 
 At most one App per role is stored, so a deployment has at most two.
 
 ## Required permissions
 
-Permissions were verified against GitHub's REST API description and the "permissions required for GitHub Apps" docs while building `GithubEnterpriseClient` (GHE-1.2); the verification notes are in the header of `admin/src/github-enterprise-client.ts`.
+Permissions were verified against GitHub's REST API description and the "permissions required for GitHub Apps" docs while building `GithubEnterpriseClient` (GHE-1.5); the verification notes are in the header of `admin/src/github-enterprise-client.ts`.
 
 | App | Permission | Level | Why |
 |-----|------------|-------|-----|
@@ -53,7 +53,7 @@ The same operations are available over the API: `GET`/`PUT`/`DELETE /github-ente
 
 ## Installation repos
 
-An agent's repo scope should stay within what its bound GitHub user can actually push to. Platform admins manage the agent App's installation repos directly, and a separate lost-access removal brings the scope back in line. Both need a `GH_APP_ID` in the agent's own stored env (the numeric id of that agent's GitHub App, whose installation is changed); the lost-access removal also needs the agent's `githubUsername` and both enterprise Apps.
+An agent's repo scope should stay within what its bound GitHub user can actually push to. Platform admins manage the agent App's installation repos directly from the **Installation repos** card on the agent detail page (per-org repo tables with Add and Remove, a user-can-push hint, and a button to remove repos the bound user can no longer push to), and a separate lost-access removal brings the scope back in line. Both need a `GH_APP_ID` in the agent's own stored env (the numeric id of that agent's GitHub App, whose installation is changed); the lost-access removal also needs the agent's `githubUsername` and both enterprise Apps.
 
 ### Direct installation repo management
 
@@ -71,11 +71,11 @@ A platform admin can remove, from both the agent App's installation and the agen
 - `GET /agents/{id}/github-lost-access/preview` is read-only (nothing changed or audited). It returns `repos` (with `installationRemoves` and `configRemoves`), `skippedOrgs`, `warnings` and `openWork`: the agent's open tasks and PRs on those repos that the removal would block (empty with no open-work port; a port failure is a warning).
 - `POST /agents/{id}/github-lost-access/remove` takes `{repos: ["owner/repo"], confirmRemovals?}`. Each named repo is re-checked against the user's current access; only those still without push access are removed. Named repos left alone (the user can still push, the org is skipped, or the repo is on neither side) are reported in `notRemoved`.
 
-Safety rules: orgs whose listing is missing, `partial` or failed, or whose lookup App is installed on selected repositories only, are skipped and reported; an unbound, not-found or unverified user (or no `GH_APP_ID`, or unconfigured Apps) makes the whole call `skipped` with nothing changed and no audit row; more than 10 removals without `confirmRemovals: true` is `422`. `noop` when nothing named still lacks access. Order of effects: installation removals, the agent's `repos`, one `GitHubReconcileAudit` row (`planHash` label `lost-access:remove`), then the agent's open work on the removed repos is blocked through the `OpenWorkPort` with a reason naming the repo and that the bound user lost push access (a port failure is a warning, not a failed call). GitHub refusing a removal is `502`, with a `failed` audit row recording only what landed.
+Safety rules: orgs whose listing is missing, `partial` or failed, or whose lookup App is installed on selected repositories only, are skipped and reported; an unbound, not-found or unverified user (or no `GH_APP_ID`, or unconfigured Apps) makes the whole call `skipped` with nothing changed and no audit row; more than 10 removals without `confirmRemovals: true` is `422`. `noop` when nothing named still lacks access. Order of effects: installation removals, the agent's `repos`, one `GitHubReconcileAudit` row (operation label `lost-access:remove`), then the agent's open work on the removed repos is blocked through the `OpenWorkPort` with a reason naming the repo and that the bound user lost push access (a port failure is a warning, not a failed call). GitHub refusing a removal is `502`, with a `failed` audit row recording only what landed.
 
 ### Audit entry
 
-Every add or remove writes one `GitHubReconcileAudit` row: `agentId`, `caller` (the API key or session name), `planHash` (a label: `direct:add`, `direct:remove` or `lost-access:remove`; the column name predates the removal of the plan flow), `diff`, `result` (`{status: "applied"}` or `{status: "failed", error}`) and `createdAt`, indexed on `(agentId, createdAt)`. Skipped and no-op calls write nothing.
+Every add or remove writes one `GitHubReconcileAudit` row: `agentId`, `caller` (the API key or session name), an operation label (`direct:add`, `direct:remove` or `lost-access:remove`, kept in a legacy-named column of the table), `diff`, `result` (`{status: "applied"}` or `{status: "failed", error}`) and `createdAt`, indexed on `(agentId, createdAt)`. Skipped and no-op calls write nothing.
 
 ### Open work
 
