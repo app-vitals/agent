@@ -4,7 +4,7 @@
  * a consumer that does (shipwright) may supply this port so open work can be
  * listed and blocked when a repo leaves an agent's repos. Consumed by
  * repo-removal-open-work.ts (repo removed from the agent) and
- * lost-access-removal.ts (bound GitHub user lost push access).
+ * github-sync.ts (bound GitHub user lost push access).
  * Additive and optional: with no port, nothing is listed or blocked.
  */
 

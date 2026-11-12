@@ -1,6 +1,6 @@
 /**
  * admin/src/github-installation.fixtures.ts
- * Shared fakes for the installation repos / lost-access removal wiring tests.
+ * Shared fakes for the installation repos / GitHub Sync wiring tests.
  */
 
 import type { PrismaClient } from "../prisma/client/client.ts";

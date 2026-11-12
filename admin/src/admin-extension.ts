@@ -131,7 +131,7 @@ export interface AdminExtensionServices {
   agentPhaseMethodologyService?: AgentPhaseMethodologyServiceLike;
   /**
    * Supplies the open-work port: removing a repo from an agent (or the
-   * lost-access removal) previews and blocks the open work on it. Absent from
+   * GitHub Sync) previews and blocks the open work on it. Absent from
    * every extension → nothing is listed or blocked.
    */
   openWork?: OpenWorkPort;

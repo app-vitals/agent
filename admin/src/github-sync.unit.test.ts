@@ -1,18 +1,19 @@
 import { describe, expect, it, test } from "bun:test";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
-import type { InstallationReposPort } from "./installation-repos-service.ts";
 import {
-  LOST_ACCESS_AUDIT_PLAN_HASH,
-  type LostAccessPlanInput,
-  LostAccessRemovalService,
+  GITHUB_SYNC_AUDIT_PLAN_HASH,
+  GithubSyncService,
+  NOT_ADDABLE_REASON,
   NOT_PRESENT_REASON,
-  planLostAccessRemoval,
+  planGithubSync,
   STILL_PUSHABLE_REASON,
-} from "./lost-access-removal.ts";
+  type GithubSyncPlanInput,
+} from "./github-sync.ts";
 import type {
   InstallationAgentRecord,
   InstallationAuditEntry,
 } from "./installation-ports.ts";
+import type { InstallationReposPort } from "./installation-repos-service.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import { repoLostAccessBlockReason } from "./repo-removal-open-work.ts";
 import {
@@ -53,15 +54,18 @@ const access = (
   ...extra,
 });
 
+// The user can push to a, d, e; not to b, c.
 const ACME = org("acme", [
   repo("acme/a", true),
   repo("acme/b", false),
   repo("acme/c", false),
+  repo("acme/d", true),
+  repo("acme/e", true),
 ]);
 
 const base = (
-  over: Partial<LostAccessPlanInput> = {},
-): LostAccessPlanInput => ({
+  over: Partial<GithubSyncPlanInput> = {},
+): GithubSyncPlanInput => ({
   username: "octo",
   access: access([ACME]),
   agentRepos: ["acme/a", "acme/b"],
@@ -69,71 +73,104 @@ const base = (
   ...over,
 });
 
-describe("planLostAccessRemoval", () => {
-  test("removes repos the user cannot push to from installation and agent repos", () => {
-    const p = planLostAccessRemoval(base());
+describe("planGithubSync (preview)", () => {
+  test("lists app adds, app removes and agent removes", () => {
+    const p = planGithubSync(base());
     expect(p.skipped).toBe(false);
-    expect(p.repos).toEqual(["acme/b", "acme/c"]);
-    expect(p.installationRemoves).toEqual(["acme/b", "acme/c"]);
-    expect(p.configRemoves).toEqual(["acme/b"]);
+    expect(p.appAdds).toEqual(["acme/d", "acme/e"]);
+    expect(p.appRemoves).toEqual(["acme/b", "acme/c"]);
+    expect(p.agentRemoves).toEqual(["acme/b"]);
+    expect(p.removedRepos).toEqual(["acme/b", "acme/c"]);
   });
 
-  test("never adds: a pushable repo missing from the agent stays missing", () => {
-    const p = planLostAccessRemoval(
-      base({ agentRepos: [], installationRepos: { acme: ["acme/a"] } }),
+  test("agent repos are never added", () => {
+    const p = planGithubSync(base({ agentRepos: [] }));
+    expect(p.appAdds).toEqual(["acme/d", "acme/e"]);
+    expect(p.agentRemoves).toEqual([]);
+    expect("agentAdds" in p).toBe(false);
+  });
+
+  test("adds have no cap", () => {
+    const many = Array.from({ length: 40 }, (_, i) => repo(`acme/n${i}`, true));
+    const p = planGithubSync(
+      base({
+        access: access([org("acme", many)]),
+        agentRepos: [],
+        installationRepos: { acme: [] },
+      }),
     );
-    expect(p.repos).toEqual([]);
-    expect(p.configRemoves).toEqual([]);
+    expect(p.appAdds).toHaveLength(40);
   });
 
-  test("a repo not listed in a complete org listing counts as no access", () => {
-    const p = planLostAccessRemoval(
-      base({ agentRepos: ["acme/gone"], installationRepos: {} }),
+  test("nothing to do once the lists are applied", () => {
+    const p = planGithubSync(
+      base({
+        agentRepos: ["acme/a"],
+        installationRepos: { acme: ["acme/a", "acme/d", "acme/e"] },
+      }),
     );
-    expect(p.configRemoves).toEqual(["acme/gone"]);
+    expect([p.appAdds, p.appRemoves, p.agentRemoves]).toEqual([[], [], []]);
   });
 
-  test("push checks ignore case", () => {
-    const p = planLostAccessRemoval(
+  test("push checks and installed lookups ignore case", () => {
+    const p = planGithubSync(
       base({ agentRepos: ["ACME/A"], installationRepos: { acme: ["Acme/a"] } }),
     );
-    expect(p.repos).toEqual([]);
+    expect(p.appRemoves).toEqual([]);
+    expect(p.agentRemoves).toEqual([]);
+    expect(p.appAdds).not.toContain("acme/a");
+  });
+
+  test("a repo missing from a complete org listing counts as no access", () => {
+    const p = planGithubSync(
+      base({ agentRepos: ["acme/gone"], installationRepos: { acme: [] } }),
+    );
+    expect(p.agentRemoves).toEqual(["acme/gone"]);
+  });
+
+  test("orgs without the agent App installed get no adds", () => {
+    const p = planGithubSync(
+      base({
+        access: access([ACME, org("other", [repo("other/x", true)])]),
+        installationRepos: { acme: [] },
+      }),
+    );
+    expect(p.appAdds.every((r) => r.startsWith("acme/"))).toBe(true);
+    expect(p.appAdds).not.toContain("other/x");
   });
 
   test.each([
     ["partial", { status: "partial" as const, unresolved: 1 }],
     ["failed", { status: "rate_limited" as const }],
+    ["not installed", { status: "lookup_app_not_installed" as const }],
     [
       "selected-only",
       { status: "error" as const, reason: SELECTED_REPOS_REASON },
     ],
-  ])("skips a %s org and reports it", (_label, extra) => {
-    const p = planLostAccessRemoval(
-      base({ access: access([org("acme", [repo("acme/a", true)], extra)]) }),
+  ])("skips a %s org for adds and removes and reports it", (_l, extra) => {
+    const p = planGithubSync(
+      base({
+        access: access([
+          org("acme", [repo("acme/d", true), repo("acme/b", false)], extra),
+        ]),
+      }),
     );
-    expect(p.repos).toEqual([]);
+    expect([p.appAdds, p.appRemoves, p.agentRemoves]).toEqual([[], [], []]);
     expect(p.skippedOrgs).toHaveLength(1);
     expect(p.skippedOrgs[0]?.org).toBe("acme");
     expect(p.warnings[0]).toContain("acme");
   });
 
-  test("selected-only reason matches the shared access-rules wording", () => {
-    const p = planLostAccessRemoval(
-      base({
-        access: access([org("acme", [], { reason: SELECTED_REPOS_REASON })]),
-      }),
-    );
-    expect(p.skippedOrgs[0]?.reason).toContain("selected repositories");
-  });
-
   test("an org missing from the access result is skipped, not emptied", () => {
-    const p = planLostAccessRemoval(
+    const p = planGithubSync(
       base({
         agentRepos: ["other/x"],
         installationRepos: { other: ["other/x"] },
+        access: access([]),
       }),
     );
-    expect(p.repos).toEqual([]);
+    expect(p.appRemoves).toEqual([]);
+    expect(p.agentRemoves).toEqual([]);
     expect(p.skippedOrgs).toEqual([
       { org: "other", reason: "org was not checked" },
     ]);
@@ -153,30 +190,55 @@ describe("planLostAccessRemoval", () => {
     ],
     ["unresolved", { access: null }, "not resolved"],
   ])("a %s user skips the whole plan", (_l, over, reason) => {
-    const p = planLostAccessRemoval(base(over as Partial<LostAccessPlanInput>));
+    const p = planGithubSync(base(over as Partial<GithubSyncPlanInput>));
     expect(p.skipped).toBe(true);
     expect(p.skipReason).toContain(reason);
-    expect(p.repos).toEqual([]);
+    expect([p.appAdds, p.appRemoves, p.agentRemoves]).toEqual([[], [], []]);
   });
+});
 
-  test("requested limits candidates and reports the ones left alone", () => {
-    const p = planLostAccessRemoval(
+describe("planGithubSync (confirmed lists)", () => {
+  it("re-checks every confirmed repo and reports the ones left alone", () => {
+    const p = planGithubSync(
       base({
         agentRepos: ["acme/a", "acme/b", "other/x"],
-        requested: ["acme/a", "acme/b", "acme/zzz", "other/x"],
-        installationRepos: { acme: ["acme/a", "acme/b", "acme/c"] },
+        requested: {
+          appAdds: ["acme/d", "acme/b", "acme/c", "other/y"],
+          appRemoves: ["acme/b", "acme/a", "acme/zzz"],
+          agentRemoves: ["acme/b", "acme/a", "other/x"],
+        },
       }),
     );
-    expect(p.repos).toEqual(["acme/b"]);
-    expect(p.installationRemoves).toEqual(["acme/b"]);
-    expect(p.notRemoved).toEqual([
-      { repo: "acme/a", reason: STILL_PUSHABLE_REASON },
-      { repo: "acme/zzz", reason: NOT_PRESENT_REASON },
-      {
-        repo: "other/x",
-        reason: "removals skipped for org: org was not checked",
-      },
-    ]);
+    expect(p.appAdds).toEqual(["acme/d"]);
+    expect(p.appRemoves).toEqual(["acme/b"]);
+    expect(p.agentRemoves).toEqual(["acme/b"]);
+    expect(p.notApplied).toContainEqual({
+      repo: "acme/b",
+      reason: NOT_ADDABLE_REASON,
+    });
+    expect(p.notApplied).toContainEqual({
+      repo: "acme/a",
+      reason: STILL_PUSHABLE_REASON,
+    });
+    expect(p.notApplied).toContainEqual({
+      repo: "acme/zzz",
+      reason: NOT_PRESENT_REASON,
+    });
+    expect(p.notApplied).toContainEqual({
+      repo: "other/x",
+      reason: "skipped for org: org was not checked",
+    });
+  });
+
+  it("a confirmed add is never applied to the agent's repos", () => {
+    const p = planGithubSync(
+      base({
+        agentRepos: [],
+        requested: { appAdds: ["acme/d"], appRemoves: [], agentRemoves: [] },
+      }),
+    );
+    expect(p.appAdds).toEqual(["acme/d"]);
+    expect(p.agentRemoves).toEqual([]);
   });
 });
 
@@ -194,31 +256,35 @@ function harness(
   const calls: unknown[][] = [];
   const audits: InstallationAuditEntry[] = [];
   let repos = opts.agent?.repos ?? ["acme/a", "acme/b"];
+  let installed = opts.installed ?? [
+    { org: "acme", repos: ["acme/a", "acme/b", "acme/c"] },
+  ];
   const agent: InstallationAgentRecord | null =
     opts.agent === null
       ? null
-      : {
-          id: "ag",
-          githubUsername: "octo",
-          appId: 7,
-          ...opts.agent,
-          repos,
-        };
+      : { id: "ag", githubUsername: "octo", appId: 7, ...opts.agent, repos };
   const installation: Pick<
     InstallationReposPort,
-    "listInstalled" | "removeRepos"
+    "listInstalled" | "addRepos" | "removeRepos"
   > = {
     listInstalled: async (appId) => {
       calls.push(["listInstalled", appId]);
-      return (
-        opts.installed ?? [
-          { org: "acme", repos: ["acme/a", "acme/b", "acme/c"] },
-        ]
+      return installed;
+    },
+    addRepos: async (appId, o, r) => {
+      calls.push(["addRepos", appId, o, [...r]]);
+      installed = installed.map((i) =>
+        i.org === o ? { ...i, repos: [...i.repos, ...r] } : i,
       );
     },
     removeRepos: async (appId, o, r) => {
       calls.push(["removeRepos", appId, o, [...r]]);
       if (opts.removeFails) throw new Error("github says no");
+      installed = installed.map((i) =>
+        i.org === o
+          ? { ...i, repos: i.repos.filter((x) => !r.includes(x)) }
+          : i,
+      );
     },
   };
   const openWork: OpenWorkPort | undefined =
@@ -234,7 +300,7 @@ function harness(
           },
           ...opts.openWork,
         };
-  const svc = new LostAccessRemovalService({
+  const svc = new GithubSyncService({
     agents: {
       get: async () => (agent ? { ...agent, repos } : null),
       setRepos: async (_id, next) => {
@@ -256,22 +322,36 @@ function harness(
   return { svc, calls, audits, repos: () => repos };
 }
 
-const removeInput = (repos: string[], extra = {}) => ({
+const applyInput = (
+  lists: {
+    appAdds?: string[];
+    appRemoves?: string[];
+    agentRemoves?: string[];
+  },
+  extra = {},
+) => ({
   agentId: "ag",
   caller: "root",
-  repos,
+  appAdds: [],
+  appRemoves: [],
+  agentRemoves: [],
+  ...lists,
   ...extra,
 });
 
-describe("LostAccessRemovalService.preview", () => {
-  it("returns the repos that would be removed plus their open work, changing nothing", async () => {
+describe("GithubSyncService.preview", () => {
+  it("returns all three lists plus the open work removals block, changing nothing", async () => {
     const { svc, calls, audits } = harness();
     const r = await svc.preview("ag");
-    expect(r.status).toBe("previewed");
-    if (r.status !== "previewed") return;
-    expect(r.plan.repos).toEqual(["acme/b", "acme/c"]);
+    if (r.status !== "previewed") throw new Error(r.status);
+    expect(r.plan.appAdds).toEqual(["acme/d", "acme/e"]);
+    expect(r.plan.appRemoves).toEqual(["acme/b", "acme/c"]);
+    expect(r.plan.agentRemoves).toEqual(["acme/b"]);
     expect(r.openWork).toEqual([{ id: "T-1", repo: "acme/b", title: "fix" }]);
-    expect(calls.map((c) => c[0])).toEqual(["listInstalled", "list"]);
+    expect(calls).toEqual([
+      ["listInstalled", 7],
+      ["list", "ag", ["acme/b", "acme/c"]],
+    ]);
     expect(audits).toEqual([]);
   });
 
@@ -302,7 +382,6 @@ describe("LostAccessRemovalService.preview", () => {
     const noApp = await harness({ agent: { appId: undefined } }).svc.preview(
       "ag",
     );
-    expect(noApp).toMatchObject({ status: "skipped" });
     expect(JSON.stringify(noApp)).toContain("GH_APP_ID");
   });
 
@@ -313,10 +392,16 @@ describe("LostAccessRemovalService.preview", () => {
   });
 });
 
-describe("LostAccessRemovalService.remove", () => {
-  it("removes installation first, then agent repos, then audits, then blocks", async () => {
+describe("GithubSyncService.apply", () => {
+  it("adds, removes, removes agent repos, audits once, then blocks open work", async () => {
     const { svc, calls, audits, repos } = harness();
-    const r = await svc.remove(removeInput(["acme/b", "acme/c"]));
+    const r = await svc.apply(
+      applyInput({
+        appAdds: ["acme/d"],
+        appRemoves: ["acme/b", "acme/c"],
+        agentRemoves: ["acme/b"],
+      }),
+    );
     expect(r).toMatchObject({
       status: "applied",
       auditId: "audit-1",
@@ -324,6 +409,7 @@ describe("LostAccessRemovalService.remove", () => {
     });
     expect(calls).toEqual([
       ["listInstalled", 7],
+      ["addRepos", 7, "acme", ["acme/d"]],
       ["removeRepos", 7, "acme", ["acme/b", "acme/c"]],
       ["setRepos", ["acme/a"]],
       ["audit"],
@@ -335,9 +421,9 @@ describe("LostAccessRemovalService.remove", () => {
       {
         agentId: "ag",
         caller: "root",
-        planHash: LOST_ACCESS_AUDIT_PLAN_HASH,
+        planHash: GITHUB_SYNC_AUDIT_PLAN_HASH,
         diff: {
-          installationAdds: [],
+          installationAdds: ["acme/d"],
           installationRemoves: ["acme/b", "acme/c"],
           configAdds: [],
           configRemoves: ["acme/b"],
@@ -345,22 +431,30 @@ describe("LostAccessRemovalService.remove", () => {
         result: { status: "applied" },
       },
     ]);
+    // A second preview has nothing left to do.
+    const again = await svc.preview("ag");
+    if (again.status !== "previewed") throw new Error(again.status);
+    expect(again.plan.appRemoves).toEqual([]);
+    expect(again.plan.agentRemoves).toEqual([]);
+    expect(again.plan.appAdds).toEqual(["acme/e"]);
   });
 
-  it("leaves a named repo the user can still push to alone and reports it", async () => {
-    const { svc, repos } = harness();
-    const r = await svc.remove(removeInput(["acme/a", "acme/b"]));
+  it("leaves confirmed repos that no longer qualify alone and reports them", async () => {
+    const { svc } = harness();
+    const r = await svc.apply(
+      applyInput({ appRemoves: ["acme/a", "acme/b"], appAdds: ["acme/b"] }),
+    );
     if (r.status !== "applied") throw new Error(r.status);
-    expect(r.plan.repos).toEqual(["acme/b"]);
-    expect(r.plan.notRemoved).toEqual([
-      { repo: "acme/a", reason: STILL_PUSHABLE_REASON },
+    expect(r.plan.appRemoves).toEqual(["acme/b"]);
+    expect(r.plan.notApplied.map((n) => n.repo).sort()).toEqual([
+      "acme/a",
+      "acme/b",
     ]);
-    expect(repos()).toEqual(["acme/a"]);
   });
 
-  it("noop with no audit when nothing named still lacks access", async () => {
+  it("noop with no audit when nothing confirmed still applies", async () => {
     const { svc, calls, audits } = harness();
-    const r = await svc.remove(removeInput(["acme/a"]));
+    const r = await svc.apply(applyInput({ appRemoves: ["acme/a"] }));
     expect(r.status).toBe("noop");
     expect(audits).toEqual([]);
     expect(calls.map((c) => c[0])).toEqual(["listInstalled"]);
@@ -382,40 +476,45 @@ describe("LostAccessRemovalService.remove", () => {
         },
       }),
     ]) {
-      const r = await h.svc.remove(removeInput(["acme/b"]));
+      const r = await h.svc.apply(applyInput({ appRemoves: ["acme/b"] }));
       expect(r.status).toBe("skipped");
       expect(h.audits).toEqual([]);
       expect(h.calls.filter((c) => c[0] !== "listInstalled")).toEqual([]);
     }
   });
 
-  it("skipped orgs are reported and nothing there is removed", async () => {
+  it("skipped orgs get neither adds nor removes", async () => {
     const { svc, audits } = harness({
       access: {
         status: "ok",
         access: access([
-          org("acme", [], { reason: SELECTED_REPOS_REASON, status: "error" }),
+          org("acme", [repo("acme/d", true)], {
+            reason: SELECTED_REPOS_REASON,
+            status: "error",
+          }),
         ]),
       },
     });
-    const r = await svc.remove(removeInput(["acme/b"]));
-    expect(r.status).toBe("noop");
-    if (r.status !== "noop") return;
+    const r = await svc.apply(
+      applyInput({ appAdds: ["acme/d"], appRemoves: ["acme/b"] }),
+    );
+    if (r.status !== "noop") throw new Error(r.status);
     expect(r.plan.skippedOrgs[0]?.org).toBe("acme");
     expect(audits).toEqual([]);
   });
 
-  it("more than 10 removals need confirmRemovals", async () => {
+  it("more than 10 removals need confirmRemovals; adds do not count", async () => {
     const many = Array.from({ length: 11 }, (_, i) => `acme/r${i}`);
     const h = harness({
       agent: { repos: many },
       installed: [{ org: "acme", repos: many }],
     });
-    const r = await h.svc.remove(removeInput(many));
+    const lists = { appRemoves: many, agentRemoves: many, appAdds: ["acme/d"] };
+    const r = await h.svc.apply(applyInput(lists));
     expect(r).toMatchObject({ status: "removal_cap", removals: 11 });
     expect(h.audits).toEqual([]);
     expect(h.repos()).toEqual(many);
-    const ok = await h.svc.remove(removeInput(many, { confirmRemovals: true }));
+    const ok = await h.svc.apply(applyInput(lists, { confirmRemovals: true }));
     expect(ok.status).toBe("applied");
     expect(h.repos()).toEqual([]);
   });
@@ -428,30 +527,36 @@ describe("LostAccessRemovalService.remove", () => {
         },
       },
     });
-    const r = await svc.remove(removeInput(["acme/b"]));
-    expect(r.status).toBe("applied");
-    if (r.status !== "applied") return;
+    const r = await svc.apply(applyInput({ agentRemoves: ["acme/b"] }));
+    if (r.status !== "applied") throw new Error(r.status);
     expect(r.warnings[0]).toContain("acme/b");
     expect(r.warnings[0]).toContain("store down");
     expect(audits).toHaveLength(1);
   });
 
   it("works without an open-work port", async () => {
-    const r = await harness({ openWork: null }).svc.remove(
-      removeInput(["acme/b"]),
+    const r = await harness({ openWork: null }).svc.apply(
+      applyInput({ agentRemoves: ["acme/b"] }),
     );
     expect(r).toMatchObject({ status: "applied", warnings: [] });
   });
 
   it("a GitHub failure writes a failed audit with only what landed and blocks nothing", async () => {
     const { svc, calls, audits, repos } = harness({ removeFails: true });
-    const r = await svc.remove(removeInput(["acme/b"]));
+    const r = await svc.apply(
+      applyInput({
+        appAdds: ["acme/d"],
+        appRemoves: ["acme/b"],
+        agentRemoves: ["acme/b"],
+      }),
+    );
     expect(r).toMatchObject({ status: "failed", auditId: "audit-1" });
     expect(repos()).toEqual(["acme/a", "acme/b"]);
     expect(audits[0]?.result).toEqual({
       status: "failed",
       error: "github says no",
     });
+    expect(audits[0]?.diff.installationAdds).toEqual(["acme/d"]);
     expect(audits[0]?.diff.installationRemoves).toEqual([]);
     expect(audits[0]?.diff.configRemoves).toEqual([]);
     expect(calls.some((c) => c[0] === "block")).toBe(false);
@@ -459,7 +564,7 @@ describe("LostAccessRemovalService.remove", () => {
 
   it("removes an agent repo even when the App is not installed on its org", async () => {
     const { svc, calls, repos } = harness({ installed: [] });
-    const r = await svc.remove(removeInput(["acme/b"]));
+    const r = await svc.apply(applyInput({ agentRemoves: ["acme/b"] }));
     expect(r.status).toBe("applied");
     expect(calls.some((c) => c[0] === "removeRepos")).toBe(false);
     expect(repos()).toEqual(["acme/a"]);

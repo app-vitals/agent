@@ -1,17 +1,21 @@
 /**
  * admin/src/admin-ui-installation-repos-pages.ts
- * Pure renderers for the agent detail page's "Installation repos" card
- * (IRM-1.4), the repos on the
- * agent App's installation per org with add/remove, the user-can-push hint,
- * and a button that removes repos the bound user can no longer push to (IRM-1.3)
- * after an explicit confirmation. It also renders the open-work lists shown
- * before and after a removal (IRM-1.7) and the coverage warning on the agent's
- * repos list. Platform-admin only; the caller decides visibility. Every dynamic
- * value is escaped. Inputs carry repo names and ids only.
+ * Pure renderers for the agent detail page's GitHub Sync card (IRM-3.2): one
+ * Sync button, the read-only list of repos on the agent App's installation per
+ * org (with the user-can-push hint), and the single confirm step that lists
+ * installation adds, installation removes, agent-repo removes and the open work
+ * that would be blocked. It also renders the open-work lists shown for the
+ * agent-repo removal (IRM-1.7) and the coverage warning on the agent's repos
+ * list. Platform-admin only; the caller decides visibility, and only renders
+ * the card when the installer and lookup Apps are both configured. Every
+ * dynamic value is escaped. Inputs carry repo names and ids only.
  */
 
 import { escapeHtml } from "./admin-ui-styles.ts";
-import { MAX_UNCONFIRMED_REMOVALS } from "./installation-ports.ts";
+import {
+  MAX_UNCONFIRMED_REMOVALS,
+  MISSING_APP_ID_REASON,
+} from "./installation-ports.ts";
 
 export interface OpenWorkView {
   id: string;
@@ -28,31 +32,6 @@ export interface InstallationReposView {
   }[];
 }
 
-/** JSON body of GET /agents/:id/github-lost-access/preview. */
-export interface LostAccessPreviewView {
-  status: "previewed" | "skipped";
-  reason?: string;
-  repos?: string[];
-  installationRemoves?: string[];
-  configRemoves?: string[];
-  skippedOrgs?: { org: string; reason: string }[];
-  openWork?: OpenWorkView[];
-  warnings?: string[];
-}
-
-/** JSON body of POST /agents/:id/github-lost-access/remove. */
-export interface LostAccessRemoveView {
-  status: "applied" | "noop" | "skipped";
-  reason?: string;
-  auditId?: string;
-  repos?: string[];
-  installationRemoves?: string[];
-  configRemoves?: string[];
-  notRemoved?: { repo: string; reason: string }[];
-  skippedOrgs?: { org: string; reason: string }[];
-  warnings?: string[];
-}
-
 /** JSON body of GET /agents/:id/repos/:owner/:name/removal-preview. */
 export interface RepoRemovalPreviewView {
   repo: string;
@@ -60,8 +39,6 @@ export interface RepoRemovalPreviewView {
   warnings: string[];
 }
 
-export const NO_USERNAME_REASON =
-  "No GitHub username is bound to this agent, so repos the user can no longer push to cannot be found. Bind a username above to enable this.";
 export const INSTALLER_UNCONFIGURED_REASON =
   "The installer GitHub App is not configured, so the agent App's installation repos cannot be listed or changed.";
 
@@ -107,133 +84,145 @@ function warningsHtml(warnings: readonly string[] | undefined): string {
     : `<div class="alert alert-warning" data-warnings="1">${(warnings ?? []).map((w) => `<div>${escapeHtml(w)}</div>`).join("")}</div>`;
 }
 
-function skippedOrgsHtml(
-  skipped: readonly { org: string; reason: string }[] | undefined,
-): string {
-  return (skipped ?? []).length === 0
-    ? ""
-    : `<div class="alert alert-warning" data-skipped-orgs="1">Skipped organizations (nothing was removed there):<ul style="margin:6px 0 0 18px">${(skipped ?? []).map((o) => `<li><span class="mono">${escapeHtml(o.org)}</span>: ${escapeHtml(o.reason)}</li>`).join("")}</ul></div>`;
+export const NO_USERNAME_REASON =
+  "No GitHub username is bound to this agent, so there is nothing to sync against. Bind one under Owner and identities.";
+
+export const APP_ID_MISMATCH_MESSAGE =
+  "No installation matches the GH_APP_ID of this agent, although the Installations card matches an installation by App slug. GH_APP_ID is probably set to the wrong numeric App id; correct it in the agent env.";
+
+/** JSON body of GET /agents/:id/github-sync/preview. */
+export interface GithubSyncPreviewView {
+  status: "previewed" | "skipped";
+  reason?: string;
+  appAdds?: string[];
+  appRemoves?: string[];
+  agentRemoves?: string[];
+  skippedOrgs?: { org: string; reason: string }[];
+  openWork?: OpenWorkView[];
+  warnings?: string[];
 }
 
-/** The card shell; it loads its body fragment from the UI route on page load. */
-export function renderInstallationReposCard(agentId: string): string {
-  const base = `/admin/agents/${escapeHtml(agentId)}/github-installation`;
+/** JSON body of POST /agents/:id/github-sync/apply. */
+export interface GithubSyncApplyView {
+  status: "applied" | "noop" | "skipped";
+  reason?: string;
+  appAdds?: string[];
+  appRemoves?: string[];
+  agentRemoves?: string[];
+  notApplied?: { repo: string; reason: string }[];
+  skippedOrgs?: { org: string; reason: string }[];
+  warnings?: string[];
+}
+
+export interface GithubSyncCardState {
+  /** The agent has a GH_APP_ID in its env. */
+  hasAppId: boolean;
+  githubUsername?: string | null;
+}
+
+/**
+ * The Sync card shell; it loads its repos body from the UI route on page load.
+ * Without a GH_APP_ID or a bound username the button is replaced by the
+ * reason (missing App id first).
+ */
+export function renderGithubSyncCard(
+  agentId: string,
+  state: GithubSyncCardState,
+): string {
+  const id = escapeHtml(agentId);
+  const base = `/admin/agents/${id}/github-installation`;
+  let action: string;
+  if (!state.hasAppId) {
+    action = `<div class="alert alert-warning" data-reason="missing-app-id">${escapeHtml(MISSING_APP_ID_REASON)}</div>`;
+  } else if (!state.githubUsername?.trim()) {
+    action = `<div class="alert alert-warning" data-reason="no-username">${escapeHtml(NO_USERNAME_REASON)}</div>`;
+  } else {
+    action = `<button type="button" class="btn btn-primary" id="github-sync-btn" data-url="/admin/agents/${id}/github-sync/confirm">Sync</button><div id="github-sync-confirm" style="margin-top:12px"></div>`;
+  }
+  const loader = state.hasAppId
+    ? `<div id="github-installation-body">Loading...</div>`
+    : "";
   return `<div class="card" id="github-installation-card" data-base-url="${base}">
-      <div class="card-title">Installation repos</div>
-      <p style="color:#6b7280;font-size:12px;margin:0 0 12px">The repos on this agent's own GitHub App installation, per organization. Changes apply immediately and are audited; the agent's configured repos are not changed here.</p>
-      <div id="github-installation-body">Loading...</div>
-      <div id="github-installation-result" style="margin-top:12px"></div>
+      <div class="card-title">GitHub sync</div>
+      <p style="color:#6b7280;font-size:12px;margin:0 0 12px">Brings this agent's App installation and its repos in line with what the bound GitHub user can push to.</p>
+      ${action}
+      ${loader}
       <script>
         (function() {
           var card = document.getElementById('github-installation-card');
           var body = document.getElementById('github-installation-body');
-          var out = document.getElementById('github-installation-result');
-          if (!card || !body || !out) return;
-          var base = card.getAttribute('data-base-url');
-          function text(r) { return r.text(); }
+          var out = document.getElementById('github-sync-confirm');
+          if (!card) return;
+          function show(r) { return r.text().then(function(t) { out.innerHTML = t; }); }
           function fail() { out.textContent = 'The request failed.'; }
-          function load() {
-            return fetch(base, { credentials: 'same-origin' }).then(text)
+          if (body) {
+            fetch(card.getAttribute('data-base-url'), { credentials: 'same-origin' })
+              .then(function(r) { return r.text(); })
               .then(function(t) { body.innerHTML = t; })
               .catch(function() { body.textContent = 'The request failed.'; });
           }
-          function post(url, payload) {
-            return fetch(url, {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload)
-            }).then(text);
-          }
+          if (!out) return;
           card.addEventListener('click', function(e) {
             var t = e.target;
-            if (!t || !t.getAttribute) return;
-            var act = t.getAttribute('data-action');
-            if (!act) return;
-            if (act === 'add') {
-              var input = document.getElementById('github-installation-add');
-              var repos = input.value.split(/[\\s,]+/).filter(function(s) { return s; });
-              if (!repos.length) return;
-              t.disabled = true;
-              post(base + '/repos/add', { repos: repos })
-                .then(function(h) { out.innerHTML = h; return load(); })
-                .catch(fail).then(function() { t.disabled = false; });
-            } else if (act === 'remove') {
-              var repo = t.getAttribute('data-repo');
-              if (!window.confirm('Remove ' + repo + ' from the installation?')) return;
-              t.disabled = true;
-              post(base + '/repos/remove', { repos: [repo] })
-                .then(function(h) { out.innerHTML = h; return load(); })
-                .catch(fail).then(function() { t.disabled = false; });
-            } else if (act === 'lost-access-preview') {
-              t.disabled = true;
+            if (!t || !t.id) return;
+            if (t.id === 'github-sync-btn') {
               out.textContent = 'Loading...';
-              fetch('/admin/agents/${escapeHtml(agentId)}/github-lost-access/preview', { credentials: 'same-origin' })
-                .then(text).then(function(h) { out.innerHTML = h; })
-                .catch(fail).then(function() { t.disabled = false; });
-            } else if (act === 'lost-access-apply') {
-              var box = document.getElementById('github-lost-access-confirm');
-              var cap = document.getElementById('github-lost-access-confirm-cap');
-              var holder = document.getElementById('github-lost-access-plan');
-              if (!box || !box.checked || (cap && !cap.checked) || !holder) return;
+              fetch(t.getAttribute('data-url'), { credentials: 'same-origin' }).then(show).catch(fail);
+            } else if (t.id === 'github-sync-confirm-btn') {
+              var payload = JSON.parse(t.getAttribute('data-body') || '{}');
+              var cb = document.getElementById('github-sync-confirm-removals');
+              if (cb) payload.confirmRemovals = cb.checked;
               t.disabled = true;
-              post('/admin/agents/${escapeHtml(agentId)}/github-lost-access/remove', {
-                repos: JSON.parse(holder.getAttribute('data-repos') || '[]'),
-                confirmRemovals: !!(cap && cap.checked)
-              }).then(function(h) { out.innerHTML = h; return load(); })
-                .catch(fail);
+              fetch(t.getAttribute('data-url'), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload)
+              }).then(show).catch(fail);
             }
           });
-          out.addEventListener('change', function() {
-            var box = document.getElementById('github-lost-access-confirm');
-            var cap = document.getElementById('github-lost-access-confirm-cap');
-            var apply = document.getElementById('github-lost-access-apply-btn');
-            if (box && apply) apply.disabled = !(box.checked && (!cap || cap.checked));
+          card.addEventListener('change', function(e) {
+            var t = e.target;
+            if (t && t.id === 'github-sync-confirm-removals') {
+              var btn = document.getElementById('github-sync-confirm-btn');
+              if (btn) btn.disabled = !t.checked;
+            }
           });
-          load();
         })();
       </script>
     </div>`;
 }
 
-/**
- * The card body: repos per org with the user-can-push hint (only when known),
- * add and remove, and the lost-access button (or why it is unavailable).
- */
+/** The card body: read-only repos per org with the user-can-push hint (only when known). */
 export function renderInstallationReposBody(
   view: InstallationReposView,
-  githubUsername: string | null | undefined,
+  opts: { appIdMismatch?: boolean } = {},
 ): string {
-  const orgs =
-    view.orgs.length === 0
-      ? `<p class="empty-state">The agent App is not installed on any organization the installer can reach.</p>`
-      : view.orgs
-          .map((o) => {
-            const rows =
-              o.repos.length === 0
-                ? `<tr><td colspan="3" class="empty-state">No repos.</td></tr>`
-                : o.repos
-                    .map((r) => {
-                      const hint =
-                        r.userCanPush === undefined
-                          ? ""
-                          : r.userCanPush
-                            ? '<span class="badge badge-green" title="The bound user can push">user can push</span>'
-                            : '<span class="badge badge-warning" title="The bound user cannot push">user cannot push</span>';
-                      return `<tr><td class="mono">${escapeHtml(r.fullName)}</td><td>${hint}</td><td><button type="button" class="btn btn-danger" style="font-size:11px;padding:3px 8px" data-action="remove" data-repo="${escapeHtml(r.fullName)}">Remove</button></td></tr>`;
-                    })
-                    .join("");
-            return `<div class="github-installation-org" data-org="${escapeHtml(o.org)}" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:6px">${escapeHtml(o.org)}</div><table class="detail-table"><thead><tr><th>Repo</th><th>Bound user</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
-          })
-          .join("");
-  const add = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-      <input id="github-installation-add" type="text" class="form-input mono" placeholder="Repos to add (owner/repo, comma separated)" style="min-width:320px" />
-      <button type="button" class="btn btn-primary" data-action="add">Add</button>
-    </div>`;
-  const lost = githubUsername
-    ? `<button type="button" class="btn btn-danger" id="github-lost-access-btn" data-action="lost-access-preview">Remove repos the user can no longer push to</button>`
-    : `<div class="alert alert-warning" data-reason="no-username">${escapeHtml(NO_USERNAME_REASON)}</div>`;
-  return `${add}${orgs}<div style="margin-top:12px">${lost}</div>`;
+  if (view.orgs.length === 0) {
+    if (opts.appIdMismatch) {
+      return `<div class="alert alert-warning" data-reason="app-id-mismatch">${escapeHtml(APP_ID_MISMATCH_MESSAGE)}</div>`;
+    }
+    return `<p class="empty-state">The agent App is not installed on any organization the installer can reach.</p>`;
+  }
+  return view.orgs
+    .map((o) => {
+      const rows =
+        o.repos.length === 0
+          ? `<tr><td colspan="2" class="empty-state">No repos.</td></tr>`
+          : o.repos
+              .map((r) => {
+                const hint =
+                  r.userCanPush === undefined
+                    ? ""
+                    : r.userCanPush
+                      ? '<span class="badge badge-green" title="The bound user can push">user can push</span>'
+                      : '<span class="badge badge-warning" title="The bound user cannot push">user cannot push</span>';
+                return `<tr><td class="mono">${escapeHtml(r.fullName)}</td><td>${hint}</td></tr>`;
+              })
+              .join("");
+      return `<div class="github-installation-org" data-org="${escapeHtml(o.org)}" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:6px">${escapeHtml(o.org)}</div><table class="detail-table"><thead><tr><th>Repo</th><th>Bound user</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    })
+    .join("");
 }
 
 /** Why the card body could not be shown, distinct per cause. */
@@ -245,72 +234,6 @@ export function renderInstallationReposError(
     return `<div class="alert alert-warning" data-reason="installer-unconfigured">${escapeHtml(INSTALLER_UNCONFIGURED_REASON)}</div>`;
   }
   return `<div class="alert alert-error" data-reason="error">${escapeHtml(message)}</div>`;
-}
-
-/** Fragment for add/remove on the installation. */
-export function renderInstallationChangeResult(
-  kind: "add" | "remove",
-  res: { auditId?: string; repos?: string[] },
-): string {
-  const repos = (res.repos ?? [])
-    .map((r) => `<span class="mono">${escapeHtml(r)}</span>`)
-    .join(", ");
-  const audit = res.auditId
-    ? ` Audit id: <span class="mono">${escapeHtml(res.auditId)}</span>.`
-    : "";
-  return `<div class="alert alert-success">${kind === "add" ? "Added to" : "Removed from"} the installation: ${repos}.${audit}</div>`;
-}
-
-/**
- * Confirm step for lost-access removal: lists exactly what will be removed,
- * the skipped orgs, the open work that would be blocked (per repo, linked),
- * and the extra confirmation over the cap.
- */
-export function renderLostAccessPreview(view: LostAccessPreviewView): string {
-  if (view.status === "skipped") {
-    return `<div class="alert alert-warning" data-reason="skipped">Nothing to remove: ${escapeHtml(view.reason ?? "the preview was skipped")}.</div>`;
-  }
-  const repos = view.repos ?? [];
-  const parts = [
-    skippedOrgsHtml(view.skippedOrgs),
-    warningsHtml(view.warnings),
-  ];
-  if (repos.length === 0) {
-    parts.push(
-      `<p class="empty-state">No repos to remove: the bound user can still push to everything that could be checked.</p>`,
-    );
-    return parts.join("");
-  }
-  const inInstall = new Set((view.installationRemoves ?? []).map(lc));
-  const inConfig = new Set((view.configRemoves ?? []).map(lc));
-  const rows = repos
-    .map(
-      (r) =>
-        `<tr><td class="mono">${escapeHtml(r)}</td><td>${inInstall.has(lc(r)) ? "installation" : ""}</td><td>${inConfig.has(lc(r)) ? "agent repos" : ""}</td></tr>`,
-    )
-    .join("");
-  parts.push(
-    `<div style="font-weight:600;margin:8px 0 6px">These ${repos.length} repos will be removed</div><table class="detail-table"><thead><tr><th>Repo</th><th>Removed from</th><th></th></tr></thead><tbody>${rows}</tbody></table>`,
-  );
-  parts.push(
-    renderOpenWorkByRepo(
-      view.openWork ?? [],
-      "Open tasks and PRs that will be blocked",
-      "No open tasks or PRs would be blocked.",
-    ),
-  );
-  const overCap = repos.length > MAX_UNCONFIRMED_REMOVALS;
-  const capConfirm = overCap
-    ? `<label style="display:block;margin-bottom:8px"><input type="checkbox" id="github-lost-access-confirm-cap" /> This removes ${repos.length} repos (more than ${MAX_UNCONFIRMED_REMOVALS}). I confirm the removals.</label>`
-    : "";
-  parts.push(
-    `<div id="github-lost-access-plan" style="margin-top:12px" data-repos="${escapeHtml(JSON.stringify(repos))}" data-over-cap="${overCap}">
-        <label style="display:block;margin-bottom:8px"><input type="checkbox" id="github-lost-access-confirm" /> I have reviewed this list and want to remove these repos.</label>
-        ${capConfirm}
-        <button type="button" class="btn btn-danger" id="github-lost-access-apply-btn" data-action="lost-access-apply" disabled>Remove</button>
-      </div>`,
-  );
-  return parts.join("");
 }
 
 /**
@@ -330,34 +253,6 @@ export function actuallyBlockedWork(
         x.includes(`open work for ${w.repo} was not blocked`),
       ),
   );
-}
-
-/** Result of the lost-access removal: audit, outcome per repo, blocked work. */
-export function renderLostAccessResult(
-  res: LostAccessRemoveView,
-  blocked: readonly OpenWorkView[],
-): string {
-  if (res.status === "skipped") {
-    return `<div class="alert alert-warning" data-reason="skipped">Nothing was removed: ${escapeHtml(res.reason ?? "skipped")}.</div>`;
-  }
-  const notRemoved = (res.notRemoved ?? []).length
-    ? `<div class="alert alert-warning">Left alone:<ul style="margin:6px 0 0 18px">${(res.notRemoved ?? []).map((n) => `<li><span class="mono">${escapeHtml(n.repo)}</span>: ${escapeHtml(n.reason)}</li>`).join("")}</ul></div>`
-    : "";
-  const tail = `${notRemoved}${skippedOrgsHtml(res.skippedOrgs)}${warningsHtml(res.warnings)}`;
-  if (res.status === "noop") {
-    return `<div class="alert alert-warning">Nothing to remove: none of the named repos still lacks push access.</div>${tail}`;
-  }
-  const repos = (res.repos ?? [])
-    .map((r) => `<span class="mono">${escapeHtml(r)}</span>`)
-    .join(", ");
-  const audit = res.auditId
-    ? ` Audit id: <span class="mono">${escapeHtml(res.auditId)}</span>.`
-    : "";
-  return `<div class="alert alert-success">Removed ${(res.repos ?? []).length} repos: ${repos}.${audit}</div>${renderOpenWorkByRepo(
-    blocked,
-    "Open tasks and PRs that were blocked",
-    "No open tasks or PRs were blocked.",
-  )}${tail}`;
 }
 
 /**
@@ -401,4 +296,76 @@ export function uncoveredRepos(
 /** The badge shown on an uncovered repo row of the agent's repos list. */
 export function renderUncoveredBadge(): string {
   return ` <span class="badge badge-warning" data-uncovered="1" title="The agent App's installation does not cover this repo. Nothing is changed automatically.">not on installation</span>`;
+}
+
+const repoList = (kind: string, title: string, repos: readonly string[]) =>
+  repos.length === 0
+    ? ""
+    : `<div data-list="${kind}" style="margin-top:8px"><div style="font-weight:600">${escapeHtml(title)} (${repos.length})</div><ul style="margin:4px 0 0 18px">${repos.map((r) => `<li class="mono">${escapeHtml(r)}</li>`).join("")}</ul></div>`;
+
+const skippedOrgsHtml = (
+  skipped: readonly { org: string; reason: string }[],
+) =>
+  skipped.length === 0
+    ? ""
+    : `<div class="alert alert-warning" data-skipped-orgs="1"><div style="font-weight:600">Skipped orgs (nothing added or removed there)</div>${skipped.map((s) => `<div><span class="mono">${escapeHtml(s.org)}</span>: ${escapeHtml(s.reason)}</div>`).join("")}</div>`;
+
+/**
+ * The single confirm step of Sync: the installation adds, installation
+ * removes, agent-repo removes and the open work the removals would block. One
+ * confirmation applies them all; more than the removal cap needs the extra
+ * checkbox (confirmRemovals).
+ */
+export function renderSyncConfirm(
+  agentId: string,
+  preview: GithubSyncPreviewView,
+): string {
+  if (preview.status === "skipped") {
+    return `<div class="alert alert-warning" data-sync="skipped">Sync was skipped: ${escapeHtml(preview.reason ?? "unknown reason")}</div>`;
+  }
+  const appAdds = preview.appAdds ?? [];
+  const appRemoves = preview.appRemoves ?? [];
+  const agentRemoves = preview.agentRemoves ?? [];
+  const skipped = skippedOrgsHtml(preview.skippedOrgs ?? []);
+  const warnings = warningsHtml(preview.warnings);
+  if (appAdds.length + appRemoves.length + agentRemoves.length === 0) {
+    return `<div class="alert alert-success" data-sync="in-sync">Already in sync: nothing to add or remove.</div>${skipped}${warnings}`;
+  }
+  const removals = new Set([...appRemoves, ...agentRemoves].map(lc)).size;
+  const overCap = removals > MAX_UNCONFIRMED_REMOVALS;
+  const body = escapeHtml(
+    JSON.stringify({ appAdds, appRemoves, agentRemoves }),
+  );
+  const url = `/admin/agents/${escapeHtml(agentId)}/github-sync/apply-confirmed`;
+  const capBox = overCap
+    ? `<label style="display:block;margin:12px 0"><input type="checkbox" id="github-sync-confirm-removals" /> I confirm removing ${removals} repos (more than ${MAX_UNCONFIRMED_REMOVALS}).</label>`
+    : "";
+  return `<div class="alert alert-warning" data-sync="confirm">Apply these changes?</div>${repoList("app-adds", "Add to the agent App installation", appAdds)}${repoList("app-removes", "Remove from the agent App installation", appRemoves)}${repoList("agent-removes", "Remove from the agent's repos", agentRemoves)}${renderOpenWorkByRepo(
+    preview.openWork ?? [],
+    "Open tasks and PRs that will be blocked",
+    "No open tasks or PRs would be blocked.",
+  )}${skipped}${warnings}${capBox}<button type="button" class="btn btn-danger" id="github-sync-confirm-btn" data-url="${url}" data-body="${body}"${overCap ? " disabled" : ""}>Confirm sync</button>`;
+}
+
+/** Result of applying a sync, with the open work that was blocked. */
+export function renderSyncResult(
+  result: GithubSyncApplyView,
+  blocked: readonly OpenWorkView[],
+): string {
+  if (result.status === "skipped") {
+    return `<div class="alert alert-warning" data-sync="skipped">Sync was skipped: ${escapeHtml(result.reason ?? "unknown reason")}</div>`;
+  }
+  if (result.status === "noop") {
+    return `<div class="alert alert-success" data-sync="noop">Nothing was changed.</div>${warningsHtml(result.warnings)}`;
+  }
+  const notApplied = result.notApplied ?? [];
+  return `<div class="alert alert-success" data-sync="applied">Sync applied. Reload the page to refresh the lists.</div>${repoList("app-adds", "Added to the agent App installation", result.appAdds ?? [])}${repoList("app-removes", "Removed from the agent App installation", result.appRemoves ?? [])}${repoList("agent-removes", "Removed from the agent's repos", result.agentRemoves ?? [])}${
+    notApplied.length === 0
+      ? ""
+      : `<div class="alert alert-warning" data-not-applied="1"><div style="font-weight:600">Left alone</div>${notApplied.map((n) => `<div><span class="mono">${escapeHtml(n.repo)}</span>: ${escapeHtml(n.reason)}</div>`).join("")}</div>`
+  }${skippedOrgsHtml(result.skippedOrgs ?? [])}${renderOpenWorkByRepo(
+    blocked,
+    "Open tasks and PRs that were blocked",
+    "No open tasks or PRs were blocked.",
+  )}${warningsHtml(result.warnings)}`;
 }

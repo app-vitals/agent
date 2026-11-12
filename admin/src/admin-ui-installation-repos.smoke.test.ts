@@ -1,8 +1,8 @@
 /**
  * admin/src/admin-ui-installation-repos.smoke.test.ts
- * Smoke tests (app.request()) for the IRM-1.4 Installation repos card, the
- * lost-access confirm flow, the repo-removal confirm flow (IRM-1.7) and the
- * installation-coverage flag. The agents API is a stubbed seam; no DB, no network.
+ * Smoke tests (app.request()) for the IRM-3.2 GitHub Sync card (gating, repos
+ * body, the single sync confirm and apply), the repo-removal confirm flow
+ * (IRM-1.7) and the installation-coverage flag. The agents API is a stubbed seam; no DB, no network.
  */
 
 import { beforeAll, describe, expect, it } from "bun:test";
@@ -27,6 +27,8 @@ function setup(opts: {
   username?: string | null;
   repos?: string[];
   agentsApi?: Api;
+  /** Enterprise Apps status; default: both installer and lookup configured. */
+  enterprise?: unknown;
 }) {
   const calls: { path: string; init?: RequestInit }[] = [];
   const base = makeMockDeps();
@@ -56,7 +58,14 @@ function setup(opts: {
         secretKeys: [],
       }),
     },
-    githubEnterpriseApi: () => json({ configured: true }),
+    githubEnterpriseApi: () =>
+      json(
+        opts.enterprise ?? {
+          configured: true,
+          installer: { role: "installer" },
+          lookup: { role: "lookup" },
+        },
+      ),
     agentsApi: (path: string, init?: RequestInit) => {
       calls.push({ path, init });
       return opts.agentsApi ? opts.agentsApi(path, init) : json({});
@@ -79,7 +88,7 @@ const INSTALLED = {
   ],
 };
 
-describe("admin UI — installation repos card (IRM-1.4)", () => {
+describe("admin UI — GitHub sync card (IRM-3.2)", () => {
   let admin: string;
   let member: string;
   beforeAll(async () => {
@@ -107,16 +116,69 @@ describe("admin UI — installation repos card (IRM-1.4)", () => {
     });
 
   describe("card presence", () => {
-    it("is present for an agent with GH_APP_ID", async () => {
+    it("shows the Sync button and no input when both Apps are configured", async () => {
       const { app } = setup({ agentsApi: () => json(INSTALLED) });
       const html = await (await get(app, "")).text();
       expect(html).toContain('id="github-installation-card"');
+      expect(html).toContain('id="github-sync-btn"');
+      const card = html.slice(html.indexOf('id="github-installation-card"'));
+      const cardHtml = card.slice(0, card.indexOf("</script>"));
+      expect(cardHtml).not.toContain("<input");
     });
 
-    it("is absent for an agent with no GH_APP_ID", async () => {
-      const { app } = setup({ env: { FOO: "bar" } });
+    it("is absent when only the installer App is configured", async () => {
+      const { app } = setup({
+        enterprise: {
+          configured: true,
+          installer: { role: "installer" },
+          lookup: null,
+        },
+      });
       const html = await (await get(app, "")).text();
       expect(html).not.toContain("github-installation-card");
+    });
+
+    it("is absent when only the lookup App is configured", async () => {
+      const { app } = setup({
+        enterprise: {
+          configured: true,
+          installer: null,
+          lookup: { role: "lookup" },
+        },
+      });
+      const html = await (await get(app, "")).text();
+      expect(html).not.toContain("github-installation-card");
+    });
+
+    it("is absent when no App is configured", async () => {
+      const { app } = setup({
+        enterprise: { configured: false, installer: null, lookup: null },
+      });
+      const html = await (await get(app, "")).text();
+      expect(html).not.toContain("github-installation-card");
+    });
+
+    it("shows the missing-App-id reason, not the button, with no GH_APP_ID", async () => {
+      const { app } = setup({ env: { FOO: "bar" } });
+      const html = await (await get(app, "")).text();
+      expect(html).toContain('data-reason="missing-app-id"');
+      expect(html).not.toContain('id="github-sync-btn"');
+    });
+
+    it("shows the no-username reason, not the button, with no bound user", async () => {
+      const { app } = setup({ username: null });
+      const html = await (await get(app, "")).text();
+      expect(html).toContain('data-reason="no-username"');
+      expect(html).not.toContain('id="github-sync-btn"');
+    });
+
+    it("has no no-username reason when the Apps are not both configured", async () => {
+      const { app } = setup({
+        username: null,
+        enterprise: { configured: true, installer: null, lookup: null },
+      });
+      const html = await (await get(app, "")).text();
+      expect(html).not.toContain('data-reason="no-username"');
     });
 
     it("is absent for a non-admin", async () => {
@@ -141,17 +203,16 @@ describe("admin UI — installation repos card (IRM-1.4)", () => {
       expect(html).toContain("user cannot push");
       // acme/docs has no hint: exactly two hint badges
       expect(html.match(/>user can(not)? push</g)?.length).toBe(2);
-      expect(html).toContain('data-action="lost-access-preview"');
+      expect(html).not.toContain("data-action=");
+      expect(html).not.toContain("<button");
     });
 
-    it("shows a distinct reason for an unbound username", async () => {
+    it("lists repos for an unbound username without hints", async () => {
       const { app } = setup({
         username: null,
         agentsApi: () => json(INSTALLED),
       });
       const html = await (await get(app, "/github-installation")).text();
-      expect(html).toContain('data-reason="no-username"');
-      expect(html).not.toContain('data-action="lost-access-preview"');
       expect(html).toContain("acme/api");
     });
 
@@ -174,213 +235,146 @@ describe("admin UI — installation repos card (IRM-1.4)", () => {
     });
   });
 
-  describe("add and remove", () => {
-    it("proxies add and renders the audit", async () => {
+  describe("GH_APP_ID mismatch", () => {
+    it("is explicit when no installation matches but the Installations card has one", async () => {
       const { app, calls } = setup({
-        agentsApi: () =>
-          json({ status: "applied", auditId: "aud-1", repos: ["acme/new"] }),
+        agentsApi: (path) =>
+          path.endsWith("/github-installation/repos")
+            ? json({ appId: 123, orgs: [] })
+            : json({ snapshot: { installations: [{ slug: "x" }] } }),
       });
-      const res = await post(app, "/github-installation/repos/add", {
-        repos: ["acme/new", 5],
-      });
-      const html = await res.text();
-      const c = calls.at(-1);
-      expect(c?.path).toBe(`/agents/${AGENT_ID}/github-installation/repos`);
-      expect(JSON.parse(String(c?.init?.body))).toEqual({
-        repos: ["acme/new"],
-      });
-      expect(html).toContain("Added to the installation");
-      expect(html).toContain("aud-1");
+      const html = await (await get(app, "/github-installation")).text();
+      expect(html).toContain('data-reason="app-id-mismatch"');
+      expect(html).not.toContain("not installed on any organization");
+      expect(calls.some((c) => c.path.endsWith("/github-installations"))).toBe(
+        true,
+      );
     });
 
-    it("proxies remove and surfaces an API error", async () => {
-      const ok = setup({
-        agentsApi: () =>
-          json({ status: "applied", auditId: "aud-2", repos: ["acme/web"] }),
+    it("says not installed when there is no installation at all", async () => {
+      const { app } = setup({
+        agentsApi: (path) =>
+          path.endsWith("/github-installation/repos")
+            ? json({ appId: 123, orgs: [] })
+            : json({ error: "none" }, 404),
       });
-      const res = await post(ok.app, "/github-installation/repos/remove", {
-        repos: ["acme/web"],
-      });
-      expect(ok.calls.at(-1)?.path).toBe(
-        `/agents/${AGENT_ID}/github-installation/repos/remove`,
-      );
-      expect(await res.text()).toContain("Removed from the installation");
-
-      const bad = setup({
-        agentsApi: () => json({ error: "App not installed on org" }, 409),
-      });
-      const err = await post(bad.app, "/github-installation/repos/remove", {
-        repos: ["x/y"],
-      });
-      expect(err.status).toBe(409);
-      expect(await err.text()).toContain("App not installed on org");
-    });
-
-    it("is forbidden for a non-admin", async () => {
-      const { app, calls } = setup({});
-      const res = await post(
-        app,
-        "/github-installation/repos/add",
-        { repos: ["a/b"] },
-        member,
-      );
-      expect(res.status).toBe(403);
-      expect(calls.length).toBe(0);
+      const html = await (await get(app, "/github-installation")).text();
+      expect(html).toContain("not installed on any organization");
+      expect(html).not.toContain("app-id-mismatch");
     });
   });
 
-  describe("remove-lost-access confirm flow", () => {
-    const work = [
-      { id: "acme/api#12", repo: "acme/api", title: "Fix <thing>" },
-      { id: "task-9", repo: "acme/api" },
-    ];
-    const preview = (over: Record<string, unknown> = {}) => ({
+  describe("sync confirm and apply", () => {
+    const PREVIEW = {
       status: "previewed",
-      repos: ["acme/api"],
-      installationRemoves: ["acme/api"],
-      configRemoves: ["acme/api"],
+      appAdds: ["acme/new"],
+      appRemoves: ["acme/old"],
+      agentRemoves: ["acme/gone"],
       skippedOrgs: [],
-      openWork: work,
+      openWork: [{ id: "acme/old#4", repo: "acme/old", title: "Open PR" }],
       warnings: [],
-      ...over,
-    });
+    };
+    const api: Api = (path, init) => {
+      if (path.endsWith("/github-sync/preview")) return json(PREVIEW);
+      if (path.endsWith("/github-sync/apply") && init?.method === "POST") {
+        return json({
+          status: "applied",
+          appAdds: ["acme/new"],
+          appRemoves: ["acme/old"],
+          agentRemoves: ["acme/gone"],
+          notApplied: [],
+          skippedOrgs: [],
+          warnings: [],
+        });
+      }
+      return json({});
+    };
 
-    it("lists what will be removed and the affected work, linked", async () => {
-      const { app, calls } = setup({ agentsApi: () => json(preview()) });
-      const res = await get(app, "/github-lost-access/preview");
+    it("one confirm lists adds, removes, agent removes and blocked work", async () => {
+      const { app, calls } = setup({ agentsApi: api });
+      const res = await get(app, "/github-sync/confirm");
+      expect(res.status).toBe(200);
       const html = await res.text();
       expect(calls.at(-1)?.path).toBe(
-        `/agents/${AGENT_ID}/github-lost-access/preview`,
+        `/agents/${AGENT_ID}/github-sync/preview`,
       );
-      expect(html).toContain("These 1 repos will be removed");
-      expect(html).toContain('href="https://github.com/acme/api/pull/12"');
-      expect(html).toContain("Fix &lt;thing&gt;");
-      expect(html).toContain("task-9");
-      expect(html).toContain("will be blocked");
-      expect(html).toContain('id="github-lost-access-apply-btn"');
-      expect(html).not.toContain("github-lost-access-confirm-cap");
+      expect(html).toContain('data-list="app-adds"');
+      expect(html).toContain('data-list="app-removes"');
+      expect(html).toContain('data-list="agent-removes"');
+      expect(html).toContain('href="https://github.com/acme/old/pull/4"');
+      expect(html.match(/id="github-sync-confirm-btn"/g)?.length).toBe(1);
     });
 
-    it("says so when no open work is affected", async () => {
+    it("shows the reason for a skipped preview", async () => {
       const { app } = setup({
-        agentsApi: () => json(preview({ openWork: [] })),
+        agentsApi: () => json({ status: "skipped", reason: "user not found" }),
       });
-      const html = await (await get(app, "/github-lost-access/preview")).text();
-      expect(html).toContain('data-open-work="none"');
-      expect(html).toContain("No open tasks or PRs would be blocked");
+      const html = await (await get(app, "/github-sync/confirm")).text();
+      expect(html).toContain("user not found");
+      expect(html).not.toContain("github-sync-confirm-btn");
     });
 
-    it("shows a preview warning and skipped orgs", async () => {
+    it("surfaces an API failure on the confirm step", async () => {
       const { app } = setup({
-        agentsApi: () =>
-          json(
-            preview({
-              openWork: [],
-              warnings: ["open work could not be listed: boom"],
-              skippedOrgs: [{ org: "partial-org", reason: "partial listing" }],
-            }),
-          ),
+        agentsApi: () => json({ error: "GitHub Apps are not configured" }, 503),
       });
-      const html = await (await get(app, "/github-lost-access/preview")).text();
-      expect(html).toContain("open work could not be listed: boom");
-      expect(html).toContain("partial-org");
-      expect(html).toContain("partial listing");
+      const res = await get(app, "/github-sync/confirm");
+      expect(res.status).toBe(503);
     });
 
-    it("asks for the extra confirmation over the cap", async () => {
-      const repos = Array.from({ length: 11 }, (_, i) => `acme/r${i}`);
-      const { app } = setup({
-        agentsApi: () =>
-          json(preview({ repos, installationRemoves: repos, openWork: [] })),
-      });
-      const html = await (await get(app, "/github-lost-access/preview")).text();
-      expect(html).toContain('id="github-lost-access-confirm-cap"');
-      expect(html).toContain('data-over-cap="true"');
-    });
-
-    it("renders a skipped preview as a reason", async () => {
-      const { app } = setup({
-        agentsApi: () =>
-          json({ status: "skipped", reason: "GitHub user not found" }),
-      });
-      const html = await (await get(app, "/github-lost-access/preview")).text();
-      expect(html).toContain("GitHub user not found");
-      expect(html).not.toContain("github-lost-access-apply-btn");
-    });
-
-    it("remove sends the confirmed repos and shows the audit and blocked work", async () => {
-      const { app, calls } = setup({
-        agentsApi: (_path, init) =>
-          init?.method === "POST"
-            ? json({
-                status: "applied",
-                auditId: "aud-7",
-                repos: ["acme/api"],
-                notRemoved: [{ repo: "acme/web", reason: "still pushable" }],
-                warnings: [],
-              })
-            : json(preview()),
-      });
-      const res = await post(app, "/github-lost-access/remove", {
-        repos: ["acme/api"],
+    it("apply posts the confirmed lists once and shows what was blocked", async () => {
+      const { app, calls } = setup({ agentsApi: api });
+      const res = await post(app, "/github-sync/apply-confirmed", {
+        appAdds: ["acme/new"],
+        appRemoves: ["acme/old"],
+        agentRemoves: ["acme/gone"],
         confirmRemovals: true,
       });
+      expect(res.status).toBe(200);
       const html = await res.text();
-      const removeCall = calls.find((c) => c.init?.method === "POST");
-      expect(removeCall?.path).toBe(
-        `/agents/${AGENT_ID}/github-lost-access/remove`,
+      const applies = calls.filter((c) =>
+        c.path.endsWith("/github-sync/apply"),
       );
-      expect(JSON.parse(String(removeCall?.init?.body))).toEqual({
-        repos: ["acme/api"],
+      expect(applies.length).toBe(1);
+      expect(JSON.parse(String(applies[0]?.init?.body))).toEqual({
+        appAdds: ["acme/new"],
+        appRemoves: ["acme/old"],
+        agentRemoves: ["acme/gone"],
         confirmRemovals: true,
       });
-      expect(html).toContain("aud-7");
+      expect(html).toContain('data-sync="applied"');
       expect(html).toContain("were blocked");
-      expect(html).toContain('href="https://github.com/acme/api/pull/12"');
-      expect(html).toContain("still pushable");
+      expect(html).toContain("acme/old#4");
     });
 
-    it("does not claim work blocked when the block failed", async () => {
-      const { app } = setup({
-        agentsApi: (_p, init) =>
-          init?.method === "POST"
-            ? json({
-                status: "applied",
-                auditId: "aud-8",
-                repos: ["acme/api"],
-                warnings: ["open work for acme/api was not blocked: boom"],
-              })
-            : json(preview()),
+    it("rejects an invalid repo without calling the API", async () => {
+      const { app, calls } = setup({ agentsApi: api });
+      const res = await post(app, "/github-sync/apply-confirmed", {
+        appAdds: ["nope"],
       });
-      const html = await (
-        await post(app, "/github-lost-access/remove", { repos: ["acme/api"] })
-      ).text();
-      expect(html).toContain("No open tasks or PRs were blocked");
-      expect(html).toContain("was not blocked: boom");
+      expect(res.status).toBe(400);
+      expect(calls.length).toBe(0);
     });
 
-    it("surfaces the over-cap 422 from the API", async () => {
+    it("shows the over-cap refusal from the API", async () => {
       const { app } = setup({
-        agentsApi: (_p, init) =>
-          init?.method === "POST"
+        agentsApi: (path) =>
+          path.endsWith("/github-sync/apply")
             ? json({ error: "11 repos would be removed" }, 422)
-            : json(preview()),
+            : json(PREVIEW),
       });
-      const res = await post(app, "/github-lost-access/remove", {
-        repos: ["acme/api"],
+      const res = await post(app, "/github-sync/apply-confirmed", {
+        appRemoves: ["acme/old"],
       });
       expect(res.status).toBe(422);
       expect(await res.text()).toContain("11 repos would be removed");
     });
 
-    it("is forbidden for a non-admin", async () => {
+    it("both routes are forbidden for a non-admin and make no call", async () => {
       const { app, calls } = setup({});
+      expect((await get(app, "/github-sync/confirm", member)).status).toBe(403);
       expect(
-        (await get(app, "/github-lost-access/preview", member)).status,
-      ).toBe(403);
-      expect(
-        (await post(app, "/github-lost-access/remove", { repos: [] }, member))
-          .status,
+        (await post(app, "/github-sync/apply-confirmed", {}, member)).status,
       ).toBe(403);
       expect(calls.length).toBe(0);
     });
