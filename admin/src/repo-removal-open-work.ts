@@ -6,7 +6,7 @@
  * removal itself always succeeds. Re-adding a repo never unblocks anything.
  */
 
-import type { OpenWorkItem, OpenWorkPort } from "./reconcile-open-work.ts";
+import type { OpenWorkItem, OpenWorkPort } from "./open-work-port.ts";
 
 export function repoRemovedFromAgentBlockReason(repo: string): string {
   return `repo ${repo} was removed from the agent's repos`;

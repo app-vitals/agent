@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { OpenWorkPort } from "./reconcile-open-work.ts";
+import type { OpenWorkPort } from "./open-work-port.ts";
 import {
   blockRepoRemovalWork,
   previewRepoRemovalWork,

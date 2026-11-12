@@ -1,8 +1,8 @@
 /**
- * admin/src/reconcile-open-work.ts
- * Optional open-work port for the GitHub reconcile (GHE-3.3). The admin
- * package knows nothing about task stores; a consumer that does (shipwright)
- * may supply this port so work on repos removed from an agent gets blocked.
+ * admin/src/open-work-port.ts
+ * Optional open-work port. The admin package knows nothing about task stores;
+ * a consumer that does (shipwright) may supply this port so work on repos
+ * removed from an agent gets blocked.
  * Additive and optional: with no port, nothing is listed or blocked.
  */
 
@@ -26,8 +26,4 @@ export interface OpenWorkPort {
     repos: readonly string[],
     reason: string,
   ): Promise<void>;
-}
-
-export function removedRepoBlockReason(repo: string): string {
-  return `repo removed from agent by GitHub reconcile (${repo})`;
 }

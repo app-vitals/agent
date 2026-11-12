@@ -10,10 +10,10 @@ import {
   STILL_PUSHABLE_REASON,
 } from "./lost-access-removal.ts";
 import type {
-  ReconcileAgentRecord,
-  ReconcileAuditEntry,
-} from "./reconcile-apply-service.ts";
-import type { OpenWorkPort } from "./reconcile-open-work.ts";
+  InstallationAgentRecord,
+  InstallationAuditEntry,
+} from "./installation-ports.ts";
+import type { OpenWorkPort } from "./open-work-port.ts";
 import { repoLostAccessBlockReason } from "./repo-removal-open-work.ts";
 import {
   type OrgAccessResult,
@@ -117,7 +117,7 @@ describe("planLostAccessRemoval", () => {
     expect(p.warnings[0]).toContain("acme");
   });
 
-  test("selected-only reason matches the reconcile planner wording", () => {
+  test("selected-only reason matches the shared access-rules wording", () => {
     const p = planLostAccessRemoval(
       base({
         access: access([org("acme", [], { reason: SELECTED_REPOS_REASON })]),
@@ -184,7 +184,7 @@ describe("planLostAccessRemoval", () => {
 
 function harness(
   opts: {
-    agent?: Partial<ReconcileAgentRecord> | null;
+    agent?: Partial<InstallationAgentRecord> | null;
     access?: Awaited<ReturnType<GithubAccessPreviewFn>>;
     installed?: { org: string; repos: string[] }[];
     removeFails?: boolean;
@@ -192,9 +192,9 @@ function harness(
   } = {},
 ) {
   const calls: unknown[][] = [];
-  const audits: ReconcileAuditEntry[] = [];
+  const audits: InstallationAuditEntry[] = [];
   let repos = opts.agent?.repos ?? ["acme/a", "acme/b"];
-  const agent: ReconcileAgentRecord | null =
+  const agent: InstallationAgentRecord | null =
     opts.agent === null
       ? null
       : {

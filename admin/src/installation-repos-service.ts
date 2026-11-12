@@ -1,8 +1,8 @@
 /**
  * admin/src/installation-repos-service.ts
  * Direct management of the repos on an agent's own GitHub App installation
- * (IRM-1.2): list, add and remove without a reconcile plan step. Uses the
- * installer App through the reconcile installation port, and writes every
+ * (IRM-1.2): list, add and remove directly on the installation. Uses the
+ * installer App through the installation port, and writes every
  * add/remove to the existing GitHubReconcileAudit table (no schema change):
  * `planHash` is "direct:add" / "direct:remove" and the changed repos land in
  * the diff's installationAdds / installationRemoves.
@@ -12,18 +12,18 @@ import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import {
   AppNotInstalledError,
   MISSING_APP_ID_REASON,
-  type ReconcileAgentsPort,
-  type ReconcileAuditPort,
-  type ReconcileInstallationPort,
-} from "./reconcile-apply-service.ts";
-import { repoOrg } from "./reconcile-planner.ts";
+  type InstallationAgentsPort,
+  type InstallationAuditPort,
+  type AppInstallationPort,
+} from "./installation-ports.ts";
+import { repoOrg } from "./repo-access-rules.ts";
 import type {
   OrgAccessResult,
   UserRepoAccessResult,
 } from "./user-repo-access-resolver.ts";
 
 /** Installation port plus discovery of the orgs the agent App is installed on. */
-export interface InstallationReposPort extends ReconcileInstallationPort {
+export interface InstallationReposPort extends AppInstallationPort {
   listInstalled(appId: number): Promise<{ org: string; repos: string[] }[]>;
 }
 
@@ -51,10 +51,10 @@ export type InstallationChangeResult =
   | { status: "failed"; auditId: string; error: string };
 
 export interface InstallationReposDeps {
-  agents: Pick<ReconcileAgentsPort, "get">;
+  agents: Pick<InstallationAgentsPort, "get">;
   access: GithubAccessPreviewFn;
   installation: InstallationReposPort;
-  audit: ReconcileAuditPort;
+  audit: InstallationAuditPort;
 }
 
 const orgKey = (org: string): string => org.toLowerCase();
@@ -211,11 +211,11 @@ export interface InstalledOrgsClient {
 }
 
 /**
- * Port over the reconcile installation port plus org discovery: the orgs the
+ * Port over the installation port plus org discovery: the orgs the
  * installer can reach that carry an installation of the agent's App.
  */
 export function createInstallationReposPort(
-  base: ReconcileInstallationPort,
+  base: AppInstallationPort,
   client: InstalledOrgsClient,
 ): InstallationReposPort {
   return {

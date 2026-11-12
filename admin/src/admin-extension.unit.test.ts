@@ -18,7 +18,7 @@ import {
   startBackgroundPasses,
   withExtensionAgentTypes,
 } from "./admin-extension.ts";
-import type { OpenWorkPort } from "./reconcile-open-work.ts";
+import type { OpenWorkPort } from "./open-work-port.ts";
 
 // The seam only hands the context through to hooks, so an opaque stand-in is
 // enough — no hook under test reads from it.

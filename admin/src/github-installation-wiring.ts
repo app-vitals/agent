@@ -1,9 +1,9 @@
 /**
- * admin/src/github-reconcile-wiring.ts
- * Composition of the GitHub reconcile service for admin boot (GHE-3.9).
- * Builds ReconcileApplyService from the stored enterprise Apps and an
- * optional host-supplied OpenWorkPort. The agent App id comes from each agent's
- * own stored GH_APP_ID; without an open-work port nothing is listed or blocked.
+ * admin/src/github-installation-wiring.ts
+ * Composition of the installation repos and lost-access removal services for
+ * admin boot, from the stored installer App and an optional host-supplied
+ * OpenWorkPort. The agent App id comes from each agent's own stored
+ * GH_APP_ID; without an open-work port nothing is listed or blocked.
  */
 
 import type { PrismaClient } from "../prisma/client/client.ts";
@@ -14,11 +14,9 @@ import { GithubEnterpriseClient } from "./github-enterprise-client.ts";
 import {
   createInstallationPort,
   type InstallationRepoClient,
-  PrismaReconcileAgents,
-  PrismaReconcileAudit,
-  ReconcileApplyService,
-  type ReconcileInstallationPort,
-} from "./reconcile-apply-service.ts";
+  PrismaInstallationAgents,
+  PrismaInstallationAudit,
+} from "./installation-ports.ts";
 import {
   createInstallationReposPort,
   type InstalledOrgsClient,
@@ -26,17 +24,15 @@ import {
   type InstallationReposPort,
 } from "./installation-repos-service.ts";
 import { LostAccessRemovalService } from "./lost-access-removal.ts";
-import type { OpenWorkPort } from "./reconcile-open-work.ts";
+import type { OpenWorkPort } from "./open-work-port.ts";
 
-export interface GithubReconcileWiringDeps {
+export interface GithubInstallationWiringDeps {
   prisma: PrismaClient;
   appService: Pick<GitHubEnterpriseAppService, "get" | "getPrivateKey">;
   access: GithubAccessPreviewFn;
   /** Reads each agent's stored GH_APP_ID (its own GitHub App). */
   agentEnv: Pick<AgentEnvService, "getConfigBundle">;
   openWork?: OpenWorkPort;
-  /** Test seam: replaces the installer-App-backed installation port. */
-  installation?: ReconcileInstallationPort;
   /** Test seams; default to the real GitHub API. */
   fetchFn?: typeof fetch;
   apiBase?: string;
@@ -46,7 +42,7 @@ export interface GithubReconcileWiringDeps {
 /** Builds the installer client per call so key rotations are picked up. */
 function lazyInstallerClient(
   deps: Pick<
-    GithubReconcileWiringDeps,
+    GithubInstallationWiringDeps,
     "appService" | "fetchFn" | "apiBase" | "now"
   >,
 ): InstallationRepoClient & InstalledOrgsClient {
@@ -81,44 +77,28 @@ function lazyInstallerClient(
   };
 }
 
-/**
- * The `githubReconcile` dep for createAdminApp. The agent App id is resolved
- * per agent from its stored GH_APP_ID, so this is always wired.
- */
-export function createGithubReconcile(
-  deps: GithubReconcileWiringDeps,
-): ReconcileApplyService {
-  return new ReconcileApplyService({
-    agents: new PrismaReconcileAgents(deps.prisma, deps.agentEnv),
-    access: deps.access,
-    installation:
-      deps.installation ?? createInstallationPort(lazyInstallerClient(deps)),
-    audit: new PrismaReconcileAudit(deps.prisma),
-    ...(deps.openWork ? { openWork: deps.openWork } : {}),
-  });
-}
-
-export interface InstallationReposWiringDeps extends GithubReconcileWiringDeps {
+export interface InstallationReposWiringDeps
+  extends GithubInstallationWiringDeps {
   /** Test seam: replaces the installer-App-backed port. */
   installationRepos?: InstallationReposPort;
 }
 
 /**
  * The `githubInstallationRepos` dep for createAdminApp (IRM-1.2): direct
- * list/add/remove on the agent App's installation, audited in the reconcile
- * audit table.
+ * list/add/remove on the agent App's installation, audited in the
+ * GitHubReconcileAudit table.
  */
 export function createGithubInstallationRepos(
   deps: InstallationReposWiringDeps,
 ): InstallationReposService {
   const client = lazyInstallerClient(deps);
   return new InstallationReposService({
-    agents: new PrismaReconcileAgents(deps.prisma, deps.agentEnv),
+    agents: new PrismaInstallationAgents(deps.prisma, deps.agentEnv),
     access: deps.access,
     installation:
       deps.installationRepos ??
       createInstallationReposPort(createInstallationPort(client), client),
-    audit: new PrismaReconcileAudit(deps.prisma),
+    audit: new PrismaInstallationAudit(deps.prisma),
   });
 }
 
@@ -133,12 +113,12 @@ export function createGithubLostAccessRemoval(
 ): LostAccessRemovalService {
   const client = lazyInstallerClient(deps);
   return new LostAccessRemovalService({
-    agents: new PrismaReconcileAgents(deps.prisma, deps.agentEnv),
+    agents: new PrismaInstallationAgents(deps.prisma, deps.agentEnv),
     access: deps.access,
     installation:
       deps.installationRepos ??
       createInstallationReposPort(createInstallationPort(client), client),
-    audit: new PrismaReconcileAudit(deps.prisma),
+    audit: new PrismaInstallationAudit(deps.prisma),
     ...(deps.openWork ? { openWork: deps.openWork } : {}),
   });
 }
