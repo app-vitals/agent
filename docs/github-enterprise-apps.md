@@ -15,7 +15,7 @@ At most one App per role is stored, so a deployment has at most two.
 
 ## Required permissions
 
-Permissions were verified against GitHub's REST API description and the "permissions required for GitHub Apps" docs while building `GithubEnterpriseClient` (GHE-1.2); the verification notes are in the header of `admin/src/github-enterprise-client.ts`.
+Permissions were verified against GitHub's REST API description and the "permissions required for GitHub Apps" docs while building `GithubEnterpriseClient` (GHE-1.5); the verification notes are in the header of `admin/src/github-enterprise-client.ts`.
 
 | App | Permission | Level | Why |
 |-----|------------|-------|-----|
