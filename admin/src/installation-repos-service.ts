@@ -9,6 +9,7 @@ import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import {
   AppNotInstalledError,
   MISSING_APP_ID_REASON,
+  type AppIdentity,
   type InstallationAgentsPort,
   type AppInstallationPort,
 } from "./installation-ports.ts";
@@ -19,7 +20,10 @@ import type {
 
 /** Installation port plus discovery of the orgs the agent App is installed on. */
 export interface InstallationReposPort extends AppInstallationPort {
-  listInstalled(appId: number): Promise<{ org: string; repos: string[] }[]>;
+  listInstalled(
+    appId: number,
+    identity?: AppIdentity,
+  ): Promise<{ org: string; repos: string[] }[]>;
 }
 
 export interface InstallationRepoView {
@@ -42,6 +46,17 @@ export interface InstallationReposDeps {
   agents: Pick<InstallationAgentsPort, "get">;
   access: GithubAccessPreviewFn;
   installation: InstallationReposPort;
+}
+
+/** The agent's App identity keys (client id, slug), when stored. */
+export function identityOf(agent: {
+  clientId?: string;
+  slug?: string;
+}): AppIdentity {
+  return {
+    ...(agent.clientId ? { clientId: agent.clientId } : {}),
+    ...(agent.slug ? { slug: agent.slug } : {}),
+  };
 }
 
 const orgKey = (org: string): string => org.toLowerCase();
@@ -88,7 +103,10 @@ export class InstallationReposService {
     if (agent.appId === undefined) {
       return { status: "no_app_id", reason: MISSING_APP_ID_REASON };
     }
-    const installed = await this.deps.installation.listInstalled(agent.appId);
+    const installed = await this.deps.installation.listInstalled(
+      agent.appId,
+      identityOf(agent),
+    );
     const username = agent.githubUsername?.trim();
     let access: UserRepoAccessResult | undefined;
     if (username) {
@@ -125,11 +143,11 @@ export function createInstallationReposPort(
 ): InstallationReposPort {
   return {
     ...base,
-    async listInstalled(appId) {
+    async listInstalled(appId, identity) {
       const out: { org: string; repos: string[] }[] = [];
       for (const { login } of await client.listInstallableOrganizations()) {
         try {
-          const repos = await base.listRepos(appId, [login]);
+          const repos = await base.listRepos(appId, [login], identity);
           out.push({ org: login, repos: repos[login] ?? [] });
         } catch (err) {
           if (err instanceof AppNotInstalledError) continue;

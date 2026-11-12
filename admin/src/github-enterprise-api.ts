@@ -16,6 +16,7 @@
  * Auth: admin key or admin session (every other caller class gets 403).
  */
 
+import { CLIENT_ID_RE, SLUG_RE } from "./installation-ports.ts";
 import { createPrivateKey } from "node:crypto";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
@@ -84,9 +85,6 @@ const REQUIRED_PERMISSION: Record<
   lookup: { name: "metadata", levels: ["read", "write"] },
 };
 
-const SLUG_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
-/** GitHub App client ids look like Iv1.<hex> / Iv23li<alnum>; no path or query chars. */
-const CLIENT_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const ORG_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────

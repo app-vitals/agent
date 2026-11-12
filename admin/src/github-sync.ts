@@ -25,7 +25,10 @@
  */
 
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
-import type { InstallationReposPort } from "./installation-repos-service.ts";
+import {
+  identityOf,
+  type InstallationReposPort,
+} from "./installation-repos-service.ts";
 import {
   MAX_UNCONFIRMED_REMOVALS,
   MISSING_APP_ID_REASON,
@@ -317,17 +320,18 @@ export class GithubSyncService {
     }
 
     const appId = agent.appId as number;
+    const identity = identityOf(agent);
     const added: string[] = [];
     const removed: string[] = [];
     let configDone = false;
     let error: string | undefined;
     try {
       for (const [org, repos] of groupByOrg(plan.appAdds)) {
-        await this.deps.installation.addRepos(appId, org, repos);
+        await this.deps.installation.addRepos(appId, org, repos, identity);
         added.push(...repos);
       }
       for (const [org, repos] of groupByOrg(plan.appRemoves)) {
-        await this.deps.installation.removeRepos(appId, org, repos);
+        await this.deps.installation.removeRepos(appId, org, repos, identity);
         removed.push(...repos);
       }
       if (plan.agentRemoves.length > 0) {
@@ -385,7 +389,10 @@ export class GithubSyncService {
     const skip = accessSkipReason(username, preview.access);
     if (skip) return skippedPlan(skip);
     if (agent.appId === undefined) return skippedPlan(MISSING_APP_ID_REASON);
-    const installed = await this.deps.installation.listInstalled(agent.appId);
+    const installed = await this.deps.installation.listInstalled(
+      agent.appId,
+      identityOf(agent),
+    );
     return planGithubSync({
       username,
       access: preview.access,
