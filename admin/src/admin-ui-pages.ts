@@ -16,7 +16,11 @@ import {
   renderGithubAccessCard,
   renderGithubUsernameRow,
 } from "./admin-ui-github-identity-pages.ts";
-import { renderGithubReconcileCard } from "./admin-ui-github-reconcile-pages.ts";
+import {
+  renderInstallationReposCard,
+  renderUncoveredBadge,
+  uncoveredRepos,
+} from "./admin-ui-installation-repos-pages.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
 import {
   BREAKPOINT_MOBILE_MAX,
@@ -986,6 +990,11 @@ export function renderAgentDetailPage(
      * false renders the card without them.
      */
     githubEnterpriseConfigured?: boolean;
+    /**
+     * IRM-1.4: every repo (owner/repo) on the agent App's installation, when it
+     * could be listed. Absent means unknown: no coverage warning is shown.
+     */
+    installationRepos?: readonly string[];
   },
 ): string {
   // Reference time for relative timestamps — injected by tests for determinism,
@@ -1447,6 +1456,39 @@ export function renderAgentDetailPage(
     </div>`
     : "";
 
+  const showGithubIdentity =
+    isAdmin && opts?.githubEnterpriseConfigured === true;
+  // IRM-1.7: removing a repo first shows the open work it would block.
+  const repoRemovalScript = `<div id="repo-removal-confirm" style="margin-top:12px"></div>
+      <script>
+        (function() {
+          var out = document.getElementById('repo-removal-confirm');
+          if (!out) return;
+          function show(r) { return r.text().then(function(t) { out.innerHTML = t; }); }
+          function fail() { out.textContent = 'The request failed.'; }
+          document.addEventListener('click', function(e) {
+            var t = e.target;
+            if (!t || !t.classList) return;
+            if (t.classList.contains('repo-removal-preview-btn')) {
+              out.textContent = 'Loading...';
+              fetch(t.getAttribute('data-url'), { credentials: 'same-origin' }).then(show).catch(fail);
+            } else if (t.id === 'repo-removal-confirm-btn') {
+              t.disabled = true;
+              fetch(t.getAttribute('data-url'), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ repo: t.getAttribute('data-repo') })
+              }).then(show).catch(fail);
+            }
+          });
+        })();
+      </script>`;
+  const uncovered = new Set(
+    opts?.installationRepos
+      ? uncoveredRepos(agent.repos, opts.installationRepos)
+      : [],
+  );
   const reposSection = `<div class="card">
       <div class="card-title">Repos</div>
       <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/repos/add" style="margin-bottom:16px">
@@ -1472,13 +1514,15 @@ export function renderAgentDetailPage(
                 : agent.repos
                     .map(
                       (repo) => `<tr>
-            <td class="mono">${escapeHtml(repo)}</td>
-            <td>
-              <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/repos/delete" style="display:inline">
+            <td class="mono">${escapeHtml(repo)}${uncovered.has(repo) ? renderUncoveredBadge() : ""}</td>
+            <td>${
+              showGithubIdentity
+                ? `<button type="button" class="btn btn-danger repo-removal-preview-btn" style="font-size:11px;padding:3px 8px" data-repo="${escapeHtml(repo)}" data-url="/admin/agents/${escapeHtml(agent.id)}/repos/removal-confirm?repo=${encodeURIComponent(repo)}">Remove</button>`
+                : `<form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/repos/delete" style="display:inline">
                 <input type="hidden" name="repo" value="${escapeHtml(repo)}" />
                 <button type="submit" class="btn btn-danger" style="font-size:11px;padding:3px 8px">Remove</button>
-              </form>
-            </td>
+              </form>`
+            }</td>
           </tr>`,
                     )
                     .join("\n")
@@ -1486,6 +1530,12 @@ export function renderAgentDetailPage(
           </tbody>
         </table>
       </div>
+      ${
+        uncovered.size > 0
+          ? `<div class="alert alert-warning" id="repos-uncovered-warning" style="margin-top:12px">The agent App's installation does not cover ${[...uncovered].map((r) => `<span class="mono">${escapeHtml(r)}</span>`).join(", ")}. Nothing is changed automatically; add them to the installation or remove them here.</div>`
+          : ""
+      }
+      ${showGithubIdentity ? repoRemovalScript : ""}
     </div>`;
 
   const authorAllowlistReviewSection = `<div class="card">
@@ -1789,8 +1839,6 @@ export function renderAgentDetailPage(
 
   // PAI-2.5: read-only trace from this agent to its Anthropic identity. Values
   // are user data (owner email) or provider IDs, so every one is escaped.
-  const showGithubIdentity =
-    isAdmin && opts?.githubEnterpriseConfigured === true;
   const identityPlaceholder = '<span style="color:#9ca3af">—</span>';
   const identityRow = (
     label: string,
@@ -1807,7 +1855,7 @@ export function renderAgentDetailPage(
         ${identityRow("Federation rule ID", agent.anthropicFederationRuleId, true)}
         ${showGithubIdentity ? renderGithubUsernameRow(agent.id, agent.githubUsername) : ""}
       </tbody></table>
-    </div>${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity && agent.githubUsername ? renderGithubReconcileCard(agent.id) : ""}`;
+    </div>${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity && "GH_APP_ID" in envVars ? renderInstallationReposCard(agent.id) : ""}`;
 
   // Only agents with a GitHub App can make API-signed commits. Checked state
   // is the SHIPWRIGHT_SIGNED_COMMITS env row; when the box is hidden the field

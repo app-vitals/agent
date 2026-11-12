@@ -82,8 +82,12 @@ describe("Reconcile card — inert state", () => {
     expect(page(false, true, "octo")).not.toContain("github-reconcile-card");
   });
 
-  test("present for an admin with a username and configured apps", () => {
-    const html = page(true, true, "octo");
+  test("the page no longer mounts it (replaced by the installation repos card, IRM-1.4)", () => {
+    expect(page(true, true, "octo")).not.toContain("github-reconcile-card");
+  });
+
+  test("the card renderer still renders until it is retired (IRM-1.5)", () => {
+    const html = renderGithubReconcileCard("a1");
     expect(html).toContain('id="github-reconcile-card"');
     expect(html).toContain('id="github-reconcile-plan-btn"');
     expect(html).toContain('name="addRepos"');

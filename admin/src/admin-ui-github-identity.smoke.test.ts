@@ -203,10 +203,10 @@ describe("admin UI — GitHub identity (GHE-2.5)", () => {
     expect(calls.length).toBe(0);
   });
 
-  it("GHE-3.5: shows the Reconcile card to an admin with a bound username", async () => {
+  it("IRM-1.4: the Reconcile card is replaced on the page by the installation repos card", async () => {
     const { app } = setup({});
     const html = await (await get(app, admin)).text();
-    expect(html).toContain('id="github-reconcile-card"');
+    expect(html).not.toContain('id="github-reconcile-card"');
   });
 
   it("GHE-3.5: hides the Reconcile card when the apps are unconfigured", async () => {
