@@ -53,9 +53,10 @@ describe("installation ports with the no-app_id fixture", () => {
       });
       await port.addRepos(7, ORG, [`${ORG}/repo-b`], identity);
       await port.removeRepos(7, ORG, [`${ORG}/repo-c`], identity);
-      expect(await reposPort.listInstalled(7, identity)).toEqual([
-        { org: ORG, repos: [`${ORG}/repo-a`] },
-      ]);
+      expect(await reposPort.listInstalled(7, identity)).toEqual({
+        status: "found",
+        orgs: [{ org: ORG, repos: [`${ORG}/repo-a`] }],
+      });
       expect(calls).toEqual([
         "list:1000001",
         "add:1000001:repo-b",
@@ -73,6 +74,6 @@ describe("installation ports with the no-app_id fixture", () => {
     await expect(
       port.addRepos(7, ORG, [`${ORG}/x`], {}),
     ).rejects.toBeInstanceOf(AppNotInstalledError);
-    expect(await reposPort.listInstalled(7)).toEqual([]);
+    expect(await reposPort.listInstalled(7)).toEqual({ status: "none" });
   });
 });

@@ -18,13 +18,24 @@ import type {
   UserRepoAccessResult,
 } from "./user-repo-access-resolver.ts";
 
+/**
+ * The orgs the agent App is installed on, or "none" when the App matched no
+ * org the installer can reach (distinct from an installation with no changes).
+ */
+export type InstalledOrgsResult =
+  | { status: "found"; orgs: { org: string; repos: string[] }[] }
+  | { status: "none" };
+
 /** Installation port plus discovery of the orgs the agent App is installed on. */
 export interface InstallationReposPort extends AppInstallationPort {
   listInstalled(
     appId: number,
     identity?: AppIdentity,
-  ): Promise<{ org: string; repos: string[] }[]>;
+  ): Promise<InstalledOrgsResult>;
 }
+
+export const NO_INSTALLATION_REASON =
+  "No installation of the agent GitHub App was found on any org the installer can reach (matched by client id or slug). Check the App installation and the agent GH_APP_CLIENT_ID / GH_APP_SLUG.";
 
 export interface InstallationRepoView {
   fullName: string;
@@ -40,6 +51,7 @@ export interface InstallationOrgView {
 export type InstallationListResult =
   | { status: "agent_not_found" }
   | { status: "no_app_id"; reason: string }
+  | { status: "skipped"; appId: number; reason: string }
   | { status: "ok"; appId: number; orgs: InstallationOrgView[] };
 
 export interface InstallationReposDeps {
@@ -107,6 +119,13 @@ export class InstallationReposService {
       agent.appId,
       identityOf(agent),
     );
+    if (installed.status === "none") {
+      return {
+        status: "skipped",
+        appId: agent.appId,
+        reason: NO_INSTALLATION_REASON,
+      };
+    }
     const username = agent.githubUsername?.trim();
     let access: UserRepoAccessResult | undefined;
     if (username) {
@@ -120,7 +139,7 @@ export class InstallationReposService {
     return {
       status: "ok",
       appId: agent.appId,
-      orgs: installed.map(({ org, repos }) => ({
+      orgs: installed.orgs.map(({ org, repos }) => ({
         org,
         repos: userPushHints(access, org, repos),
       })),
@@ -154,7 +173,9 @@ export function createInstallationReposPort(
           throw err;
         }
       }
-      return out;
+      return out.length === 0
+        ? { status: "none" }
+        : { status: "found", orgs: out };
     },
   };
 }

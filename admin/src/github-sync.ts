@@ -28,6 +28,7 @@ import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import {
   identityOf,
   type InstallationReposPort,
+  NO_INSTALLATION_REASON,
 } from "./installation-repos-service.ts";
 import {
   MAX_UNCONFIRMED_REMOVALS,
@@ -393,12 +394,13 @@ export class GithubSyncService {
       agent.appId,
       identityOf(agent),
     );
+    if (installed.status === "none") return skippedPlan(NO_INSTALLATION_REASON);
     return planGithubSync({
       username,
       access: preview.access,
       agentRepos: agent.repos,
       installationRepos: Object.fromEntries(
-        installed.map(({ org, repos }) => [org, repos]),
+        installed.orgs.map(({ org, repos }) => [org, repos]),
       ),
       ...(requested
         ? {

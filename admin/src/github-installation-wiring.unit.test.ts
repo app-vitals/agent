@@ -23,7 +23,7 @@ const portWith = (
   },
   listInstalled: async (appId) => {
     seen.push(appId);
-    return [{ org: "acme", repos }];
+    return { status: "found", orgs: [{ org: "acme", repos }] };
   },
   addRepos: async () => {},
   removeRepos: async () => {},

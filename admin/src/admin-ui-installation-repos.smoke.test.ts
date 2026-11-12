@@ -314,6 +314,17 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
       expect(html).not.toContain("github-sync-confirm-btn");
     });
 
+    it("shows the no-installation reason, never 'Already in sync'", async () => {
+      const reason = "No installation of the agent GitHub App was found";
+      const { app } = setup({
+        agentsApi: () => json({ status: "skipped", reason }),
+      });
+      const html = await (await get(app, "/github-sync/confirm")).text();
+      expect(html).toContain('data-sync="skipped"');
+      expect(html).toContain("No installation of the agent GitHub App");
+      expect(html).not.toContain("Already in sync");
+    });
+
     it("surfaces an API failure on the confirm step", async () => {
       const { app } = setup({
         agentsApi: () => json({ error: "GitHub Apps are not configured" }, 503),
