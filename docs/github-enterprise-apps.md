@@ -59,7 +59,7 @@ Both need a `GH_APP_ID` in the agent's own stored env (the numeric id of that ag
 
 **Card gating.** The card renders only for platform admins and only when both the installer and the lookup Apps are configured (see [Apps](#the-two-apps) above). In place of the Sync button it shows the reason: no `GH_APP_ID` on the agent (shown first), or no bound `githubUsername`. If the agent App is found on no org the installer can reach, yet the Installations card lists an installation, the card shows a mismatch message instead: no installation of the agent App was found, the App is matched by client id or slug, so check the App installation and the agent's `GH_APP_CLIENT_ID` / `GH_APP_SLUG`.
 
-**How the agent App's installation is matched.** The enterprise installations endpoint does not return `app_id`, so the numeric `GH_APP_ID` cannot identify an installation on its own. Matching tries, in order: the agent's `GH_APP_CLIENT_ID`, then its `GH_APP_SLUG`, then `GH_APP_ID`. The first identity that matches an installation wins; `GH_APP_ID` is only a last resort and is not trusted when the other two are set.
+**How the agent App's installation is matched.** The enterprise installations endpoint does not return `app_id`, so the numeric `GH_APP_ID` cannot identify an installation on its own. Matching tries, in order: the agent's `GH_APP_CLIENT_ID`, then its `GH_APP_SLUG`, then `GH_APP_ID`. The first identity that matches an installation wins; `GH_APP_ID` is only a last-resort fallback, and applies only if the installation reports an `app_id` (the enterprise endpoint omits it, so in practice it does not match).
 
 **One confirm.** Sync opens a single confirm step listing the installation adds, installation removes, agent-repo removes and the open work the removals would block. One confirmation applies all of them. More than 10 removals also need an extra checkbox (`confirmRemovals`).
 
@@ -69,7 +69,7 @@ Platform-admin only: session members, ops keys and agent keys get `403`.
 
 - `GET /agents/{id}/github-installation/repos` lists, per org the agent App is installed on, the installation's repos. With a bound `githubUsername`, each repo carries `userCanPush` from the access lookup, but only when that org's lookup result is complete; otherwise the field is omitted (never `false`).
 
-When no installation matches the agent App (by the order above) on any org the installer can reach, the list reports that explicitly rather than an empty installation with nothing to change.
+When no installation matches the agent App (by the order above), the list comes back with `orgs: []` and no reason field; the reason is surfaced by Sync preview/apply and the Sync card.
 
 Errors: unknown agent `404`; no `GH_APP_ID` `422`; GitHub unavailable `502`.
 
