@@ -12,8 +12,19 @@ type TranscriptEnv = Readonly<Record<string, string | undefined>>;
 export interface TranscriptConfig {
   /** True only when SHIPWRIGHT_TRANSCRIPT_API_ENABLED === "enabled". */
   enabled: boolean;
+  /**
+   * Agent ids allowed to upload coding-loop run transcripts
+   * (SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS, comma-separated). Empty by default.
+   */
+  loopAgentIds: readonly string[];
 }
 
 export function parseTranscriptConfig(env: TranscriptEnv): TranscriptConfig {
-  return { enabled: env.SHIPWRIGHT_TRANSCRIPT_API_ENABLED === "enabled" };
+  return {
+    enabled: env.SHIPWRIGHT_TRANSCRIPT_API_ENABLED === "enabled",
+    loopAgentIds: (env.SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
+  };
 }

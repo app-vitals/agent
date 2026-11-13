@@ -1104,7 +1104,9 @@ export const PutBakedMarketplacesBodySchema = z
 
 export const BakedMarketplacesResultSchema = z
   .object({
-    bakedMarketplaces: z.array(z.string()).openapi({ example: ["example-marketplace"] }),
+    bakedMarketplaces: z
+      .array(z.string())
+      .openapi({ example: ["example-marketplace"] }),
   })
   .openapi("BakedMarketplacesResult");
 
@@ -1473,6 +1475,11 @@ export const AgentConfigResponseSchema = z
         }),
         repoAccessCheck: z.boolean().openapi({
           description: "Reserved for the repo-access check (COS-44.1).",
+          example: false,
+        }),
+        loopTranscriptUpload: z.boolean().optional().openapi({
+          description:
+            "True when SHIPWRIGHT_TRANSCRIPT_API_ENABLED is on and this agent is listed in SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS: coding-loop runs may upload a redacted transcript through the extension capability.",
           example: false,
         }),
       })

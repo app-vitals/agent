@@ -108,7 +108,11 @@ export interface AgentConfigResponse {
    * COS-43.1: feature flags the runtime acts on. Optional so fixtures built
    * before it keep compiling; the live handler always populates it.
    */
-  features?: { transcriptUpload: boolean; repoAccessCheck: boolean };
+  features?: {
+    transcriptUpload: boolean;
+    repoAccessCheck: boolean;
+    loopTranscriptUpload?: boolean;
+  };
 }
 
 interface AgentEnvServiceLike {
@@ -201,6 +205,12 @@ export interface AgentRuntimeDeps {
    * as `features.transcriptUpload` in the config bundle. Defaults to false.
    */
   transcriptUploadEnabled?: boolean;
+  /**
+   * SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS: agent ids whose coding-loop runs
+   * upload transcripts. Combined with `transcriptUploadEnabled` into
+   * `features.loopTranscriptUpload`. Defaults to none.
+   */
+  loopTranscriptAgentIds?: readonly string[];
   /**
    * COS-44.1: SHIPWRIGHT_AGENT_REPO_ACCESS_CHECK_ENABLED is on — surfaced to the
    * runtime as `features.repoAccessCheck` in the config bundle. Defaults to false.
@@ -393,6 +403,9 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
       cleanupAfterDays: agent.cleanupAfterDays,
       features: {
         transcriptUpload: deps.transcriptUploadEnabled === true,
+        loopTranscriptUpload:
+          deps.transcriptUploadEnabled === true &&
+          (deps.loopTranscriptAgentIds ?? []).includes(agent.id),
         repoAccessCheck: deps.repoAccessCheckEnabled === true,
       },
     };

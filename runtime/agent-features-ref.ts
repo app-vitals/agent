@@ -10,6 +10,7 @@
 
 export interface AgentFeatures {
   transcriptUpload?: boolean;
+  loopTranscriptUpload?: boolean;
   repoAccessCheck?: boolean;
 }
 

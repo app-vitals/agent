@@ -244,6 +244,7 @@ function buildApp(opts?: {
   cleanupMergedWorktrees?: boolean;
   cleanupAfterDays?: number;
   transcriptUploadEnabled?: boolean;
+  loopTranscriptAgentIds?: string[];
   repoAccessCheckEnabled?: boolean;
 }) {
   const hasAgent = opts?.hasAgent ?? true;
@@ -319,6 +320,7 @@ function buildApp(opts?: {
     sessionSecret: SESSION_SECRET,
     anthropicFederationEnabled: opts?.anthropicFederationEnabled,
     transcriptUploadEnabled: opts?.transcriptUploadEnabled,
+    loopTranscriptAgentIds: opts?.loopTranscriptAgentIds,
     repoAccessCheckEnabled: opts?.repoAccessCheckEnabled,
   });
 }
@@ -364,6 +366,7 @@ describe("GET /:id/config features (COS-43.1)", () => {
     expect(body.features).toEqual({
       transcriptUpload: false,
       repoAccessCheck: false,
+      loopTranscriptUpload: false,
     });
   });
 
@@ -374,7 +377,50 @@ describe("GET /:id/config features (COS-43.1)", () => {
     expect(body.features).toEqual({
       transcriptUpload: true,
       repoAccessCheck: false,
+      loopTranscriptUpload: false,
     });
+  });
+});
+
+describe("GET /:id/config features.loopTranscriptUpload", () => {
+  const loopFlag = async (opts: Parameters<typeof buildApp>[0]) => {
+    const res = await buildApp(opts).request(`/${KNOWN_AGENT_ID}/config`, {
+      headers: { Authorization: `Bearer ${VALID_ADMIN_KEY}` },
+    });
+    return (await res.json()).features.loopTranscriptUpload;
+  };
+
+  test("truth table: only a listed agent with the transcript flag on is true", async () => {
+    expect(await loopFlag({})).toBe(false);
+    expect(await loopFlag({ loopTranscriptAgentIds: [] })).toBe(false);
+    expect(
+      await loopFlag({
+        transcriptUploadEnabled: true,
+        loopTranscriptAgentIds: ["other-agent"],
+      }),
+    ).toBe(false);
+    expect(
+      await loopFlag({
+        transcriptUploadEnabled: false,
+        loopTranscriptAgentIds: [KNOWN_AGENT_ID],
+      }),
+    ).toBe(false);
+    expect(
+      await loopFlag({
+        transcriptUploadEnabled: true,
+        loopTranscriptAgentIds: [KNOWN_AGENT_ID],
+      }),
+    ).toBe(true);
+  });
+
+  test("leaves features.transcriptUpload untouched", async () => {
+    const res = await buildApp({
+      transcriptUploadEnabled: false,
+      loopTranscriptAgentIds: [KNOWN_AGENT_ID],
+    }).request(`/${KNOWN_AGENT_ID}/config`, {
+      headers: { Authorization: `Bearer ${VALID_ADMIN_KEY}` },
+    });
+    expect((await res.json()).features.transcriptUpload).toBe(false);
   });
 });
 
@@ -387,6 +433,7 @@ describe("GET /:id/config features.repoAccessCheck (COS-44.1)", () => {
     expect((await res.json()).features).toEqual({
       transcriptUpload: false,
       repoAccessCheck: true,
+      loopTranscriptUpload: false,
     });
   });
 });

@@ -1,0 +1,23 @@
+suite: admin loop transcript upload allowlist
+templates:
+  - templates/admin-deployment.yaml
+release:
+  name: r
+tests:
+  - it: renders no SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS
+            value: ""
+
+  - it: renders the comma-joined list when agentIds is set
+    set:
+      admin.loopTranscriptUpload.agentIds: [agent-a, agent-b]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS
+            value: "agent-a,agent-b"

@@ -30,3 +30,21 @@ describe("parseTranscriptConfig", () => {
     expect(parseTranscriptConfig({}).enabled).toBe(false);
   });
 });
+
+describe("loop transcript allowlist", () => {
+  it("defaults to empty when unset or blank", () => {
+    expect(parseTranscriptConfig({}).loopAgentIds).toEqual([]);
+    expect(
+      parseTranscriptConfig({ SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS: " , " })
+        .loopAgentIds,
+    ).toEqual([]);
+  });
+
+  it("parses a trimmed comma-separated list", () => {
+    expect(
+      parseTranscriptConfig({
+        SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS: "a, b ,,c",
+      }).loopAgentIds,
+    ).toEqual(["a", "b", "c"]);
+  });
+});
