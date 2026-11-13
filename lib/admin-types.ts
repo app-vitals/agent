@@ -5318,6 +5318,11 @@ export interface components {
              * @example false
              */
             repoAccessCheck: boolean;
+            /**
+             * @description True when SHIPWRIGHT_TRANSCRIPT_API_ENABLED is on and this agent is listed in SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS: coding-loop runs may upload a redacted transcript through the extension capability.
+             * @example false
+             */
+            loopTranscriptUpload?: boolean;
         };
         RuntimeError: {
             /** @example Not found */

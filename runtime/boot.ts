@@ -111,7 +111,10 @@ import {
   buildProductionDeps as buildSyncConfigCloneDeps,
   syncClonedRepos,
 } from "./sync-config-clone.ts";
-import { createTranscriptUploader } from "./transcript-uploader.ts";
+import {
+  createTranscriptUploader,
+  type TranscriptUploaderDeps,
+} from "./transcript-uploader.ts";
 import { resolveDisplayName, resolveUserEmail } from "./users.ts";
 import {
   buildVoiceConfig,
@@ -294,6 +297,25 @@ export async function startAgent(
     claudeCodeVersion: () => claudeVersionState.version,
   });
 
+  // COS-43.1: redacted transcript upload deps, shared by the cron handler and
+  // the extension capability (they differ only in the gating feature flag).
+  const transcriptUploadDeps: TranscriptUploaderDeps | undefined =
+    config.shipwright.apiUrl && config.shipwright.agentId
+      ? {
+          fs: {
+            readFile: (path) => readFile(path, "utf8"),
+            readdir: (path) => readdir(path),
+          },
+          fetch,
+          clock: SystemClock(),
+          env: process.env,
+          log: (line) => console.warn(line),
+          apiUrl: config.shipwright.apiUrl,
+          agentId: config.shipwright.agentId,
+          getFeatures: () => agentFeaturesRef.get(),
+        }
+      : undefined;
+
   const cronDeps: CronHandlerDeps = {
     // SLK-1.1: a getter, not a plain field — Slack may start after boot (see
     // slack-startup.ts's startSlackIfPossible()), so cron dispatch must read
@@ -332,22 +354,8 @@ export async function startAgent(
       defaultOwnerOf(githubInstallationsManagerRef.get()?.getState?.()),
     // COS-43.1: redacted transcript upload after completeRun; gated by the
     // synced features.transcriptUpload flag, failures swallowed.
-    ...(config.shipwright.apiUrl && config.shipwright.agentId
-      ? {
-          transcriptUploader: createTranscriptUploader({
-            fs: {
-              readFile: (path) => readFile(path, "utf8"),
-              readdir: (path) => readdir(path),
-            },
-            fetch,
-            clock: SystemClock(),
-            env: process.env,
-            log: (line) => console.warn(line),
-            apiUrl: config.shipwright.apiUrl,
-            agentId: config.shipwright.agentId,
-            getFeatures: () => agentFeaturesRef.get(),
-          }),
-        }
+    ...(transcriptUploadDeps
+      ? { transcriptUploader: createTranscriptUploader(transcriptUploadDeps) }
       : {}),
   };
 
@@ -363,6 +371,15 @@ export async function startAgent(
     cronRunReporter,
     contextStamp,
     sentryClient: process.env.SENTRY_DSN ? Sentry : undefined,
+    // Same uploader (redaction, size cap, retention), gated by the loop flag.
+    ...(transcriptUploadDeps
+      ? {
+          transcriptUploader: createTranscriptUploader({
+            ...transcriptUploadDeps,
+            featureFlag: "loopTranscriptUpload",
+          }),
+        }
+      : {}),
   };
   const extension = composeExtensions(
     extensions.map((createExtension) => createExtension(extensionContext)),

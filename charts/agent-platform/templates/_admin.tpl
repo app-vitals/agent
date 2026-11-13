@@ -492,6 +492,13 @@ spec:
               value: "enabled"
             {{- end }}
             {{- end }}
+            {{- with .Values.admin.loopTranscriptUpload }}
+            {{- if .agentIds }}
+            # ── Agent ids whose coding-loop runs upload transcripts
+            - name: SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS
+              value: {{ join "," .agentIds | quote }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.admin.repoAccessCheck }}
             {{- if .enabled }}
             # ── Agent repo-access check feature flag

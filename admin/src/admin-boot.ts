@@ -456,6 +456,7 @@ export async function startAdmin(
     agentTokenService,
     anthropicFederationEnabled,
     transcriptUploadEnabled: transcriptConfig.enabled,
+    loopTranscriptAgentIds: transcriptConfig.loopAgentIds,
     repoAccessCheckEnabled: repoAccessConfig.enabled,
   });
 

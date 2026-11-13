@@ -45,7 +45,10 @@ interface Call {
 function setup(
   files: Record<string, string>,
   opts: {
-    features?: { transcriptUpload: boolean } | undefined;
+    features?:
+      | { transcriptUpload?: boolean; loopTranscriptUpload?: boolean }
+      | undefined;
+    featureFlag?: "transcriptUpload" | "loopTranscriptUpload";
     status?: number;
     throwFetch?: boolean;
     env?: Record<string, string>;
@@ -72,6 +75,7 @@ function setup(
     apiUrl: "https://admin.example",
     agentId: "agent-1",
     getFeatures: () => features,
+    featureFlag: opts.featureFlag,
   });
   const run = (sessionId: string | null = SESSION) =>
     uploader.upload({
@@ -178,6 +182,42 @@ describe("transcript uploader", () => {
     }
     const { calls, run } = setup({ [PRIMARY]: "x\n" });
     await run(null);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("loop uploader never uploads for an agent not on the allowlist", async () => {
+    for (const features of [
+      { transcriptUpload: true },
+      { transcriptUpload: true, loopTranscriptUpload: false },
+      undefined,
+    ]) {
+      const { calls, run } = setup(
+        { [PRIMARY]: "x\n" },
+        { features, featureFlag: "loopTranscriptUpload" },
+      );
+      await run();
+      expect(calls).toHaveLength(0);
+    }
+  });
+
+  it("loop uploader uploads when loopTranscriptUpload is true, regardless of transcriptUpload", async () => {
+    const { calls, run } = setup(
+      { [PRIMARY]: "x\n" },
+      {
+        features: { transcriptUpload: false, loopTranscriptUpload: true },
+        featureFlag: "loopTranscriptUpload",
+      },
+    );
+    await run();
+    expect(calls).toHaveLength(1);
+  });
+
+  it("regular uploader ignores loopTranscriptUpload", async () => {
+    const { calls, run } = setup(
+      { [PRIMARY]: "x\n" },
+      { features: { loopTranscriptUpload: true } },
+    );
+    await run();
     expect(calls).toHaveLength(0);
   });
 

@@ -4,7 +4,8 @@
  * admin API (COS-43.1) once the run is recorded.
  *
  * Gated by the synced config bundle's `features.transcriptUpload` (the admin
- * flag SHIPWRIGHT_TRANSCRIPT_API_ENABLED). Redaction happens HERE, before the
+ * flag SHIPWRIGHT_TRANSCRIPT_API_ENABLED), or `features.loopTranscriptUpload`
+ * for the extension-facing loop uploader. Redaction happens HERE, before the
  * transcript leaves the pod: live SECRET_ENV_VARS values plus well-known token
  * shapes (lib/redact.ts). The body is tail-truncated to 1 MiB on whole lines
  * with a marker line first. Every failure logs one line (never the body) and
@@ -30,6 +31,7 @@ export interface TranscriptFs {
 
 export interface TranscriptFeatures {
   transcriptUpload?: boolean;
+  loopTranscriptUpload?: boolean;
 }
 
 export interface TranscriptUploaderDeps {
@@ -43,6 +45,11 @@ export interface TranscriptUploaderDeps {
   agentId: string;
   /** The last synced `features` from the config bundle (absent before sync). */
   getFeatures: () => TranscriptFeatures | undefined;
+  /**
+   * Which synced feature flag gates uploads. Defaults to `transcriptUpload`
+   * (regular cron runs); the loop capability uses `loopTranscriptUpload`.
+   */
+  featureFlag?: keyof TranscriptFeatures;
 }
 
 export interface TranscriptUploadArgs {
@@ -119,7 +126,11 @@ export function createTranscriptUploader(
 ): TranscriptUploader {
   return {
     async upload({ cronId, runId, sessionId, cwd }) {
-      if (deps.getFeatures()?.transcriptUpload !== true) return;
+      if (
+        deps.getFeatures()?.[deps.featureFlag ?? "transcriptUpload"] !== true
+      ) {
+        return;
+      }
       if (!sessionId) return;
       const apiKey = deps.env.SHIPWRIGHT_AGENT_API_KEY;
       if (!apiKey) return;

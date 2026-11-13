@@ -25,6 +25,7 @@ import type { createConfig } from "./config.ts";
 import type { createContextStampReader } from "./context-stamp.ts";
 import type { CronRunReporter } from "./cron-run-reporter.ts";
 import type { createFileSessionStore } from "./sessions.ts";
+import type { TranscriptUploader } from "./transcript-uploader.ts";
 
 /** Minimal structural view of a cron job, as the seam needs it. */
 export interface ExtensionCronJob {
@@ -57,6 +58,12 @@ export interface AgentExtensionContext {
   cronRunReporter: CronRunReporter | undefined;
   contextStamp: ReturnType<typeof createContextStampReader>;
   sentryClient: ErrorCapturingClient | undefined;
+  /**
+   * Redacted transcript upload for extension-driven runs (the coding loop).
+   * A no-op unless the synced `features.loopTranscriptUpload` is true.
+   * Absent when the runtime has no admin API url / agent id.
+   */
+  transcriptUploader?: TranscriptUploader;
 }
 
 export interface AgentExtension<TBundle = unknown> {
