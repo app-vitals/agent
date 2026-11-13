@@ -265,6 +265,7 @@ function makeMockDeps(): AdminDeps {
       create: async () => ({
         id: "cron-id",
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 9 * * *",
         prompt: "test",
         channel: null,
@@ -284,6 +285,7 @@ function makeMockDeps(): AdminDeps {
       update: async () => ({
         id: "cron-id",
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 9 * * *",
         prompt: "test",
         channel: null,
@@ -304,6 +306,7 @@ function makeMockDeps(): AdminDeps {
       get: async () => ({
         id: "cron-id",
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 9 * * *",
         prompt: "test",
         channel: null,
@@ -323,6 +326,7 @@ function makeMockDeps(): AdminDeps {
       setEnabled: async (_agentId, _cronId, enabled) => ({
         id: "cron-id",
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 9 * * *",
         prompt: "test",
         channel: null,
@@ -342,6 +346,7 @@ function makeMockDeps(): AdminDeps {
       updatePreCheck: async (_agentId, _cronId, preCheck) => ({
         id: "cron-id",
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 9 * * *",
         prompt: "test",
         channel: null,
@@ -369,6 +374,8 @@ function makeMockDeps(): AdminDeps {
       add: async () => ({
         id: "tool-id",
         agentId: AGENT_ID,
+        source: "custom",
+        updatedAt: new Date(),
         pattern: "Read",
         enabled: true,
         createdAt: new Date(),
@@ -376,6 +383,8 @@ function makeMockDeps(): AdminDeps {
       toggle: async () => ({
         id: "tool-id",
         agentId: AGENT_ID,
+        source: "custom",
+        updatedAt: new Date(),
         pattern: "Read",
         enabled: false,
         createdAt: new Date(),
@@ -411,6 +420,7 @@ function makeMockDeps(): AdminDeps {
       add: async () => ({
         id: "plugin-id",
         agentId: AGENT_ID,
+        source: "custom",
         name: "test",
         version: "1.0.0",
         enabled: true,

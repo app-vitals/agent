@@ -171,6 +171,7 @@ async function makeSessionCookie(secret = SESSION_SECRET): Promise<string> {
 const MOCK_CRON = {
   id: CRON_ID,
   agentId: AGENT_ID,
+  source: "custom",
   schedule: "0 9 * * 1-5",
   prompt: "daily standup",
   channel: "C123" as string | null,
@@ -374,6 +375,7 @@ function makeMockDeps(): AdminDeps {
       create: async () => ({
         id: CRON_ID,
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 9 * * 1-5",
         prompt: "daily standup",
         channel: "C123",
@@ -393,6 +395,7 @@ function makeMockDeps(): AdminDeps {
       update: async () => ({
         id: CRON_ID,
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 10 * * 1-5",
         prompt: "updated standup",
         channel: "C123",
@@ -413,6 +416,7 @@ function makeMockDeps(): AdminDeps {
       get: async (_agentId, _cronId) => ({
         id: CRON_ID,
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 9 * * 1-5",
         prompt: "daily standup",
         channel: "C123",
@@ -432,6 +436,7 @@ function makeMockDeps(): AdminDeps {
       setEnabled: async (_agentId, _cronId, enabled) => ({
         id: CRON_ID,
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 9 * * 1-5",
         prompt: "daily standup",
         channel: "C123",
@@ -451,6 +456,7 @@ function makeMockDeps(): AdminDeps {
       updatePreCheck: async (_agentId, _cronId, preCheck) => ({
         id: CRON_ID,
         agentId: AGENT_ID,
+        source: "custom",
         schedule: "0 9 * * 1-5",
         prompt: "daily standup",
         channel: "C123",
@@ -478,6 +484,8 @@ function makeMockDeps(): AdminDeps {
         {
           id: TOOL_ID,
           agentId: AGENT_ID,
+          source: "custom",
+          updatedAt: new Date("2024-01-01"),
           pattern: "Read",
           enabled: true,
           createdAt: new Date("2024-01-01"),
@@ -486,6 +494,8 @@ function makeMockDeps(): AdminDeps {
       add: async () => ({
         id: TOOL_ID,
         agentId: AGENT_ID,
+        source: "custom",
+        updatedAt: new Date("2024-01-01"),
         pattern: "Read",
         enabled: true,
         createdAt: new Date("2024-01-01"),
@@ -493,6 +503,8 @@ function makeMockDeps(): AdminDeps {
       toggle: async () => ({
         id: TOOL_ID,
         agentId: AGENT_ID,
+        source: "custom",
+        updatedAt: new Date("2024-01-01"),
         pattern: "Read",
         enabled: false,
         createdAt: new Date("2024-01-01"),
@@ -537,6 +549,7 @@ function makeMockDeps(): AdminDeps {
         {
           id: PLUGIN_ID,
           agentId: AGENT_ID,
+          source: "custom",
           name: "shipwright@shipwright",
           version: "1.0.0",
           enabled: true,
@@ -547,6 +560,7 @@ function makeMockDeps(): AdminDeps {
       add: async () => ({
         id: PLUGIN_ID,
         agentId: AGENT_ID,
+        source: "custom",
         name: "shipwright@shipwright",
         version: "1.0.0",
         enabled: true,
@@ -4696,6 +4710,7 @@ describe("admin API — cron runs", () => {
           {
             id: CRON_ID,
             agentId: AGENT_ID,
+            source: "custom",
             schedule: "0 9 * * 1-5",
             prompt: "daily standup",
             channel: "C123",
@@ -4717,6 +4732,7 @@ describe("admin API — cron runs", () => {
           {
             id: "cron-child-1",
             agentId: AGENT_ID,
+            source: "custom",
             schedule: "0 9 * * 1-5",
             prompt: "phase-only child cron",
             channel: null,
@@ -5005,6 +5021,7 @@ function makeMockDepsWithRunSummary(): AdminDeps {
         {
           id: CRON_ID,
           agentId: AGENT_ID,
+          source: "custom",
           schedule: "0 9 * * 1-5",
           prompt: "daily standup",
           channel: "C123",

@@ -5849,6 +5849,7 @@ describe("admin UI — create agent seeds type tools and extension plugins", () 
         return {
           id: "p1",
           agentId,
+          source: "custom",
           name,
           version: null,
           enabled: true,
@@ -5894,6 +5895,7 @@ describe("admin UI — create agent seeds type tools and extension plugins", () 
         return {
           id: "p1",
           agentId,
+          source: "custom",
           name,
           version: null,
           enabled: true,

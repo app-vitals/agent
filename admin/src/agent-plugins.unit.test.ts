@@ -26,6 +26,7 @@ describe("AgentPluginService.listEnabled", () => {
     const enabledPlugin = {
       id: "p1",
       agentId: "agent-1",
+      source: "custom",
       name: "shipwright@shipwright",
       version: null,
       enabled: true,

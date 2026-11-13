@@ -23,6 +23,7 @@ import { createAgentRuntimeApp } from "./api.ts";
 interface MockPlugin {
   id: string;
   agentId: string;
+  source: string;
   name: string;
   version: string | null;
   enabled: boolean;
@@ -189,6 +190,7 @@ function makePlugin(agentId: string, name: string): MockPlugin {
   return {
     id: `plugin-${name}`,
     agentId,
+    source: "custom",
     name,
     version: null,
     enabled: true,
@@ -201,6 +203,7 @@ function makeCron(agentId: string, id: string): AgentCronJob {
   return {
     id,
     agentId,
+    source: "custom",
     schedule: "0 9 * * *",
     prompt: "Good morning",
     channel: "C123",
@@ -889,6 +892,7 @@ function buildCombinedApp() {
       create: async () => ({
         id: "c1",
         agentId: COMBINED_AGENT_ID,
+        source: "custom",
         schedule: "",
         prompt: "",
         channel: null,
@@ -908,6 +912,7 @@ function buildCombinedApp() {
       update: async () => ({
         id: "c1",
         agentId: COMBINED_AGENT_ID,
+        source: "custom",
         schedule: "",
         prompt: "",
         channel: null,
@@ -928,6 +933,7 @@ function buildCombinedApp() {
       setEnabled: async (_agentId, _cronId, enabled) => ({
         id: "c1",
         agentId: COMBINED_AGENT_ID,
+        source: "custom",
         schedule: "",
         prompt: "",
         channel: null,
@@ -947,6 +953,7 @@ function buildCombinedApp() {
       updatePreCheck: async (_agentId, _cronId, preCheck) => ({
         id: "c1",
         agentId: COMBINED_AGENT_ID,
+        source: "custom",
         schedule: "",
         prompt: "",
         channel: null,
@@ -971,6 +978,7 @@ function buildCombinedApp() {
       get: async () => ({
         id: "c1",
         agentId: COMBINED_AGENT_ID,
+        source: "custom",
         schedule: "",
         prompt: "",
         channel: null,
@@ -1072,6 +1080,8 @@ function buildCombinedApp() {
       add: async () => ({
         id: "t1",
         agentId: COMBINED_AGENT_ID,
+        source: "custom",
+        updatedAt: new Date(),
         pattern: "Read",
         enabled: true,
         createdAt: new Date(),
@@ -1080,6 +1090,8 @@ function buildCombinedApp() {
       toggle: async () => ({
         id: "t1",
         agentId: COMBINED_AGENT_ID,
+        source: "custom",
+        updatedAt: new Date(),
         pattern: "Read",
         enabled: false,
         createdAt: new Date(),
@@ -1113,6 +1125,7 @@ function buildCombinedApp() {
       add: async () => ({
         id: "p1",
         agentId: COMBINED_AGENT_ID,
+        source: "custom",
         name: "plugin",
         version: null,
         enabled: true,

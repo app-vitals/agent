@@ -185,6 +185,7 @@ function makeMockDeps(overrides?: Partial<AdminUIDeps>): AdminUIDeps {
       add: async (agentId: string, pattern: string) => ({
         id: "tool1",
         agentId,
+        source: "custom",
         pattern,
         enabled: true,
         createdAt: new Date(),
@@ -217,6 +218,7 @@ function makeMockDeps(overrides?: Partial<AdminUIDeps>): AdminUIDeps {
       add: async (agentId: string, name: string) => ({
         id: "plugin1",
         agentId,
+        source: "custom",
         name,
         version: null,
         enabled: true,

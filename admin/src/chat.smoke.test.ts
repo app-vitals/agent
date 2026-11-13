@@ -178,6 +178,7 @@ function makeGoogleClient(): GoogleAuthClient {
 const MOCK_CRON = {
   id: "cron-1",
   agentId: AGENT_ID,
+  source: "custom",
   schedule: "0 * * * *",
   prompt: "check",
   channel: null,
@@ -198,6 +199,7 @@ const MOCK_CRON = {
 const MOCK_TOOL = {
   id: "tool-1",
   agentId: AGENT_ID,
+  source: "custom",
   pattern: "Bash(git:*)",
   enabled: true,
   createdAt: new Date("2024-01-01"),
