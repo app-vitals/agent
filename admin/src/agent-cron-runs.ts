@@ -146,6 +146,13 @@ interface ListForAgentOptions {
    * WHERE skipped = false AND outcome = value. Omitted means no filter.
    */
   outcome?: string;
+  /**
+   * Multi-select variant of `outcome`; values are OR'd. "skipped" ->
+   * skipped = true; "unknown" -> skipped = false AND outcome IS NULL; any
+   * other value -> skipped = false AND outcome = value. An empty array is no
+   * filter. When given, `outcomes` wins over `outcome`.
+   */
+  outcomes?: string[];
   limit?: number;
   offset?: number;
 }
@@ -171,8 +178,43 @@ interface ListAcrossAgentsOptions {
    * WHERE skipped = false AND outcome = value. Omitted means no filter.
    */
   outcome?: string;
+  /**
+   * Multi-select variant of `outcome`; values are OR'd. "skipped" ->
+   * skipped = true; "unknown" -> skipped = false AND outcome IS NULL; any
+   * other value -> skipped = false AND outcome = value. An empty array is no
+   * filter. When given, `outcomes` wins over `outcome`.
+   */
+  outcomes?: string[];
   limit?: number;
   offset?: number;
+}
+
+/** Where-clause fragment for one outcome filter value (see `outcomes`). */
+function outcomeClause(value: string): Prisma.AgentCronRunWhereInput {
+  if (value === "skipped") return { skipped: true };
+  if (value === "unknown") return { skipped: false, outcome: null };
+  return { skipped: false, outcome: value };
+}
+
+/**
+ * Translate the `outcome` / `outcomes` list options into a where fragment.
+ * `outcomes` (OR'd) wins over the legacy single `outcome`; an empty `outcomes`
+ * array is no filter (it does not fall back to `outcome`).
+ */
+export function buildOutcomeWhere(opts?: {
+  outcome?: string;
+  outcomes?: string[];
+}): Prisma.AgentCronRunWhereInput {
+  if (opts?.outcomes !== undefined) {
+    return opts.outcomes.length > 0
+      ? { OR: opts.outcomes.map(outcomeClause) }
+      : {};
+  }
+  if (opts?.outcome === "skipped") return { skipped: true };
+  if (opts?.outcome !== undefined) {
+    return { skipped: false, outcome: opts.outcome };
+  }
+  return {};
 }
 
 export class AgentCronRunService {
@@ -450,12 +492,7 @@ export class AgentCronRunService {
     if (opts?.cronId) {
       where.cronId = opts.cronId;
     }
-    if (opts?.outcome === "skipped") {
-      where.skipped = true;
-    } else if (opts?.outcome !== undefined) {
-      where.skipped = false;
-      where.outcome = opts.outcome;
-    }
+    Object.assign(where, buildOutcomeWhere(opts));
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.agentCronRun.findMany({
@@ -494,12 +531,7 @@ export class AgentCronRunService {
     if (opts?.cronId) {
       where.cronId = opts.cronId;
     }
-    if (opts?.outcome === "skipped") {
-      where.skipped = true;
-    } else if (opts?.outcome !== undefined) {
-      where.skipped = false;
-      where.outcome = opts.outcome;
-    }
+    Object.assign(where, buildOutcomeWhere(opts));
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.agentCronRun.findMany({

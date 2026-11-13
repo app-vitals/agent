@@ -959,6 +959,92 @@ describeOrSkip("AgentCronRunService (integration)", () => {
     expect(items.some((r) => r.id === skippedWithOutcome.id)).toBe(true);
   });
 
+  describe("outcomes filter", () => {
+    async function seed() {
+      const agentId = await createAgent(prisma);
+      const cronId = await createCron(cronJobService, agentId);
+      const mk = (day: string, skipped: boolean, outcome: string | null) =>
+        runService.create(cronId, agentId, {
+          startedAt: new Date(`2026-01-${day}T08:00:00Z`),
+          skipped,
+          outcome,
+        });
+      const skipped = await mk("01", true, null);
+      const unknown = await mk("02", false, null);
+      const completed = await mk("03", false, "completed");
+      const failed = await mk("04", false, "failed");
+      return { agentId, ids: { skipped, unknown, completed, failed } };
+    }
+
+    const idsOf = (items: { id: string }[]) => items.map((r) => r.id).sort();
+
+    it("listForAgent() single outcomes value selects just that bucket", async () => {
+      const { agentId, ids } = await seed();
+      for (const key of [
+        "skipped",
+        "unknown",
+        "completed",
+        "failed",
+      ] as const) {
+        const { items, total } = await runService.listForAgent(agentId, {
+          outcomes: [key],
+        });
+        expect(total).toBe(1);
+        expect(idsOf(items)).toEqual([ids[key].id]);
+      }
+    });
+
+    it("listForAgent() multiple outcomes values are OR'd and total matches", async () => {
+      const { agentId, ids } = await seed();
+      const { items, total } = await runService.listForAgent(agentId, {
+        outcomes: ["skipped", "unknown", "failed"],
+        limit: 2,
+      });
+      expect(total).toBe(3);
+      expect(items).toHaveLength(2);
+      const all = await runService.listForAgent(agentId, {
+        outcomes: ["skipped", "unknown", "failed"],
+      });
+      expect(idsOf(all.items)).toEqual(
+        [ids.skipped.id, ids.unknown.id, ids.failed.id].sort(),
+      );
+    });
+
+    it("listForAgent() empty outcomes is no filter; outcomes beats outcome", async () => {
+      const { agentId, ids } = await seed();
+      const none = await runService.listForAgent(agentId, { outcomes: [] });
+      expect(none.total).toBe(4);
+      const both = await runService.listForAgent(agentId, {
+        outcome: "completed",
+        outcomes: ["failed"],
+      });
+      expect(idsOf(both.items)).toEqual([ids.failed.id]);
+    });
+
+    it("listForAgent() legacy outcome still works", async () => {
+      const { agentId, ids } = await seed();
+      const { items, total } = await runService.listForAgent(agentId, {
+        outcome: "completed",
+      });
+      expect(total).toBe(1);
+      expect(idsOf(items)).toEqual([ids.completed.id]);
+    });
+
+    it("listAcrossAgents() applies outcomes with matching total", async () => {
+      const { agentId, ids } = await seed();
+      const { items, total } = await runService.listAcrossAgents([agentId], {
+        outcomes: ["unknown", "completed"],
+      });
+      expect(total).toBe(2);
+      expect(idsOf(items)).toEqual([ids.unknown.id, ids.completed.id].sort());
+      const single = await runService.listAcrossAgents([agentId], {
+        outcomes: ["skipped"],
+      });
+      expect(single.total).toBe(1);
+      expect(single.items[0].id).toBe(ids.skipped.id);
+    });
+  });
+
   it("listForAgent() never returns a second agent's runs", async () => {
     const agentId1 = await createAgent(prisma, "Agent 1");
     const agentId2 = await createAgent(prisma, "Agent 2");
