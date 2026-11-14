@@ -383,7 +383,7 @@ describe("nav entry in the full admin UI", () => {
         headers: { "Content-Type": "application/json" },
       },
     );
-  const NAV = 'href="/admin/settings/github-enterprise"';
+  const NAV = 'href="/admin/settings" class="vos-nav-link';
 
   it("shows Settings to admins and serves the page", async () => {
     const app = createAdminUIApp(makeMockDeps({ githubEnterpriseApi: api }));

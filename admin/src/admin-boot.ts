@@ -704,6 +704,9 @@ export async function startAdmin(
     ...(resolvedExtensions.agentDetailCards.length > 0
       ? { agentDetailCards: resolvedExtensions.agentDetailCards }
       : {}),
+    ...(resolvedExtensions.settingsNavItems.length > 0
+      ? { settingsNavItems: resolvedExtensions.settingsNavItems }
+      : {}),
     ...resolvedExtensions.uiDeps,
   });
   root.route("/", adminUIApp);

@@ -52,3 +52,25 @@ describe("renderTemplatesPage", () => {
     expect(html).toMatch(/name="secret" value="1" checked/);
   });
 });
+
+describe("renderTemplatesPage settings shell (SGL-2.2)", () => {
+  it("renders inside the settings layout with Templates active", () => {
+    const html = renderTemplatesPage({ ...base, isAdmin: true });
+    expect(html).toContain("settings-sidebar");
+    expect(html).toContain(
+      'href="/admin/settings/templates" aria-current="page">Templates',
+    );
+    expect(html).toContain("Agent templates");
+  });
+
+  it("hides the adminOnly GitHub Enterprise item from non-admins", () => {
+    const member = renderTemplatesPage(base);
+    expect(member).not.toContain(
+      'class="settings-nav-link" href="/admin/settings/github-enterprise"',
+    );
+    const admin = renderTemplatesPage({ ...base, isAdmin: true });
+    expect(admin).toContain(
+      'class="settings-nav-link" href="/admin/settings/github-enterprise"',
+    );
+  });
+});
