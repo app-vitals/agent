@@ -89,6 +89,10 @@ describe("resolveAdminExtensions", () => {
         calls.push(`${id}:backgroundPasses:${c === ctx}`);
         return [];
       },
+      settingsNavItems: (c) => {
+        calls.push(`${id}:settingsNavItems:${c === ctx}`);
+        return [];
+      },
       openApi: () => {
         calls.push(`${id}:openApi`);
         return {};
@@ -106,7 +110,7 @@ describe("resolveAdminExtensions", () => {
     expect(calls.some((c) => c.endsWith(":openApi"))).toBe(false);
   });
 
-  it("pins the hook order: services first, background passes last", () => {
+  it("pins the hook order: services first, settings nav items last", () => {
     expect([...ADMIN_EXTENSION_HOOK_ORDER]).toEqual([
       "services",
       "apiRoutes",
