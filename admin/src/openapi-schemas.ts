@@ -1544,3 +1544,87 @@ export const PatchAccountBodySchema = z
     trialExpiresAt: z.string().datetime().nullable().optional(),
   })
   .openapi("PatchAccountBody");
+
+// ─── Agent templates (ATP-1.3) ────────────────────────────────────────────────
+
+export const TemplateItemKindSchema = z
+  .enum(["env", "tool", "plugin", "cron"])
+  .openapi("TemplateItemKind");
+
+const TemplateItemBaseSchema = z.object({
+  kind: TemplateItemKindSchema,
+  key: z.string().openapi({
+    description:
+      "Env var name, tool pattern, plugin name or cron name (cron items need a stable, non-empty name).",
+    example: "LINEAR_API_KEY",
+  }),
+  payload: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .openapi({
+      description:
+        "Kind-specific fields. env: {value, secret?}; tool: {enabled?}; plugin: {version?, enabled?}; cron: {schedule, prompt, channel?, user?, silent?, enabled?, preCheck?}.",
+      example: { value: "lin_abc", secret: true },
+    }),
+});
+
+export const TemplateItemInputSchema =
+  TemplateItemBaseSchema.openapi("TemplateItemInput");
+
+export const TemplateItemSchema = TemplateItemBaseSchema.extend({
+  payload: z.record(z.string(), z.unknown()).openapi({
+    description: 'Secret env values are returned masked as "***".',
+  }),
+  updatedAt: z
+    .string()
+    .datetime()
+    .openapi({ example: "2026-01-01T00:00:00.000Z" }),
+}).openapi("TemplateItem");
+
+export const AgentTemplateSchema = z
+  .object({
+    id: z.string().openapi({ example: "clx1234567890" }),
+    accountId: z.string().nullable().openapi({ example: null }),
+    specialty: z.string().nullable().openapi({ example: "specialist" }),
+    items: z.array(TemplateItemSchema),
+    createdAt: z
+      .string()
+      .datetime()
+      .openapi({ example: "2026-01-01T00:00:00.000Z" }),
+    updatedAt: z
+      .string()
+      .datetime()
+      .openapi({ example: "2026-01-01T00:00:00.000Z" }),
+  })
+  .openapi("AgentTemplate");
+
+export const AgentTemplatesListSchema = z
+  .object({ templates: z.array(AgentTemplateSchema) })
+  .openapi("AgentTemplatesList");
+
+export const ListTemplatesQuerySchema = z.object({
+  accountId: z.string().optional().openapi({ example: "clx1234567890" }),
+  specialty: z.string().optional().openapi({ example: "specialist" }),
+});
+
+export const PutTemplateBodySchema = z
+  .object({
+    accountId: z.string().nullable().optional().openapi({
+      description:
+        "Owning account; null or omitted = deployment-wide (platform admins only). Account callers may omit it or send their own account.",
+    }),
+    specialty: z.string().nullable().optional().openapi({
+      description: "Specialty the template applies to; null = every specialty.",
+    }),
+    items: z.array(TemplateItemInputSchema),
+  })
+  .openapi("PutTemplateBody");
+
+export const TemplateIdParamSchema = z.object({
+  id: z.string().openapi({ param: { name: "id", in: "path" } }),
+});
+
+export const TemplateItemKeyQuerySchema = z.object({
+  kind: TemplateItemKindSchema,
+  key: z.string().min(1),
+});

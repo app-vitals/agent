@@ -11,6 +11,7 @@
  */
 
 import type { Prisma } from "../prisma/client/client.ts";
+import { ANTHROPIC_CREDENTIAL_KEYS } from "./anthropic-credential-guard.ts";
 import { UnprocessableEntityError } from "./errors.ts";
 import type { TokenCrypto } from "./token-crypto.ts";
 
@@ -52,4 +53,30 @@ export function openTemplateItemPayload(
 ): TemplateItemPayload {
   if (kind !== "env" || typeof payload.value !== "string") return payload;
   return { ...payload, value: crypto.decrypt(payload.value) };
+}
+
+/**
+ * Env keys a template may never carry (ATP-1.3): per-agent credentials that
+ * are minted for, or provisioned onto, one specific agent. Copying them from a
+ * template would hand every agent the same identity.
+ */
+export const TEMPLATE_ENV_DENYLIST: ReadonlySet<string> = new Set([
+  "SLACK_BOT_TOKEN",
+  "SLACK_APP_TOKEN",
+  "SLACK_APP_ID",
+  "SLACK_SIGNING_SECRET",
+  "GH_TOKEN",
+  "SHIPWRIGHT_AGENT_API_KEY",
+  "SHIPWRIGHT_TASK_STORE_URL",
+  "SHIPWRIGHT_TASK_STORE_TOKEN",
+  ...ANTHROPIC_CREDENTIAL_KEYS,
+]);
+
+/** Throws UnprocessableEntityError (422) for a denylisted env key (case-insensitive). */
+export function assertTemplateEnvKeyAllowed(key: string): void {
+  if (TEMPLATE_ENV_DENYLIST.has(key.toUpperCase())) {
+    throw new UnprocessableEntityError(
+      `env key ${key} is a per-agent credential and cannot be set in a template`,
+    );
+  }
 }

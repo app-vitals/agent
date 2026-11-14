@@ -83,6 +83,8 @@ import { AgentGitHubInstallationsService } from "./agent-github-installations.ts
 import { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import { AgentMemberService } from "./agent-members.ts";
 import { AgentPluginService } from "./agent-plugins.ts";
+import { AgentTemplateService } from "./agent-templates.ts";
+import { createAgentTemplatesApp } from "./agent-templates-api.ts";
 import { AgentTokenService } from "./agent-tokens.ts";
 import { AgentToolService } from "./agent-tools.ts";
 import { AgentService } from "./agents.ts";
@@ -569,6 +571,22 @@ export async function startAdmin(
       accountService: new AccountService(prisma),
       accountLifecycle,
       selfServe,
+      sessionSecret,
+      adminApiKeys,
+      agentTokenService,
+    }),
+  );
+
+  // 3b''. Agent templates API — /templates/* — admin or account-scoped (ATP-1.3)
+  root.route(
+    "/",
+    createAgentTemplatesApp({
+      templateService: new AgentTemplateService(
+        prisma,
+        crypto,
+        specialtyRegistry,
+      ),
+      callerScopeResolver,
       sessionSecret,
       adminApiKeys,
       agentTokenService,

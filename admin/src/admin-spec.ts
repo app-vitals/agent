@@ -18,6 +18,7 @@
  */
 
 import { NoopAgentProvisioner } from "./agent-provisioner.ts";
+import { createAgentTemplatesApp } from "./agent-templates-api.ts";
 import {
   type AdminDeps,
   createAdminApp,
@@ -190,6 +191,22 @@ export function buildPlatformAdminSpec(): AdminOpenApiDocument {
     mergedPaths[path] = def as Record<string, unknown>;
   }
 
+  // ATP-1.3: the /templates routes live in their own app (mounted at the root
+  // in admin-boot.ts); fold their paths and schemas in.
+  const templatesSpec = createAgentTemplatesApp({
+    templateService: {} as never,
+    callerScopeResolver: async () => ({ kind: "all" }),
+    sessionSecret: SESSION_SECRET,
+    adminApiKeys,
+    agentTokenService: { validate: async () => null },
+  }).getOpenAPI31Document({
+    openapi: "3.1.0",
+    info: { title: "templates (internal)", version: "0.1.0" },
+  });
+  for (const [path, def] of Object.entries(templatesSpec.paths ?? {})) {
+    mergedPaths[path] = def as Record<string, unknown>;
+  }
+
   return {
     ...adminSpec,
     paths: mergedPaths,
@@ -199,6 +216,7 @@ export function buildPlatformAdminSpec(): AdminOpenApiDocument {
         ...(adminSpec.components?.schemas ?? {}),
         ...(runtimeSpec.components?.schemas ?? {}),
         ...(gheSpec.components?.schemas ?? {}),
+        ...(templatesSpec.components?.schemas ?? {}),
       },
     },
   };
