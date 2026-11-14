@@ -118,7 +118,7 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
   describe("card presence", () => {
     it("shows the Sync button and no input when both Apps are configured", async () => {
       const { app } = setup({ agentsApi: () => json(INSTALLED) });
-      const html = await (await get(app, "")).text();
+      const html = await (await get(app, "/access")).text();
       expect(html).toContain('id="github-installation-card"');
       expect(html).toContain('id="github-sync-btn"');
       const card = html.slice(html.indexOf('id="github-installation-card"'));
@@ -134,7 +134,7 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
           lookup: null,
         },
       });
-      const html = await (await get(app, "")).text();
+      const html = await (await get(app, "/access")).text();
       expect(html).not.toContain("github-installation-card");
     });
 
@@ -146,7 +146,7 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
           lookup: { role: "lookup" },
         },
       });
-      const html = await (await get(app, "")).text();
+      const html = await (await get(app, "/access")).text();
       expect(html).not.toContain("github-installation-card");
     });
 
@@ -154,20 +154,20 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
       const { app } = setup({
         enterprise: { configured: false, installer: null, lookup: null },
       });
-      const html = await (await get(app, "")).text();
+      const html = await (await get(app, "/access")).text();
       expect(html).not.toContain("github-installation-card");
     });
 
     it("shows the missing-App-id reason, not the button, with no GH_APP_ID", async () => {
       const { app } = setup({ env: { FOO: "bar" } });
-      const html = await (await get(app, "")).text();
+      const html = await (await get(app, "/access")).text();
       expect(html).toContain('data-reason="missing-app-id"');
       expect(html).not.toContain('id="github-sync-btn"');
     });
 
     it("shows the no-username reason, not the button, with no bound user", async () => {
       const { app } = setup({ username: null });
-      const html = await (await get(app, "")).text();
+      const html = await (await get(app, "/access")).text();
       expect(html).toContain('data-reason="no-username"');
       expect(html).not.toContain('id="github-sync-btn"');
     });
@@ -409,7 +409,7 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
         repos: ["acme/api", "ACME/Web", "other/gone"],
         agentsApi: api,
       });
-      const html = await (await get(app, "")).text();
+      const html = await (await get(app, "/configuration")).text();
       expect(html).toContain('id="repos-uncovered-warning"');
       expect(html).toContain("other/gone");
       expect(html.match(/data-uncovered="1"/g)?.length).toBe(1);

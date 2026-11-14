@@ -22,6 +22,7 @@ import {
   uncoveredRepos,
 } from "./admin-ui-installation-repos-pages.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
+import { renderSettingsLayout } from "./admin-ui-settings-layout.ts";
 import {
   BREAKPOINT_MOBILE_MAX,
   escapeHtml,
@@ -908,31 +909,37 @@ function renderConnectAction(
         </details>`;
 }
 
+export const AGENT_SECTIONS = [
+  "general",
+  "automation",
+  "configuration",
+  "access",
+  "extensions",
+] as const;
+export type AgentSection = (typeof AGENT_SECTIONS)[number];
+
+export function isAgentSection(value: string): value is AgentSection {
+  return (AGENT_SECTIONS as readonly string[]).includes(value);
+}
+
+const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
+  general: "General",
+  automation: "Automation",
+  configuration: "Configuration",
+  access: "Access",
+  extensions: "Extensions",
+};
+
 /**
- * Renders one collapsible accordion section on the agent detail page
- * (AGA-1.1) — a `<details class="group">` wrapping a fixed subset of the
- * page's existing cards. Always renders collapsed (no `open` attribute),
- * including when `agent.missingRequiredEnv` is non-empty — there is no
- * auto-open behavior for any group.
- *
- * `stat` is a short, pre-formatted, trusted (non-user-controlled) string
- * (e.g. "5 system · 7 custom") rendered flush-right in the summary row.
- * `name` (also trusted/static) is the group title, rendered flush-left.
- * The toggle indicator (▸/▾) is a `::before` on the `.group-title` span
- * itself — NOT on the flex `.group-summary` — so it stays part of that one
- * flex child instead of becoming its own third flex item, which would break
- * the flush-left/flush-right 2-sided layout into an uneven 3-way split.
+ * Path of one agent detail section (SGL-1.2). General is the bare agent path,
+ * so existing links and redirects to /admin/agents/:id keep landing there.
  */
-function renderGroup(name: string, stat: string, bodyHtml: string): string {
-  return `<details class="group">
-      <summary class="group-summary">
-        <span class="group-title">${name}</span>
-        <span class="group-sub">${stat}</span>
-      </summary>
-      <div class="group-body">
-        ${bodyHtml}
-      </div>
-    </details>`;
+export function agentSectionPath(
+  agentId: string,
+  section: AgentSection = "general",
+): string {
+  const base = `/admin/agents/${encodeURIComponent(agentId)}`;
+  return section === "general" ? base : `${base}/${section}`;
 }
 
 export function renderAgentDetailPage(
@@ -948,6 +955,8 @@ export function renderAgentDetailPage(
   userName: string,
   isAdmin: boolean,
   opts?: {
+    /** Section to render (SGL-1.2). Defaults to "general". */
+    section?: AgentSection;
     /**
      * SSP-4.3: render the Members / Slack access / Danger Zone cards. Defaults
      * to isAdmin; the caller passes true for agent-access holders when
@@ -1947,8 +1956,8 @@ export function renderAgentDetailPage(
 
   const dangerZoneSection = canManage
     ? `<!-- Danger Zone -->
-    <div class="card" style="border:1px solid #fca5a5">
-      <div class="card-title" style="color:#dc2626">Danger Zone</div>
+    <div class="settings-danger-zone">
+      <div class="settings-section-title">Danger Zone</div>
       <p style="font-size:13px;color:#6b7280;margin-bottom:16px">
         Deleting this agent permanently removes all its data (env vars, crons, tools, tokens, plugins, members)
         and terminates its pod. This action cannot be undone.
@@ -1968,24 +1977,8 @@ export function renderAgentDetailPage(
     </div>`
     : "";
 
-  // ─── Accordion groups (AGA-1.1) ────────────────────────────────────────
-  // The cards below are grouped into 4 collapsed-by-default
-  // <details class="group"> sections. Grouping is purely presentational —
-  // every card's internal markup/ids/form actions are unchanged, they're
-  // just composed into a new order. Agent Policy (added after this task was
-  // originally scoped) lands in Configuration alongside Env Vars/Repos since
-  // it is agent-level configuration, as do extension cards placed there
-  // (the coding extension's Phase Methodology card) — this keeps every card
-  // inside exactly one of the 4 groups, with no stray bare cards besides
-  // Danger Zone.
-  const automationStat = `${systemCrons.length} system · ${customCrons.length} custom`;
-  const configurationStat = `${Object.keys(envVars).length} env vars · ${agent.repos.length} repos`;
-  const activeTokenCount = tokens.filter((t) => !t.revokedAt).length;
-  const accessStat = `${members.length} members · ${activeTokenCount} active tokens`;
-  const pluginsToolsStat = `${tools.length} tools · ${plugins.length} plugins`;
-
   // ─── Stat strip (AGA-1.2) ──────────────────────────────────────────────
-  // 4-tile stat strip rendered above the 4 accordion groups. Each tile
+  // 4-tile stat strip rendered on the General section. Each tile
   // derives its count from parameters already passed into this function.
   const cronsActiveCount = topLevelCrons.filter((c) => c.enabled).length;
   const missingEnvVarsCount = agent.missingRequiredEnv.length;
@@ -2011,64 +2004,15 @@ export function renderAgentDetailPage(
     </div>
   </div>`;
 
-  const automationGroup = renderGroup(
-    "Automation",
-    automationStat,
-    cronJobsSection,
-  );
-  const configurationGroup = renderGroup(
-    "Configuration",
-    configurationStat,
-    `${envVarsSection}${reposSection}${(opts?.configurationCardsHtml ?? []).join("")}${agentPolicySection}`,
-  );
-  const accessGroup = renderGroup(
-    "Access",
-    accessStat,
-    `${identitySection}${canManage ? membersSection : ""}${authorAllowlistReviewSection}${authorAllowlistPatchSection}${slackAccessSection}${tokensSection}`,
-  );
-  const pluginsToolsGroup = renderGroup(
-    "Plugins &amp; Tools",
-    pluginsToolsStat,
-    `${toolsSection}${pluginsSection}${marketplacesSection}`,
-  );
+  const section = opts?.section ?? "general";
 
-  const expandCollapseControls = `
-    <div style="display:flex;gap:8px;margin-bottom:16px">
-      <button type="button" class="btn btn-secondary" id="expand-all-btn">Expand all</button>
-      <button type="button" class="btn btn-secondary" id="collapse-all-btn">Collapse all</button>
-    </div>
-    <script>
-      (function() {
-        var expandBtn = document.getElementById('expand-all-btn');
-        var collapseBtn = document.getElementById('collapse-all-btn');
-        if (expandBtn) {
-          expandBtn.addEventListener('click', function() {
-            document.querySelectorAll('.group').forEach(function(el) {
-              el.open = true;
-            });
-          });
-        }
-        if (collapseBtn) {
-          collapseBtn.addEventListener('click', function() {
-            document.querySelectorAll('.group').forEach(function(el) {
-              el.open = false;
-            });
-          });
-        }
-      })();
-    </script>
-  `;
-
-  return renderAdminPage({
-    title: `${agent.name} — Shipwright Admin`,
-    body: `${renderAdminToolbar(userName, "/admin/agents")}
-  <div class="vos-page">
-    <div class="page-header">
+  const headerInfoHtml = `<div class="page-header">
       <div>
         <a href="/admin/agents" style="font-size:13px;color:#6b7280;text-decoration:none">← Agents</a>
-        <h1 class="page-title" style="margin-top:4px">${escapeHtml(agent.name)}</h1>
-        <span style="font-size:13px;color:#6b7280">Type: <span class="mono">${escapeHtml(agent.specialty)}</span></span>
-        ${agent.slackId ? `<span style="font-size:13px;color:#6b7280">Slack ID: <span class="mono">${escapeHtml(agent.slackId)}</span></span>` : ""}
+        <div style="margin-top:4px">
+          <span style="font-size:13px;color:#6b7280">Type: <span class="mono">${escapeHtml(agent.specialty)}</span></span>
+          ${agent.slackId ? `<span style="font-size:13px;color:#6b7280">Slack ID: <span class="mono">${escapeHtml(agent.slackId)}</span></span>` : ""}
+        </div>
       </div>
       ${
         agent.slackId
@@ -2093,24 +2037,46 @@ export function renderAgentDetailPage(
       </div>`
           : ""
       }
-    </div>
-    ${errorHtml}
-    ${successHtml}
-    ${warningHtml}
-    ${newTokenHtml}
+    </div>`;
+
+  const sectionBodies: Record<AgentSection, string> = {
+    general: `${headerInfoHtml}
     ${(opts?.extensionCardsHtml ?? []).join("\n    ")}
 
     ${statStripHtml}
 
-    ${expandCollapseControls}
-    ${automationGroup}
-    ${configurationGroup}
-    ${accessGroup}
-    ${pluginsToolsGroup}
+    ${dangerZoneSection}`,
+    automation: cronJobsSection,
+    configuration: `${envVarsSection}${reposSection}${(opts?.configurationCardsHtml ?? []).join("")}${agentPolicySection}`,
+    // Interim until SGL-1.3 reworks these two sections: today's cards as-is.
+    access: `${identitySection}${canManage ? membersSection : ""}${authorAllowlistReviewSection}${authorAllowlistPatchSection}${slackAccessSection}${tokensSection}`,
+    extensions: `${toolsSection}${pluginsSection}${marketplacesSection}`,
+  };
 
-    ${dangerZoneSection}
-
-  </div>`,
+  return renderAdminPage({
+    title: `${agent.name} — Shipwright Admin`,
+    body: renderSettingsLayout({
+      userName,
+      title: agent.name,
+      nav: {
+        sections: [
+          {
+            label: "Agent",
+            items: AGENT_SECTIONS.map((k) => ({
+              label: AGENT_SECTION_LABELS[k],
+              path: agentSectionPath(agent.id, k),
+            })),
+          },
+        ],
+      },
+      active: agentSectionPath(agent.id, section),
+      toolbarPath: "/admin/agents",
+      body: `${errorHtml}
+    ${successHtml}
+    ${warningHtml}
+    ${newTokenHtml}
+    ${sectionBodies[section]}`,
+    }),
   });
 }
 

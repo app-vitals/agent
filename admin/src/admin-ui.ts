@@ -52,8 +52,6 @@ import {
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
-import { registerAdminTemplatesRoutes } from "./admin-ui-templates.ts";
-import type { AgentTemplateService } from "./agent-templates.ts";
 import {
   type GithubAccessPreviewView,
   renderGithubAccessError,
@@ -68,14 +66,17 @@ import {
   type RepoRemovalPreviewView,
   renderInstallationReposBody,
   renderInstallationReposError,
-  renderSyncConfirm,
-  renderSyncResult,
   renderRepoRemovalConfirm,
   renderRepoRemovalResult,
+  renderSyncConfirm,
+  renderSyncResult,
 } from "./admin-ui-installation-repos-pages.ts";
 import {
+  AGENT_SECTIONS,
   type AgentDetail,
   type AgentOption,
+  type AgentSection,
+  isAgentSection,
   renderAgentDetailPage,
   renderAgentsPage,
   renderChatMessageBubble,
@@ -89,6 +90,7 @@ import {
   renderProvisionCompletePage,
   renderProvisionXappTokenPage,
 } from "./admin-ui-pages.ts";
+import { registerAdminTemplatesRoutes } from "./admin-ui-templates.ts";
 import type { AgentCronJobService } from "./agent-cron-jobs.ts";
 import type { DeleteAgentFullyDeps } from "./agent-deletion.ts";
 import { deleteAgentFully } from "./agent-deletion.ts";
@@ -98,6 +100,7 @@ import type { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import type { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
 import type { AgentProvisioner } from "./agent-provisioner.ts";
+import type { AgentTemplateService } from "./agent-templates.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AgentToolService } from "./agent-tools.ts";
 import type { AgentService } from "./agents.ts";
@@ -2170,8 +2173,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     },
   );
 
-  app.get("/admin/agents/:id", requireAuth, async (c) => {
-    const agentId = c.req.param("id");
+  const agentDetailHandler = async (c: Context<AdminUIEnv, any>) => {
+    const agentId = c.req.param("id") ?? "";
+    const sectionParam = c.req.param("section") ?? "general";
+    if (!isAgentSection(sectionParam)) {
+      return new Response("Not found", { status: 404 });
+    }
+    const section: AgentSection = sectionParam;
     const agent = await agentService.getDetail(agentId);
     if (!agent) {
       return new Response("Agent not found", { status: 404 });
@@ -2295,6 +2303,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         c.var.userEmail,
         c.var.isAdmin,
         {
+          section,
           canManage: canManageAgents(c.var.isAdmin),
           error,
           newToken,
@@ -2310,7 +2319,16 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         },
       ),
     );
-  });
+  };
+  app.get("/admin/agents/:id", requireAuth, agentDetailHandler);
+  // Constrained to the known sections so other /admin/agents/:id/<x> GET routes
+  // (extension-mounted pages) still match; an unknown section falls through to
+  // the default 404.
+  app.get(
+    `/admin/agents/:id/:section{${AGENT_SECTIONS.join("|")}}`,
+    requireAuth,
+    agentDetailHandler,
+  );
 
   // ─── Env var mutations ────────────────────────────────────────────────────
 

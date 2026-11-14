@@ -28,13 +28,13 @@ import {
 } from "./admin-ui.fixtures.ts";
 import { createAdminUIApp } from "./admin-ui.ts";
 import { AnthropicCredentialsBlockedError } from "./anthropic-credential-guard.ts";
+import { UnprocessableEntityError } from "./errors.ts";
 import type { PushService } from "./push-service.ts";
 import {
   resolveDefaultSpecialtyName,
   SPECIALIST_TYPE,
   SpecialtyTypes,
 } from "./specialty-types.ts";
-import { UnprocessableEntityError } from "./errors.ts";
 
 // The specialty the create-agent flows use: the configured default type (the
 // platform test run points it at the fixture specialty; the monorepo falls
@@ -960,17 +960,53 @@ describe("admin UI — authenticated pages", () => {
 
   it("authenticated GET /admin/agents/:id returns 200 with agent detail sections", async () => {
     const app = createAdminUIApp(makeMockDeps());
-    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
-      headers: { Cookie: `admin_session=${cookie}` },
-    });
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain("Env Vars");
-    expect(html).toContain("Cron Jobs");
-    expect(html).toContain("Tools");
-    expect(html).toContain("Tokens");
-    expect(html).toContain("Plugins");
-    expect(html).toContain("admin@example.com");
+    const get = (path: string) =>
+      app.request(`/admin/agents/${AGENT_ID}${path}`, {
+        headers: { Cookie: `admin_session=${cookie}` },
+      });
+    const general = await get("");
+    expect(general.status).toBe(200);
+    expect(await general.text()).toContain("admin@example.com");
+    expect(await (await get("/general")).text()).toContain("Danger Zone");
+    expect(await (await get("/configuration")).text()).toContain("Env Vars");
+    expect(await (await get("/automation")).text()).toContain("Cron Jobs");
+    const access = await (await get("/access")).text();
+    expect(access).toContain("Tokens");
+    const extensions = await (await get("/extensions")).text();
+    expect(extensions).toContain("Tools");
+    expect(extensions).toContain("Plugins");
+  });
+
+  it("section routes: sidebar active item follows the section; unknown section 404s", async () => {
+    const app = createAdminUIApp(makeMockDeps());
+    const get = (path: string, c = cookie) =>
+      app.request(`/admin/agents/${AGENT_ID}${path}`, {
+        headers: { Cookie: `admin_session=${c}` },
+      });
+    for (const section of [
+      "general",
+      "automation",
+      "configuration",
+      "access",
+      "extensions",
+    ]) {
+      const html = await (await get(`/${section}`)).text();
+      const active = html.match(/href="([^"]*)" aria-current="page"/);
+      expect(active?.[1]).toBe(
+        section === "general"
+          ? `/admin/agents/${AGENT_ID}`
+          : `/admin/agents/${AGENT_ID}/${section}`,
+      );
+    }
+    expect((await get("/bogus")).status).toBe(404);
+    const outsider = await makeSessionCookie(
+      SESSION_SECRET,
+      "google-sub-outsider",
+      "outsider@example.com",
+      false,
+    );
+    expect((await get("/automation", outsider)).status).toBe(403);
+    expect((await get("/general", outsider)).status).toBe(403);
   });
 
   describe("connect-later actions (UAP-2.3)", () => {
@@ -986,7 +1022,7 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       expect(res.status).toBe(200);
@@ -1025,7 +1061,7 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       expect(res.status).toBe(200);
@@ -1051,7 +1087,7 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       expect(res.status).toBe(200);
@@ -1077,7 +1113,7 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       expect(res.status).toBe(200);
@@ -1103,7 +1139,7 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       expect(res.status).toBe(200);
@@ -1156,7 +1192,7 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       const html = await res.text();
@@ -1184,7 +1220,7 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       const html = await res.text();
@@ -1212,7 +1248,7 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       const html = await res.text();
@@ -1347,7 +1383,7 @@ describe("admin UI — authenticated pages", () => {
         },
       }),
     );
-    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+    const res = await app.request(`/admin/agents/${AGENT_ID}/automation`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
@@ -1412,7 +1448,7 @@ describe("admin UI — authenticated pages", () => {
 
   it("authenticated GET /admin/agents/:id includes an add-cron form with enabled checkbox", async () => {
     const app = createAdminUIApp(makeMockDeps());
-    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+    const res = await app.request(`/admin/agents/${AGENT_ID}/automation`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
@@ -1469,9 +1505,12 @@ describe("admin UI — authenticated pages", () => {
     expect(postRes.status).toBe(302);
 
     // Fetch the agent detail page — the mock getByAgentId returns the secret key
-    const getRes = await app.request(`/admin/agents/${AGENT_ID}`, {
-      headers: { Cookie: `admin_session=${cookie}` },
-    });
+    const getRes = await app.request(
+      `/admin/agents/${AGENT_ID}/configuration`,
+      {
+        headers: { Cookie: `admin_session=${cookie}` },
+      },
+    );
     expect(getRes.status).toBe(200);
     const html = await getRes.text();
     // Lock icon should appear for secret keys
@@ -1514,7 +1553,7 @@ describe("admin UI — authenticated pages", () => {
 
     it("managed agent (selfHosted=false) shows Env Vars card", async () => {
       const app = createAdminUIApp(makeMockDeps());
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/configuration`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       expect(res.status).toBe(200);
@@ -1562,7 +1601,7 @@ describe("admin UI — authenticated pages", () => {
 
     it("managed agent (selfHosted=false) shows Tools card", async () => {
       const app = createAdminUIApp(makeMockDeps());
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+      const res = await app.request(`/admin/agents/${AGENT_ID}/extensions`, {
         headers: { Cookie: `admin_session=${cookie}` },
       });
       expect(res.status).toBe(200);
@@ -1687,9 +1726,12 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${SELFHOSTED_AGENT_ID}`, {
-        headers: { Cookie: `admin_session=${cookie}` },
-      });
+      const res = await app.request(
+        `/admin/agents/${SELFHOSTED_AGENT_ID}/automation`,
+        {
+          headers: { Cookie: `admin_session=${cookie}` },
+        },
+      );
       expect(res.status).toBe(200);
       const html = await res.text();
       // System crons section should be present for self-hosted agents
@@ -1734,9 +1776,12 @@ describe("admin UI — authenticated pages", () => {
           },
         }),
       );
-      const res = await app.request(`/admin/agents/${SELFHOSTED_AGENT_ID}`, {
-        headers: { Cookie: `admin_session=${cookie}` },
-      });
+      const res = await app.request(
+        `/admin/agents/${SELFHOSTED_AGENT_ID}/extensions`,
+        {
+          headers: { Cookie: `admin_session=${cookie}` },
+        },
+      );
       expect(res.status).toBe(200);
       const html = await res.text();
       // Tools card should appear for self-hosted agents
@@ -2150,7 +2195,7 @@ describe("admin UI — owner and Anthropic identity section (PAI-2.5)", () => {
         anthropicFederationRuleId: "fdrl_01XYZ",
       }),
     );
-    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+    const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
@@ -2175,7 +2220,7 @@ describe("admin UI — owner and Anthropic identity section (PAI-2.5)", () => {
         anthropicIdentityName: "<img src=x onerror=alert(1)>",
       }),
     );
-    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+    const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
@@ -2188,7 +2233,7 @@ describe("admin UI — owner and Anthropic identity section (PAI-2.5)", () => {
 
   it("GET /admin/agents/:id renders an em dash placeholder for each unset identity field", async () => {
     const app = createAdminUIApp(identityDeps({}));
-    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+    const res = await app.request(`/admin/agents/${AGENT_ID}/access`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
@@ -2211,7 +2256,7 @@ describe("admin UI — agent policy fields", () => {
 
   it("GET /admin/agents/:id renders the Agent Policy card with default field values", async () => {
     const app = createAdminUIApp(makeMockDeps());
-    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+    const res = await app.request(`/admin/agents/${AGENT_ID}/configuration`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
@@ -2274,7 +2319,7 @@ describe("admin UI — agent policy fields", () => {
         },
       }),
     );
-    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+    const res = await app.request(`/admin/agents/${AGENT_ID}/configuration`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     expect(res.status).toBe(200);
@@ -2313,7 +2358,7 @@ describe("admin UI — agent policy fields", () => {
     // test below that exercises the actual two-entries-same-key submission
     // order a browser produces.
     const app = createAdminUIApp(makeMockDeps());
-    const res = await app.request(`/admin/agents/${AGENT_ID}`, {
+    const res = await app.request(`/admin/agents/${AGENT_ID}/configuration`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
     const html = await res.text();
@@ -7698,11 +7743,14 @@ describe("admin UI — self-serve agent management (SSP-4.3)", () => {
           callerScopeResolver: scopedTo([AGENT_ID]),
         }),
       );
-      const res = await app.request(`/admin/agents/${AGENT_ID}`, {
-        headers: { Cookie: `admin_session=${cookie}` },
+      const headers = { Cookie: `admin_session=${cookie}` };
+      const res = await app.request(`/admin/agents/${AGENT_ID}`, { headers });
+      const accessRes = await app.request(`/admin/agents/${AGENT_ID}/access`, {
+        headers,
       });
       expect(res.status).toBe(200);
-      const html = await res.text();
+      expect(accessRes.status).toBe(200);
+      const html = `${await res.text()}${await accessRes.text()}`;
       expect(html.includes("Danger Zone")).toBe(shown);
       expect(html.includes('<div class="card-title">Slack access</div>')).toBe(
         shown,

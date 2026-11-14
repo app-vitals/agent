@@ -82,7 +82,7 @@ describe("admin UI — GitHub identity (GHE-2.5)", () => {
     );
   });
   const get = (app: ReturnType<typeof setup>["app"], cookie: string) =>
-    app.request(`/admin/agents/${AGENT_ID}`, {
+    app.request(`/admin/agents/${AGENT_ID}/access`, {
       headers: { Cookie: `admin_session=${cookie}` },
     });
   const post = (
