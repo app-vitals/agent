@@ -636,6 +636,95 @@ export function baseStyles(): string {
       }
     }
 
+    /* ─── Settings layout ─── */
+    .settings-layout {
+      display: flex;
+      align-items: flex-start;
+      gap: 32px;
+    }
+    .settings-sidebar {
+      flex: 0 0 260px;
+      width: 260px;
+      padding-right: 16px;
+      border-right: 1px solid #e8e8ee;
+    }
+    .settings-nav-mobile { display: none; }
+    .settings-nav-section { margin-bottom: 16px; }
+    .settings-nav-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0 12px 6px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid #e8e8ee;
+    }
+    .settings-nav-link {
+      display: block;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #1a1a2e;
+      text-decoration: none;
+    }
+    .settings-nav-link:hover { background: #f7f7fb; }
+    .settings-nav-link[aria-current="page"] {
+      background: #eef2ff;
+      color: #4f46e5;
+      font-weight: 600;
+    }
+    .settings-content { flex: 1 1 auto; min-width: 0; }
+    .settings-content h1 {
+      font-size: 24px;
+      font-weight: 600;
+      color: #1a1a2e;
+      margin: 0 0 24px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e8e8ee;
+    }
+    .settings-section-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1a1a2e;
+      margin: 32px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e8e8ee;
+    }
+    .settings-danger-zone {
+      border: 1px solid #dc2626;
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-top: 16px;
+    }
+    .settings-danger-zone > .settings-section-title {
+      color: #dc2626;
+      margin-top: 0;
+      border-bottom-color: #fee2e2;
+    }
+    @media (max-width: ${BREAKPOINT_MOBILE_MAX}px) {
+      .settings-layout { flex-direction: column; gap: 16px; }
+      .settings-sidebar { display: none; }
+      .settings-nav-mobile {
+        display: block;
+        width: 100%;
+        border: 1px solid #e8e8ee;
+        border-radius: 8px;
+        background: #fff;
+      }
+      .settings-nav-mobile summary {
+        padding: 12px;
+        min-height: 44px;
+        box-sizing: border-box;
+        cursor: pointer;
+        font-weight: 600;
+        color: #4f46e5;
+      }
+      .settings-nav-mobile .settings-nav-link { padding: 12px; }
+    }
+    /* ─── /Settings layout ─── */
+
     /* ─── Tablet band (641–${BREAKPOINT_TABLET_MAX}px) ──────────────── */
     @media (min-width: ${BREAKPOINT_MOBILE_MAX + 1}px) and (max-width: ${BREAKPOINT_TABLET_MAX}px) {
       .vos-page {

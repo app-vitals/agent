@@ -101,3 +101,75 @@ describe("baseStyles — AXR-1.1 shared explore board component classes", () => 
     expect(css).toContain(".badge-warning");
   });
 });
+
+describe("baseStyles — SGL-1.1 settings layout", () => {
+  const css = baseStyles();
+  const start = css.indexOf("/* ─── Settings layout ─── */");
+  const end = css.indexOf("/* ─── /Settings layout ─── */");
+  const block = css.slice(start, end);
+
+  test("marker-delimited block exists with the new classes", () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    for (const cls of [
+      ".settings-sidebar",
+      ".settings-nav-mobile",
+      ".settings-content",
+      ".settings-section-title",
+      ".settings-danger-zone",
+    ]) {
+      expect(block).toContain(cls);
+    }
+  });
+
+  test("mobile media block references the settings classes", () => {
+    const media = block.slice(
+      block.indexOf(`@media (max-width: ${BREAKPOINT_MOBILE_MAX}px)`),
+    );
+    expect(media).toContain(".settings-sidebar");
+    expect(media).toContain(".settings-nav-mobile");
+  });
+
+  test("uses only allowed hex colors", () => {
+    const allowed = new Set(
+      [
+        "#1a1a2e",
+        "#4f46e5",
+        "#eef2ff",
+        "#e8e8ee",
+        "#f7f7fb",
+        "#dc2626",
+        "#fee2e2",
+        "#6b7280",
+        "#fff",
+        "#f3f4f6",
+        "#065f46",
+        "#0f766e",
+        "#22c55e",
+        "#2d2d4e",
+        "#374151",
+        "#4338ca",
+        "#5b21b6",
+        "#92400e",
+        "#9ca3af",
+        "#a7f3d0",
+        "#c7d2fe",
+        "#ccfbf1",
+        "#d1d5db",
+        "#d1fae5",
+        "#e5e7eb",
+        "#ede9fe",
+        "#ef4444",
+        "#f59e0b",
+        "#f9fafb",
+        "#fafafa",
+        "#fde68a",
+        "#fecaca",
+        "#fef3c7",
+      ].map((c) => c.toLowerCase()),
+    );
+    const found = block.match(/#[0-9a-fA-F]{3,8}\b/g) ?? [];
+    expect(found.length).toBeGreaterThan(0);
+    for (const c of found) expect(allowed.has(c.toLowerCase())).toBe(true);
+  });
+});
