@@ -4,20 +4,13 @@
  * AdminPlatformServices.githubLookup: every repository the lookup App can see,
  * across the organizations the installer App can reach.
  *
- * Unconfigured (either App or key missing) answers `configured: false` with no
- * repos. A GitHub failure rejects; it is never reported as an empty list. An
- * org without the lookup App installed (not_found) is skipped.
+ * A GitHub failure rejects; it is never reported as an empty list. An org
+ * without the lookup App installed (not_found) is skipped. The stored-App
+ * wiring (key-bearing) lives in github-enterprise-api.ts.
  */
 
-import type { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
-import {
-  GithubEnterpriseClient,
-  GithubEnterpriseError,
-} from "./github-enterprise-client.ts";
-import {
-  GithubLookupClient,
-  type LookupRepository,
-} from "./github-lookup-client.ts";
+import { GithubEnterpriseError } from "./github-enterprise-client.ts";
+import type { LookupRepository } from "./github-lookup-client.ts";
 
 export interface GithubLookupRepository {
   fullName: string;
@@ -44,15 +37,6 @@ export interface LookupRepositoriesPort {
   listInstallationRepositories(org: string): Promise<LookupRepository[]>;
 }
 
-export interface GithubLookupServiceDeps {
-  appService: Pick<GitHubEnterpriseAppService, "get" | "getPrivateKey">;
-  fetchFn?: typeof fetch;
-  apiBase?: string;
-  now?: () => Date;
-  /** Test seam: replaces the clients built from the stored Apps. */
-  clients?: { installer: LookupInstallerPort; lookup: LookupRepositoriesPort };
-}
-
 export async function listLookupRepositories(
   installer: LookupInstallerPort,
   lookup: LookupRepositoriesPort,
@@ -73,51 +57,4 @@ export async function listLookupRepositories(
     }
   }
   return [...repos.values()];
-}
-
-export function createGithubLookupService(
-  deps: GithubLookupServiceDeps,
-): GithubLookupService {
-  return {
-    async listRepositories() {
-      let clients = deps.clients;
-      if (!clients) {
-        const [installer, lookup] = await Promise.all([
-          deps.appService.get("installer"),
-          deps.appService.get("lookup"),
-        ]);
-        if (!installer || !lookup || !installer.enterpriseSlug) {
-          return { configured: false, repos: [] };
-        }
-        const [installerKey, lookupKey] = await Promise.all([
-          deps.appService.getPrivateKey("installer"),
-          deps.appService.getPrivateKey("lookup"),
-        ]);
-        if (!installerKey || !lookupKey)
-          return { configured: false, repos: [] };
-        const common = {
-          apiBase: deps.apiBase,
-          fetchFn: deps.fetchFn,
-          now: deps.now,
-        };
-        clients = {
-          installer: new GithubEnterpriseClient({
-            appId: installer.appId,
-            enterprise: installer.enterpriseSlug,
-            privateKey: installerKey,
-            ...common,
-          }),
-          lookup: new GithubLookupClient({
-            appId: lookup.appId,
-            privateKey: lookupKey,
-            ...common,
-          }),
-        };
-      }
-      return {
-        configured: true,
-        repos: await listLookupRepositories(clients.installer, clients.lookup),
-      };
-    },
-  };
 }

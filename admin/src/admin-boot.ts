@@ -103,13 +103,14 @@ import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-clien
 import {
   createGithubAccessPreview,
   createGithubEnterpriseApp,
+  createGithubLookupService,
 } from "./github-enterprise-api.ts";
 import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import {
   createGithubInstallationRepos,
   createGithubSync,
 } from "./github-installation-wiring.ts";
-import { createGithubLookupService } from "./github-lookup-repositories.ts";
+
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";

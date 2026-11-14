@@ -8,9 +8,10 @@
 
 import { describe, expect, it } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
+import { createGithubLookupService } from "./github-enterprise-api.ts";
+import type { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import { GithubEnterpriseError } from "./github-enterprise-client.ts";
 import { GithubLookupClient } from "./github-lookup-client.ts";
-import { createGithubLookupService } from "./github-lookup-repositories.ts";
 
 const { privateKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -139,7 +140,7 @@ describe("githubLookup.listRepositories", () => {
       appService: {
         get: async () => null,
         getPrivateKey: async () => null,
-      },
+      } as unknown as GitHubEnterpriseAppService,
     });
     expect(await svc.listRepositories()).toEqual({
       configured: false,

@@ -16,18 +16,17 @@
  * Auth: admin key or admin session (every other caller class gets 403).
  */
 
-import { CLIENT_ID_RE, SLUG_RE } from "./installation-ports.ts";
 import { createPrivateKey } from "node:crypto";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import type { AgentEnvService } from "./agent-envs.ts";
+import type { AgentTokenService } from "./agent-tokens.ts";
+import type { AgentService } from "./agents.ts";
 import {
   type AdminApiKey,
   type AdminAuthEnv,
   createAdminAuthMiddleware,
 } from "./api-auth.ts";
-import type { AgentTokenService } from "./agent-tokens.ts";
-import type { AgentService } from "./agents.ts";
 import {
   ApiError,
   BadGatewayError,
@@ -36,23 +35,30 @@ import {
   NotFoundError,
   UnprocessableEntityError,
 } from "./errors.ts";
+import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import { fetchAuthenticatedApp, fetchPublicApp } from "./github-app-api.ts";
-import {
-  GithubEnterpriseClient,
-  GithubEnterpriseError,
-  type GithubEnterpriseErrorKind,
-  type AppInstallation,
-} from "./github-enterprise-client.ts";
 import {
   GITHUB_ENTERPRISE_APP_ROLES,
   type GitHubEnterpriseAppMetadata,
   type GitHubEnterpriseAppRole,
   type GitHubEnterpriseAppService,
 } from "./github-enterprise-apps.ts";
-import { GithubLookupClient } from "./github-lookup-client.ts";
-import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
-import { ErrorSchema } from "./openapi-schemas.ts";
+import {
+  type AppInstallation,
+  GithubEnterpriseClient,
+  GithubEnterpriseError,
+  type GithubEnterpriseErrorKind,
+} from "./github-enterprise-client.ts";
 import { resolveValidation } from "./github-enterprise-warnings.ts";
+import { GithubLookupClient } from "./github-lookup-client.ts";
+import {
+  type GithubLookupService,
+  type LookupInstallerPort,
+  type LookupRepositoriesPort,
+  listLookupRepositories,
+} from "./github-lookup-repositories.ts";
+import { CLIENT_ID_RE, SLUG_RE } from "./installation-ports.ts";
+import { ErrorSchema } from "./openapi-schemas.ts";
 import { UserRepoAccessResolver } from "./user-repo-access-resolver.ts";
 
 // ─── Deps ─────────────────────────────────────────────────────────────────────
@@ -111,12 +117,10 @@ const AppMetadataSchema = z
     appId: z.string().openapi({ example: "12345" }),
     slug: z.string().openapi({ example: "example-installer" }),
     enterpriseSlug: z.string().nullable().openapi({ example: "acme" }),
-    keySet: z
-      .boolean()
-      .openapi({
-        description:
-          "True when a private key is stored. The key is never returned.",
-      }),
+    keySet: z.boolean().openapi({
+      description:
+        "True when a private key is stored. The key is never returned.",
+    }),
     lastValidationStatus: z.string().nullable().openapi({ example: "valid" }),
     lastValidatedAt: z.string().nullable(),
     lastValidationError: z.string().nullable(),
@@ -137,21 +141,14 @@ const PutAppBodySchema = z
   .object({
     appId: z.string().regex(/^\d+$/).openapi({ example: "12345" }),
     slug: z.string().regex(SLUG_RE).openapi({ example: "example-installer" }),
-    enterpriseSlug: z
-      .string()
-      .regex(SLUG_RE)
-      .nullish()
-      .openapi({
-        description: "Required for the installer role.",
-        example: "acme",
-      }),
-    privateKey: z
-      .string()
-      .min(1)
-      .openapi({
-        description:
-          "PEM private key. Write-only: encrypted at rest, never returned.",
-      }),
+    enterpriseSlug: z.string().regex(SLUG_RE).nullish().openapi({
+      description: "Required for the installer role.",
+      example: "acme",
+    }),
+    privateKey: z.string().min(1).openapi({
+      description:
+        "PEM private key. Write-only: encrypted at rest, never returned.",
+    }),
   })
   .openapi("PutGithubEnterpriseAppBody");
 
@@ -183,14 +180,10 @@ const OrgsResultSchema = z
   .object({
     configured: z.boolean(),
     agentAppSlug: z.string().nullable().optional(),
-    agentAppReason: z
-      .string()
-      .nullable()
-      .optional()
-      .openapi({
-        description:
-          "Why the agent's App cannot be installed through the enterprise API (private App with no stored GH_APP_CLIENT_ID, or no App at all). Null when it can; present only with agentId.",
-      }),
+    agentAppReason: z.string().nullable().optional().openapi({
+      description:
+        "Why the agent's App cannot be installed through the enterprise API (private App with no stored GH_APP_CLIENT_ID, or no App at all). Null when it can; present only with agentId.",
+    }),
     orgs: z.array(
       z.object({
         id: z.number(),
@@ -199,12 +192,9 @@ const OrgsResultSchema = z
           .boolean()
           .nullable()
           .openapi({ description: "Null when no lookup App is configured." }),
-        agentAppInstalled: z
-          .boolean()
-          .nullable()
-          .openapi({
-            description: "Null when no agentId (or no slug) was given.",
-          }),
+        agentAppInstalled: z.boolean().nullable().openapi({
+          description: "Null when no agentId (or no slug) was given.",
+        }),
       }),
     ),
   })
@@ -497,6 +487,63 @@ export function createGithubAccessPreview(
       // Anything else (e.g. JWT signing): generic, no detail.
       throw new BadGatewayError("GitHub access could not be resolved.");
     }
+  };
+}
+
+/** Backs AdminPlatformServices.githubLookup (SCR-1.7). */
+export function createGithubLookupService(
+  deps: Pick<
+    GithubEnterpriseApiDeps,
+    "appService" | "fetchFn" | "apiBase" | "now"
+  > & {
+    /** Test seam: replaces the clients built from the stored Apps. */
+    clients?: {
+      installer: LookupInstallerPort;
+      lookup: LookupRepositoriesPort;
+    };
+  },
+): GithubLookupService {
+  return {
+    async listRepositories() {
+      let clients = deps.clients;
+      if (!clients) {
+        const [installer, lookup] = await Promise.all([
+          deps.appService.get("installer"),
+          deps.appService.get("lookup"),
+        ]);
+        if (!installer || !lookup || !installer.enterpriseSlug) {
+          return { configured: false, repos: [] };
+        }
+        const [installerKey, lookupKey] = await Promise.all([
+          deps.appService.getPrivateKey("installer"),
+          deps.appService.getPrivateKey("lookup"),
+        ]);
+        if (!installerKey || !lookupKey)
+          return { configured: false, repos: [] };
+        const common = {
+          apiBase: deps.apiBase,
+          fetchFn: deps.fetchFn,
+          now: deps.now,
+        };
+        clients = {
+          installer: new GithubEnterpriseClient({
+            appId: installer.appId,
+            enterprise: installer.enterpriseSlug,
+            privateKey: installerKey,
+            ...common,
+          }),
+          lookup: new GithubLookupClient({
+            appId: lookup.appId,
+            privateKey: lookupKey,
+            ...common,
+          }),
+        };
+      }
+      return {
+        configured: true,
+        repos: await listLookupRepositories(clients.installer, clients.lookup),
+      };
+    },
   };
 }
 
