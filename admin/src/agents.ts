@@ -441,7 +441,7 @@ export class AgentService {
 
     // Key names only — never select/decrypt AgentEnv.value here.
     const presentEnvRows = await client.agentEnv.findMany({
-      where: { agentId },
+      where: { agentId, enabled: true },
       select: { key: true },
     });
     const presentKeys = new Set(presentEnvRows.map((r) => r.key));

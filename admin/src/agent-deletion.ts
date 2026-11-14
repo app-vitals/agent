@@ -119,7 +119,7 @@ interface DeleteAgentPrisma {
   };
   agentEnv: {
     findMany(args: {
-      where: { agentId: string };
+      where: { agentId: string; enabled: true };
       select: { key: true; value: true; secret: true };
     }): Promise<{ key: string; value: string; secret: boolean }[]>;
   };
@@ -199,7 +199,7 @@ export async function deleteAgentFully(
     throw new NotFoundError(`agent ${agentId} not found`);
   }
   const envRows = await deps.prisma.agentEnv.findMany({
-    where: { agentId },
+    where: { agentId, enabled: true },
     select: { key: true, value: true, secret: true },
   });
 

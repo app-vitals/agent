@@ -41,8 +41,30 @@ export class AgentToolService {
   ): Promise<AgentTool> {
     return client.agentTool.upsert({
       where: { agentId_pattern: { agentId, pattern } },
-      create: { agentId, pattern, enabled: true },
-      update: { enabled: true },
+      create: { agentId, pattern, enabled: true, source: "custom" },
+      update: { enabled: true, source: "custom" },
+    });
+  }
+
+  /**
+   * Internal reconcile write path (ATP-1.2); never exposed over HTTP.
+   * Creates a template-sourced pattern, or refreshes one that is still
+   * template-owned. A custom row (user edit or tombstone) is returned
+   * untouched so a reconcile neither overrides nor resurrects it.
+   */
+  async addFromTemplate(
+    agentId: string,
+    pattern: string,
+    client: PrismaTransactionClient = this.prisma,
+  ): Promise<AgentTool> {
+    const existing = await client.agentTool.findUnique({
+      where: { agentId_pattern: { agentId, pattern } },
+    });
+    if (existing?.source === "custom") return existing;
+    return client.agentTool.upsert({
+      where: { agentId_pattern: { agentId, pattern } },
+      create: { agentId, pattern, enabled: true, source: "template" },
+      update: { enabled: true, source: "template" },
     });
   }
 
@@ -59,6 +81,15 @@ export class AgentToolService {
       throw new NotFoundError(`tool ${toolId} not found`);
     }
 
+    // ATP-1.2: deleting a template row writes a tombstone so a later
+    // reconcile does not re-add it.
+    if (existing.source === "template") {
+      await this.prisma.agentTool.update({
+        where: { id: toolId },
+        data: { enabled: false, source: "custom" },
+      });
+      return;
+    }
     await this.prisma.agentTool.delete({ where: { id: toolId } });
   }
 
@@ -81,7 +112,7 @@ export class AgentToolService {
 
     return this.prisma.agentTool.update({
       where: { id: toolId },
-      data: { enabled },
+      data: { enabled, source: "custom" },
     });
   }
 
@@ -105,7 +136,7 @@ export class AgentToolService {
 
     return this.prisma.agentTool.update({
       where: { id: toolId },
-      data: { pattern },
+      data: { pattern, source: "custom" },
     });
   }
 }

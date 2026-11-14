@@ -51,6 +51,16 @@ export interface CreateAgentCronJobInput {
  * Each field may contain digits, *, /, -, and comma (e.g. a minute field of
  * "0,30" for a twice-hourly, staggered schedule is valid).
  */
+export interface UpdateAgentCronJobInput {
+  schedule: string;
+  prompt: string;
+  channel?: string | null;
+  user?: string | null;
+  silent?: boolean;
+  preCheck?: string | null;
+  enabled?: boolean;
+}
+
 export function isValidCron(schedule: string): boolean {
   const fields = schedule.trim().split(/\s+/);
   if (fields.length !== 5) return false;
@@ -249,6 +259,25 @@ export class AgentCronJobService {
     agentId: string,
     input: CreateAgentCronJobInput,
   ): Promise<AgentCronJob> {
+    return this.createWithSource(agentId, input, "custom");
+  }
+
+  /**
+   * Internal reconcile write path (ATP-1.2); never exposed over HTTP.
+   * Same validation as create() but stamps source="template".
+   */
+  async createFromTemplate(
+    agentId: string,
+    input: CreateAgentCronJobInput,
+  ): Promise<AgentCronJob> {
+    return this.createWithSource(agentId, input, "template");
+  }
+
+  private async createWithSource(
+    agentId: string,
+    input: CreateAgentCronJobInput,
+    source: "template" | "custom",
+  ): Promise<AgentCronJob> {
     if (!isValidCron(input.schedule)) {
       throw new UnprocessableEntityError(
         `invalid cron expression: "${input.schedule}"`,
@@ -273,6 +302,7 @@ export class AgentCronJobService {
         preCheck: input.preCheck ?? null,
         name: input.name ?? null,
         system: input.system ?? false,
+        source,
       },
     });
   }
@@ -290,6 +320,15 @@ export class AgentCronJobService {
       throw new NotFoundError(`cron job ${cronId} not found`);
     }
 
+    // ATP-1.2: deleting a template row writes a tombstone so a later
+    // reconcile does not re-add it.
+    if (existing.source === "template") {
+      await this.prisma.agentCronJob.update({
+        where: { id: cronId },
+        data: { enabled: false, source: "custom", lockdownDisabledAt: null },
+      });
+      return;
+    }
     await this.prisma.agentCronJob.delete({ where: { id: cronId } });
   }
 
@@ -305,15 +344,28 @@ export class AgentCronJobService {
   async update(
     agentId: string,
     cronId: string,
-    input: {
-      schedule: string;
-      prompt: string;
-      channel?: string | null;
-      user?: string | null;
-      silent?: boolean;
-      preCheck?: string | null;
-      enabled?: boolean;
-    },
+    input: UpdateAgentCronJobInput,
+  ): Promise<AgentCronJob> {
+    return this.updateWithSource(agentId, cronId, input, "custom");
+  }
+
+  /**
+   * Internal reconcile write path (ATP-1.2); never exposed over HTTP.
+   * Same validation as update() but leaves `source` untouched.
+   */
+  async updateFromTemplate(
+    agentId: string,
+    cronId: string,
+    input: UpdateAgentCronJobInput,
+  ): Promise<AgentCronJob> {
+    return this.updateWithSource(agentId, cronId, input, undefined);
+  }
+
+  private async updateWithSource(
+    agentId: string,
+    cronId: string,
+    input: UpdateAgentCronJobInput,
+    source: "custom" | undefined,
   ): Promise<AgentCronJob> {
     await this.get(agentId, cronId);
 
@@ -337,6 +389,7 @@ export class AgentCronJobService {
         channel,
         user,
         silent,
+        ...(source && { source }),
         ...(input.preCheck !== undefined && { preCheck: input.preCheck }),
         // Any explicit enabled change is a user decision — clear the lockdown
         // marker so restoreLockdownDisabled() never overrides it.
@@ -361,7 +414,7 @@ export class AgentCronJobService {
     await this.get(agentId, cronId);
     return this.prisma.agentCronJob.update({
       where: { id: cronId },
-      data: { preCheck },
+      data: { preCheck, source: "custom" },
     });
   }
 
@@ -384,6 +437,7 @@ export class AgentCronJobService {
     return this.prisma.agentCronJob.update({
       where: { id: cronId },
       data: {
+        source: "custom",
         ...(input.channel !== undefined && { channel: input.channel }),
         ...(input.user !== undefined && { user: input.user }),
         ...(input.silent !== undefined && { silent: input.silent }),
@@ -413,6 +467,8 @@ export class AgentCronJobService {
       data: {
         enabled,
         lockdownDisabledAt: !enabled && opts?.lockdown ? new Date() : null,
+        // A lockdown disable is system-driven, not an admin edit.
+        ...(!opts?.lockdown && { source: "custom" }),
       },
     });
   }
