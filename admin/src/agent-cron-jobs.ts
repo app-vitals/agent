@@ -10,6 +10,7 @@
 import type { AgentCronJob, PrismaClient } from "../prisma/client/client.ts";
 import { type Clock, SystemClock } from "./clock.ts";
 import { NotFoundError, UnprocessableEntityError } from "./errors.ts";
+import type { PrismaTransactionClient } from "./prisma-tx.ts";
 import type {
   SpecialtyDefaultCron,
   SpecialtyDefaultsResolver,
@@ -560,101 +561,117 @@ export class AgentCronJobService {
       where: { agentId, system: true },
     });
 
-    // Build a map of name → existing cron
-    const existingByName = new Map<string, AgentCronJob>();
-    for (const cron of existingSystemCrons) {
-      if (cron.name) {
-        existingByName.set(cron.name, cron);
-      }
-    }
-
-    // Build set of valid default cron names for orphan detection
-    const systemCronNames = new Set(defaultCrons.map((c) => c.name));
-
-    let created = 0;
-    let updated = 0;
-    let deleted = 0;
-
     // Wrap all mutations in a transaction so a crash mid-loop cannot leave
     // the agent missing required system crons (e.g. shipwright-dev-task).
-    await this.prisma.$transaction(async (tx) => {
-      // Pass 1: reconcile each default cron entry, recording name → row id.
-      const idByName = new Map<string, string>();
-      for (const systemCron of defaultCrons) {
-        const existing = existingByName.get(systemCron.name);
-
-        if (existing) {
-          // Update in place — preserves id (and thus AgentCronRun history,
-          // which cascade-deletes when its AgentCronJob is deleted) and the
-          // existing enabled state.
-          await tx.agentCronJob.update({
-            where: { id: existing.id },
-            data: {
-              schedule: systemCron.schedule,
-              prompt: systemCron.prompt,
-              silent: systemCron.silent ?? false,
-              preCheck: systemCron.preCheck ?? null,
-            },
-          });
-          idByName.set(systemCron.name, existing.id);
-          updated++;
-        } else {
-          const createdCron = await tx.agentCronJob.create({
-            data: {
-              agentId,
-              name: systemCron.name,
-              system: true,
-              schedule: systemCron.schedule,
-              prompt: systemCron.prompt,
-              silent: systemCron.silent ?? false,
-              preCheck: systemCron.preCheck ?? null,
-              channel: null,
-              user: null,
-              enabled: systemCron.enabled ?? true,
-            },
-          });
-          idByName.set(systemCron.name, createdCron.id);
-          created++;
-        }
-      }
-
-      // Pass 2: link declared parent/child crons now that every row in this
-      // reconcile has a known id, regardless of array order or first-boot.
-      // Also clears parentCronId back to null when an entry no longer
-      // declares a resolvable parentCron, so the link self-heals in both
-      // directions rather than only null→set.
-      for (const systemCron of defaultCrons) {
-        const childId = idByName.get(systemCron.name);
-        if (!childId) continue;
-        const parentId = systemCron.parentCron
-          ? idByName.get(systemCron.parentCron)
-          : undefined;
-
-        if (parentId) {
-          await tx.agentCronJob.update({
-            where: { id: childId },
-            data: { parentCronId: parentId },
-          });
-        } else {
-          const existing = existingByName.get(systemCron.name);
-          if (existing && existing.parentCronId !== null) {
-            await tx.agentCronJob.update({
-              where: { id: childId },
-              data: { parentCronId: null },
-            });
-          }
-        }
-      }
-
-      // Orphan pass: delete any system cron whose name is not in the defaults.
-      for (const cron of existingSystemCrons) {
-        if (!cron.name || !systemCronNames.has(cron.name)) {
-          await tx.agentCronJob.delete({ where: { id: cron.id } });
-          deleted++;
-        }
-      }
-    });
-
-    return { created, updated, deleted };
+    return this.prisma.$transaction((tx) =>
+      applySystemCronDefaults(tx, agentId, defaultCrons, existingSystemCrons),
+    );
   }
+}
+
+/**
+ * The mutation half of reconcileSystemCrons(), shared with the template
+ * reconcile (agent-template-reconcile.ts) so both run it inside their own
+ * transaction: pass 1 updates/creates each default cron by name, pass 2
+ * links parentCron, the orphan pass deletes system crons no longer listed.
+ * `existingSystemCrons` are the agent's rows with system=true.
+ */
+export async function applySystemCronDefaults(
+  tx: Pick<PrismaTransactionClient, "agentCronJob">,
+  agentId: string,
+  defaultCrons: readonly SpecialtyDefaultCron[],
+  existingSystemCrons: readonly AgentCronJob[],
+): Promise<{ created: number; updated: number; deleted: number }> {
+  // Build a map of name → existing cron
+  const existingByName = new Map<string, AgentCronJob>();
+  for (const cron of existingSystemCrons) {
+    if (cron.name) {
+      existingByName.set(cron.name, cron);
+    }
+  }
+
+  // Build set of valid default cron names for orphan detection
+  const systemCronNames = new Set(defaultCrons.map((c) => c.name));
+
+  let created = 0;
+  let updated = 0;
+  let deleted = 0;
+
+  // Pass 1: reconcile each default cron entry, recording name → row id.
+  const idByName = new Map<string, string>();
+  for (const systemCron of defaultCrons) {
+    const existing = existingByName.get(systemCron.name);
+
+    if (existing) {
+      // Update in place — preserves id (and thus AgentCronRun history,
+      // which cascade-deletes when its AgentCronJob is deleted) and the
+      // existing enabled state.
+      await tx.agentCronJob.update({
+        where: { id: existing.id },
+        data: {
+          schedule: systemCron.schedule,
+          prompt: systemCron.prompt,
+          silent: systemCron.silent ?? false,
+          preCheck: systemCron.preCheck ?? null,
+        },
+      });
+      idByName.set(systemCron.name, existing.id);
+      updated++;
+    } else {
+      const createdCron = await tx.agentCronJob.create({
+        data: {
+          agentId,
+          name: systemCron.name,
+          system: true,
+          schedule: systemCron.schedule,
+          prompt: systemCron.prompt,
+          silent: systemCron.silent ?? false,
+          preCheck: systemCron.preCheck ?? null,
+          channel: null,
+          user: null,
+          enabled: systemCron.enabled ?? true,
+        },
+      });
+      idByName.set(systemCron.name, createdCron.id);
+      created++;
+    }
+  }
+
+  // Pass 2: link declared parent/child crons now that every row in this
+  // reconcile has a known id, regardless of array order or first-boot.
+  // Also clears parentCronId back to null when an entry no longer
+  // declares a resolvable parentCron, so the link self-heals in both
+  // directions rather than only null→set.
+  for (const systemCron of defaultCrons) {
+    const childId = idByName.get(systemCron.name);
+    if (!childId) continue;
+    const parentId = systemCron.parentCron
+      ? idByName.get(systemCron.parentCron)
+      : undefined;
+
+    if (parentId) {
+      await tx.agentCronJob.update({
+        where: { id: childId },
+        data: { parentCronId: parentId },
+      });
+    } else {
+      const existing = existingByName.get(systemCron.name);
+      if (existing && existing.parentCronId !== null) {
+        await tx.agentCronJob.update({
+          where: { id: childId },
+          data: { parentCronId: null },
+        });
+      }
+    }
+  }
+
+  // Orphan pass: delete any system cron whose name is not in the defaults.
+  for (const cron of existingSystemCrons) {
+    if (!cron.name || !systemCronNames.has(cron.name)) {
+      await tx.agentCronJob.delete({ where: { id: cron.id } });
+      deleted++;
+    }
+  }
+
+  return { created, updated, deleted };
 }
