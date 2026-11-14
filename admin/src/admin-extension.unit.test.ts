@@ -53,6 +53,7 @@ describe("resolveAdminExtensions", () => {
       adminUiRoutes: [],
       agentDetailCards: [],
       backgroundPasses: [],
+      settingsNavItems: [],
     });
   });
 
@@ -88,6 +89,10 @@ describe("resolveAdminExtensions", () => {
         calls.push(`${id}:backgroundPasses:${c === ctx}`);
         return [];
       },
+      settingsNavItems: (c) => {
+        calls.push(`${id}:settingsNavItems:${c === ctx}`);
+        return [];
+      },
       openApi: () => {
         calls.push(`${id}:openApi`);
         return {};
@@ -105,14 +110,72 @@ describe("resolveAdminExtensions", () => {
     expect(calls.some((c) => c.endsWith(":openApi"))).toBe(false);
   });
 
-  it("pins the hook order: services first, background passes last", () => {
+  it("pins the hook order: services first, settings nav items last", () => {
     expect([...ADMIN_EXTENSION_HOOK_ORDER]).toEqual([
       "services",
       "apiRoutes",
       "adminUiRoutes",
       "agentDetailCards",
       "backgroundPasses",
+      "settingsNavItems",
     ]);
+  });
+
+  it("settingsNavItems: concatenates in extension order and passes adminOnly through", () => {
+    const resolved = resolveAdminExtensions(
+      [
+        {
+          settingsNavItems: () => [
+            { section: "A", label: "a1", path: "/a1", adminOnly: true },
+          ],
+        },
+        {},
+        {
+          settingsNavItems: (c) => [
+            { section: c === ctx ? "B" : "?", label: "b1", path: "/b1" },
+          ],
+        },
+      ],
+      ctx,
+    );
+    expect(resolved.settingsNavItems).toEqual([
+      { section: "A", label: "a1", path: "/a1", adminOnly: true },
+      { section: "B", label: "b1", path: "/b1" },
+    ]);
+  });
+
+  it("settingsNavItems: a throwing hook is logged and skipped, others unaffected", () => {
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const resolved = resolveAdminExtensions(
+        [
+          {
+            settingsNavItems: () => {
+              throw new Error("boom");
+            },
+            backgroundPasses: () => [
+              {
+                name: "p",
+                logPrefix: "[p]",
+                intervalMs: 1,
+                tick: async () => {},
+              },
+            ],
+          },
+          {
+            settingsNavItems: () => [{ section: "S", label: "l", path: "/l" }],
+          },
+        ],
+        ctx,
+      );
+      expect(resolved.settingsNavItems).toEqual([
+        { section: "S", label: "l", path: "/l" },
+      ]);
+      expect(resolved.backgroundPasses).toHaveLength(1);
+      expect(errSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it("concatenates list contributions in extension order", () => {
