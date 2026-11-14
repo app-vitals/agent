@@ -52,6 +52,8 @@ import {
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
+import { registerAdminTemplatesRoutes } from "./admin-ui-templates.ts";
+import type { AgentTemplateService } from "./agent-templates.ts";
 import {
   type GithubAccessPreviewView,
   renderGithubAccessError,
@@ -437,6 +439,14 @@ export interface AdminUIDeps {
    * (additive): when absent the Settings page and its nav entry are not
    * registered.
    */
+  /**
+   * ATP-2.3: the template service behind Settings > Templates. Optional;
+   * absent → no /admin/settings/templates routes.
+   */
+  templateService?: Pick<
+    AgentTemplateService,
+    "list" | "replace" | "putItem" | "deleteItem" | "delete"
+  >;
   githubEnterpriseApi?: (
     path: string,
     init?: RequestInit,
@@ -855,6 +865,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     accountCreatedNotifier,
     accountServices,
     githubEnterpriseApi,
+    templateService,
     agentsApi,
     specialtyRegistry = new SpecialtyTypes(),
     specialtyDefaults,
@@ -3702,6 +3713,19 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     registerAdminGithubEnterpriseRoutes(app, {
       requireAuth,
       api: githubEnterpriseApi,
+      html,
+    });
+  }
+
+  // ─── Template editor (ATP-2.3) ───────────────────────────────────────────
+
+  if (templateService) {
+    registerAdminTemplatesRoutes(app, {
+      requireAuth,
+      templateService,
+      callerScopeResolver,
+      ...(accountServices ? { accounts: accountServices.accounts } : {}),
+      specialtyRegistry,
       html,
     });
   }

@@ -578,14 +578,15 @@ export async function startAdmin(
   );
 
   // 3b''. Agent templates API — /templates/* — admin or account-scoped (ATP-1.3)
+  const templateService = new AgentTemplateService(
+    prisma,
+    crypto,
+    specialtyRegistry,
+  );
   root.route(
     "/",
     createAgentTemplatesApp({
-      templateService: new AgentTemplateService(
-        prisma,
-        crypto,
-        specialtyRegistry,
-      ),
+      templateService,
       callerScopeResolver,
       sessionSecret,
       adminApiKeys,
@@ -639,6 +640,7 @@ export async function startAdmin(
     anthropicFederationEnabled,
     specialtyRegistry,
     specialtyDefaults,
+    templateService,
     serviceIntegrations,
     chatService: deletionChatService,
     slack: slackClient,
