@@ -265,7 +265,7 @@ export function renderGithubEnterpriseSettingsPage(
     title: "GitHub Enterprise — Settings — Shipwright Admin",
     body: `${renderAdminToolbar(opts.userEmail, BASE)}
   <div class="vos-page">
-    <div class="page-header"><h1 class="page-title">GitHub Enterprise apps</h1></div>
+    <div class="page-header"><h1 class="page-title">GitHub Enterprise apps</h1><a href="/admin/settings/templates" class="btn btn-secondary">Agent templates</a></div>
     ${error}${notice}${intro}
     ${appCard("installer", status.installer, opts.warnings)}
     ${appCard("lookup", status.lookup, opts.warnings)}
