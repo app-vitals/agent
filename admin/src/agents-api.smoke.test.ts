@@ -5778,6 +5778,7 @@ describe("admin API — Anthropic credential guards (WIF-2.1)", () => {
         findUnique: async () => ({ id: AGENT_ID, selfHosted: opts.selfHosted }),
       },
       agentEnv: {
+        updateMany: async () => ({ count: 0 }),
         deleteMany: async () => ({ count: 0 }),
         create: async ({ data }: { data: { key: string } }) => {
           writes.push(data.key);

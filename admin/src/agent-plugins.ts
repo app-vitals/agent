@@ -56,9 +56,56 @@ export class AgentPluginService {
   ): Promise<AgentPlugin> {
     return client.agentPlugin.upsert({
       where: { agentId_name: { agentId, name } },
-      create: { agentId, name, version: version ?? null, enabled: true },
-      update: { version: version ?? null, enabled: true },
+      create: {
+        agentId,
+        name,
+        version: version ?? null,
+        enabled: true,
+        source: "custom",
+      },
+      update: { version: version ?? null, enabled: true, source: "custom" },
     });
+  }
+
+  /**
+   * Internal reconcile write path (ATP-1.2); never exposed over HTTP.
+   * Creates a template-sourced plugin, or refreshes one that is still
+   * template-owned. A custom row (user edit or tombstone) is returned
+   * untouched so a reconcile neither overrides nor resurrects it.
+   */
+  async addFromTemplate(
+    agentId: string,
+    name: string,
+    version?: string | null,
+    client: PrismaTransactionClient = this.prisma,
+  ): Promise<AgentPlugin> {
+    const existing = await client.agentPlugin.findUnique({
+      where: { agentId_name: { agentId, name } },
+    });
+    if (existing?.source === "custom") return existing;
+    return client.agentPlugin.upsert({
+      where: { agentId_name: { agentId, name } },
+      create: {
+        agentId,
+        name,
+        version: version ?? null,
+        enabled: true,
+        source: "template",
+      },
+      update: { version: version ?? null, enabled: true, source: "template" },
+    });
+  }
+
+  /** Delete the row, or tombstone it when it is template-sourced (ATP-1.2). */
+  private async removeRow(row: AgentPlugin): Promise<void> {
+    if (row.source === "template") {
+      await this.prisma.agentPlugin.update({
+        where: { id: row.id },
+        data: { enabled: false, source: "custom" },
+      });
+      return;
+    }
+    await this.prisma.agentPlugin.delete({ where: { id: row.id } });
   }
 
   /**
@@ -74,7 +121,7 @@ export class AgentPluginService {
       throw new NotFoundError(`plugin ${pluginId} not found`);
     }
 
-    await this.prisma.agentPlugin.delete({ where: { id: pluginId } });
+    await this.removeRow(existing);
   }
 
   /**
@@ -90,6 +137,6 @@ export class AgentPluginService {
       throw new NotFoundError(`plugin ${name} not found`);
     }
 
-    await this.prisma.agentPlugin.delete({ where: { id: existing.id } });
+    await this.removeRow(existing);
   }
 }

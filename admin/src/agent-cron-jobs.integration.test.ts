@@ -676,4 +676,81 @@ describeOrSkip("AgentCronJobService specialtyDefaults (integration)", () => {
     expect(loopAfter?.enabled).toBe(false);
     expect(after.some((j) => j.name === "stale-system")).toBe(false);
   });
+
+  // ─── ATP-1.2: source / tombstones ──────────────────────────────────────────
+
+  const BASE = { schedule: "0 9 * * *", prompt: "hi", channel: "C1" };
+
+  it("create() stamps source=custom; createFromTemplate() stamps template", async () => {
+    const agentId = await createAgent(prisma);
+    expect((await service.create(agentId, BASE)).source).toBe("custom");
+    const t = await service.createFromTemplate(agentId, {
+      ...BASE,
+      name: "tpl",
+    });
+    expect(t.source).toBe("template");
+  });
+
+  it("update(), updatePreCheck(), updateDelivery() and setEnabled() turn a template row custom", async () => {
+    const agentId = await createAgent(prisma);
+    const mk = () =>
+      service.createFromTemplate(agentId, {
+        ...BASE,
+        name: `t${Math.random()}`,
+      });
+    const a = await mk();
+    expect((await service.update(agentId, a.id, BASE)).source).toBe("custom");
+    const b = await mk();
+    expect((await service.updatePreCheck(agentId, b.id, "x.ts")).source).toBe(
+      "custom",
+    );
+    const c = await mk();
+    expect(
+      (await service.updateDelivery(agentId, c.id, { channel: "C2" })).source,
+    ).toBe("custom");
+    const d = await mk();
+    expect((await service.setEnabled(agentId, d.id, false)).source).toBe(
+      "custom",
+    );
+  });
+
+  it("a trial lockdown disable does not flip source", async () => {
+    const agentId = await createAgent(prisma);
+    const a = await service.createFromTemplate(agentId, BASE);
+    const off = await service.setEnabled(agentId, a.id, false, {
+      lockdown: true,
+    });
+    expect(off.source).toBe("template");
+  });
+
+  it("updateFromTemplate() edits a row without flipping source", async () => {
+    const agentId = await createAgent(prisma);
+    const a = await service.createFromTemplate(agentId, BASE);
+    const up = await service.updateFromTemplate(agentId, a.id, {
+      ...BASE,
+      prompt: "new",
+    });
+    expect(up.prompt).toBe("new");
+    expect(up.source).toBe("template");
+  });
+
+  it("delete() of a template row leaves a disabled custom tombstone", async () => {
+    const agentId = await createAgent(prisma);
+    const a = await service.createFromTemplate(agentId, BASE);
+    await service.delete(agentId, a.id);
+    const rows = await prisma.agentCronJob.findMany({ where: { agentId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.enabled).toBe(false);
+    expect(rows[0]?.source).toBe("custom");
+    expect(await service.listEnabled()).toEqual([]);
+  });
+
+  it("delete() of a custom row removes it", async () => {
+    const agentId = await createAgent(prisma);
+    const a = await service.create(agentId, BASE);
+    await service.delete(agentId, a.id);
+    expect(await prisma.agentCronJob.findMany({ where: { agentId } })).toEqual(
+      [],
+    );
+  });
 });

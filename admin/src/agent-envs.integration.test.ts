@@ -321,3 +321,111 @@ describeOrSkip(
     });
   },
 );
+
+describeOrSkip("AgentEnvService source and tombstones (integration)", () => {
+  let prisma: PrismaClient;
+  let service: AgentEnvService;
+
+  beforeEach(async () => {
+    prisma = makePrisma();
+    await prisma.agentToken.deleteMany();
+    await prisma.agentCronJob.deleteMany();
+    await prisma.agentTool.deleteMany();
+    await prisma.agentEnv.deleteMany();
+    await prisma.agent.deleteMany();
+    service = new AgentEnvService(prisma, identityCrypto);
+  });
+
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+
+  const rowsOf = (agentId: string) =>
+    prisma.agentEnv.findMany({ where: { agentId }, orderBy: { key: "asc" } });
+
+  it("patch() and upsert() stamp source=custom", async () => {
+    const agentId = await createAgent(prisma);
+    await service.patch(agentId, { A: "1" });
+    expect((await rowsOf(agentId)).map((r) => r.source)).toEqual(["custom"]);
+    await service.upsert(agentId, { B: "2" });
+    expect((await rowsOf(agentId)).map((r) => r.source)).toEqual(["custom"]);
+  });
+
+  it("patchFromTemplate() writes source=template", async () => {
+    const agentId = await createAgent(prisma);
+    await service.patchFromTemplate(agentId, { A: "1" });
+    const rows = await rowsOf(agentId);
+    expect(rows[0]?.source).toBe("template");
+    expect(rows[0]?.enabled).toBe(true);
+  });
+
+  it("patch() of a template-sourced key turns it custom", async () => {
+    const agentId = await createAgent(prisma);
+    await service.patchFromTemplate(agentId, { A: "1" });
+    await service.patch(agentId, { A: "2" });
+    const rows = await rowsOf(agentId);
+    expect(rows[0]?.source).toBe("custom");
+    expect((await service.getByAgentId(agentId))?.env).toEqual({ A: "2" });
+  });
+
+  it("patchFromTemplate() does not overwrite a custom or tombstoned key", async () => {
+    const agentId = await createAgent(prisma);
+    await service.patch(agentId, { C: "mine" });
+    await service.patchFromTemplate(agentId, { C: "tpl" });
+    expect((await service.getByAgentId(agentId))?.env).toEqual({ C: "mine" });
+    await service.patchFromTemplate(agentId, { T: "tpl" });
+    await service.deleteKey(agentId, "T");
+    await service.patchFromTemplate(agentId, { T: "tpl" });
+    const t = (await rowsOf(agentId)).find((r) => r.key === "T");
+    expect(t?.enabled).toBe(false);
+    expect(t?.source).toBe("custom");
+  });
+
+  it("deleteKey() of a template key leaves a tombstone that no read injects", async () => {
+    const agentId = await createAgent(prisma);
+    await service.patchFromTemplate(agentId, { T: "tpl" });
+    await service.patch(agentId, { K: "keep" });
+    await service.deleteKey(agentId, "T");
+    const t = (await rowsOf(agentId)).find((r) => r.key === "T");
+    expect(t?.enabled).toBe(false);
+    expect(t?.source).toBe("custom");
+    expect((await service.getByAgentId(agentId))?.env).toEqual({ K: "keep" });
+    expect((await service.getConfigBundle(agentId))?.env).toEqual({
+      K: "keep",
+    });
+    expect((await service.listAll())[0]?.env).toEqual({ K: "keep" });
+  });
+
+  it("a tombstone-only agent reads as having no env", async () => {
+    const agentId = await createAgent(prisma);
+    await service.patchFromTemplate(agentId, { T: "tpl" });
+    await service.deleteKey(agentId, "T");
+    expect(await service.getByAgentId(agentId)).toBeNull();
+    expect(await service.getConfigBundle(agentId)).toBeNull();
+  });
+
+  it("deleteKey() of a custom key removes the row", async () => {
+    const agentId = await createAgent(prisma);
+    await service.patch(agentId, { K: "v" });
+    await service.deleteKey(agentId, "K");
+    expect(await rowsOf(agentId)).toEqual([]);
+  });
+
+  it("patch() re-enables a tombstoned key", async () => {
+    const agentId = await createAgent(prisma);
+    await service.patchFromTemplate(agentId, { T: "tpl" });
+    await service.deleteKey(agentId, "T");
+    await service.patch(agentId, { T: "again" });
+    expect((await service.getByAgentId(agentId))?.env).toEqual({ T: "again" });
+  });
+
+  it("upsert() tombstones template keys it omits", async () => {
+    const agentId = await createAgent(prisma);
+    await service.patchFromTemplate(agentId, { T: "tpl" });
+    await service.upsert(agentId, { K: "v" });
+    const t = (await rowsOf(agentId)).find((r) => r.key === "T");
+    expect(t?.enabled).toBe(false);
+    expect(t?.source).toBe("custom");
+    expect((await service.getByAgentId(agentId))?.env).toEqual({ K: "v" });
+  });
+});

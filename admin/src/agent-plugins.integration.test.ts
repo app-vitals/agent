@@ -154,4 +154,56 @@ describeOrSkip("AgentPluginService (integration)", () => {
       service.removeByName(agentId2, "shipwright@shipwright"),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
+
+  // ─── ATP-1.2: source / tombstones ──────────────────────────────────────────
+
+  it("add() stamps source=custom, including on a template row", async () => {
+    const agentId = await createAgent(prisma);
+    expect((await service.add(agentId, "a@m")).source).toBe("custom");
+    await service.addFromTemplate(agentId, "b@m", "1.0.0");
+    const edited = await service.add(agentId, "b@m", "2.0.0");
+    expect(edited.source).toBe("custom");
+    expect(edited.version).toBe("2.0.0");
+  });
+
+  it("addFromTemplate() writes source=template and keeps it on re-run", async () => {
+    const agentId = await createAgent(prisma);
+    const first = await service.addFromTemplate(agentId, "a@m", "1.0.0");
+    expect(first.source).toBe("template");
+    const again = await service.addFromTemplate(agentId, "a@m", "1.1.0");
+    expect(again.source).toBe("template");
+    expect(again.version).toBe("1.1.0");
+  });
+
+  it("addFromTemplate() does not resurrect a tombstone", async () => {
+    const agentId = await createAgent(prisma);
+    const p = await service.addFromTemplate(agentId, "a@m");
+    await service.remove(agentId, p.id);
+    const after = await service.addFromTemplate(agentId, "a@m");
+    expect(after.enabled).toBe(false);
+    expect(after.source).toBe("custom");
+  });
+
+  it("remove() of a template row leaves a disabled custom tombstone hidden from listEnabled()", async () => {
+    const agentId = await createAgent(prisma);
+    const p = await service.addFromTemplate(agentId, "a@m");
+    await service.remove(agentId, p.id);
+    const rows = await prisma.agentPlugin.findMany({ where: { agentId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.enabled).toBe(false);
+    expect(rows[0]?.source).toBe("custom");
+    expect(await service.listEnabled(agentId)).toEqual([]);
+  });
+
+  it("removeByName() of a template row leaves a tombstone; of a custom row deletes it", async () => {
+    const agentId = await createAgent(prisma);
+    await service.addFromTemplate(agentId, "t@m");
+    await service.add(agentId, "c@m");
+    await service.removeByName(agentId, "t@m");
+    await service.removeByName(agentId, "c@m");
+    const rows = await prisma.agentPlugin.findMany({ where: { agentId } });
+    expect(rows.map((r) => [r.name, r.enabled, r.source])).toEqual([
+      ["t@m", false, "custom"],
+    ]);
+  });
 });

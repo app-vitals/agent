@@ -121,6 +121,7 @@ model AgentEnv {
   key       String   // env var name
   value     String   // AES-256-GCM encrypted
   secret    Boolean  @default(false) // when true, GET /agents/:id/envs masks the value as ***
+  enabled   Boolean  @default(true) // ATP-1.2: false = tombstone of a deleted template row; hidden from every read
   source    String   @default("custom") // ATP-1.1: 'template' | 'custom'; which rows a template sync owns
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -126,4 +126,59 @@ describeOrSkip("AgentToolService (integration)", () => {
       service.updatePattern(agentId, "nonexistent", "Read"),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
+
+  // ─── ATP-1.2: source / tombstones ──────────────────────────────────────────
+
+  it("add() stamps source=custom, including on a template row", async () => {
+    const agentId = await createAgent(prisma);
+    const fresh = await service.add(agentId, "Read");
+    expect(fresh.source).toBe("custom");
+    await service.addFromTemplate(agentId, "Bash");
+    const edited = await service.add(agentId, "Bash");
+    expect(edited.source).toBe("custom");
+  });
+
+  it("addFromTemplate() writes source=template and keeps it on re-run", async () => {
+    const agentId = await createAgent(prisma);
+    const first = await service.addFromTemplate(agentId, "Read");
+    expect(first.source).toBe("template");
+    expect(first.enabled).toBe(true);
+    const again = await service.addFromTemplate(agentId, "Read");
+    expect(again.source).toBe("template");
+  });
+
+  it("addFromTemplate() does not resurrect a tombstone or reclaim a custom row", async () => {
+    const agentId = await createAgent(prisma);
+    const t = await service.addFromTemplate(agentId, "Read");
+    await service.remove(agentId, t.id);
+    const after = await service.addFromTemplate(agentId, "Read");
+    expect(after.enabled).toBe(false);
+    expect(after.source).toBe("custom");
+  });
+
+  it("toggle() and updatePattern() turn a template row custom", async () => {
+    const agentId = await createAgent(prisma);
+    const a = await service.addFromTemplate(agentId, "Read");
+    expect((await service.toggle(agentId, a.id, false)).source).toBe("custom");
+    const b = await service.addFromTemplate(agentId, "Bash");
+    const updated = await service.updatePattern(agentId, b.id, "Bash(ls)");
+    expect(updated.source).toBe("custom");
+  });
+
+  it("remove() of a template row leaves a disabled custom tombstone", async () => {
+    const agentId = await createAgent(prisma);
+    const t = await service.addFromTemplate(agentId, "Read");
+    await service.remove(agentId, t.id);
+    const rows = await prisma.agentTool.findMany({ where: { agentId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.enabled).toBe(false);
+    expect(rows[0]?.source).toBe("custom");
+  });
+
+  it("remove() of a custom row deletes it", async () => {
+    const agentId = await createAgent(prisma);
+    const t = await service.add(agentId, "Read");
+    await service.remove(agentId, t.id);
+    expect(await prisma.agentTool.findMany({ where: { agentId } })).toEqual([]);
+  });
 });
