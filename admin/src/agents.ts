@@ -14,13 +14,17 @@ import { isOrgRepo } from "@app-vitals/agent-lib/org-repo";
 import { SECRET_ENV_VARS } from "@app-vitals/agent-lib/secret-env-vars";
 import type { PrismaClient } from "../prisma/client/client.ts";
 import type { AgentAnthropicIdentity } from "./agent-anthropic-identity.ts";
+import type { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
 import type { AgentCronJobService } from "./agent-cron-jobs.ts";
 import type { AgentEnvService } from "./agent-envs.ts";
 import { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
 import type { AgentProvisioner } from "./agent-provisioner.ts";
 import type { AgentToolService } from "./agent-tools.ts";
-import { ANTHROPIC_CREDENTIALS_BLOCKED_CODE } from "./anthropic-credential-guard.ts";
+import {
+  ANTHROPIC_CREDENTIALS_BLOCKED_CODE,
+  anthropicCredentialKeysIn,
+} from "./anthropic-credential-guard.ts";
 import type { PrismaTransactionClient } from "./prisma-tx.ts";
 import type { SpecialtyDefaultsResolver } from "./specialty-defaults.ts";
 import {
@@ -48,6 +52,8 @@ interface CreateAgentInput {
   accountId?: string;
   /** Owner's email (PAI-1.2). Already normalized by createAgent(); omitted means no owner. */
   ownerEmail?: string;
+  /** ATP-2.2: create the agent detached from the agent template. */
+  templateDetached?: boolean;
 }
 
 export interface AgentRecord {
@@ -360,6 +366,9 @@ export class AgentService {
           : {}),
         ...(input.ownerEmail !== undefined
           ? { ownerEmail: input.ownerEmail }
+          : {}),
+        ...(input.templateDetached !== undefined
+          ? { templateDetached: input.templateDetached }
           : {}),
       },
     });
@@ -747,6 +756,17 @@ export interface CreateAgentFormInput {
    * trims and lower-cases it; blank is treated as absent.
    */
   ownerEmail?: string;
+  /**
+   * ATP-2.2: true opts the new agent out of the agent template entirely — it
+   * gets only the built-in specialty defaults and no later template writes.
+   */
+  templateDetached?: boolean;
+  /**
+   * ATP-2.2: explicit env values from the provisioning request. They override
+   * the template per key and are written source=custom, so later reconciles
+   * never touch them.
+   */
+  env?: Record<string, string>;
 }
 
 // Deliberately simple: one @, no whitespace, a dotted domain. Enough to keep
@@ -828,6 +848,13 @@ export interface CreateAgentDeps {
   specialtyDefaults?: SpecialtyDefaultsResolver;
   /** WIF-2.1: Anthropic federation is enabled; defaults to false. */
   anthropicFederationEnabled?: boolean;
+  /**
+   * ATP-2.2: seeds the resolved agent template (specialty defaults plus the
+   * deployment/account layers) inside the create transaction. Optional
+   * (additive); absent, or for a detached agent, the built-in specialty
+   * defaults are copied directly.
+   */
+  templateReconcile?: Pick<AgentTemplateReconcileService, "reconcile">;
 }
 
 /**
@@ -870,7 +897,7 @@ async function checkAccountQuota(
 
 /** Discriminated outcome of the transactional portion of createAgent(). */
 type CreateAgentTxOutcome =
-  | { ok: true; agent: AgentDetail }
+  | { ok: true; agent: AgentDetail; seededEnvKeys: Set<string> }
   | { ok: false; errorCode: CreateAgentErrorCode; errorMessage?: string };
 
 /**
@@ -947,7 +974,9 @@ export async function createAgent(
   if (
     deps.anthropicFederationEnabled &&
     inCluster &&
-    (input.claudeCodeOauthToken || input.anthropicApiKey)
+    (input.claudeCodeOauthToken ||
+      input.anthropicApiKey ||
+      anthropicCredentialKeysIn(Object.keys(input.env ?? {})).length > 0)
   ) {
     return {
       ok: false,
@@ -979,6 +1008,7 @@ export async function createAgent(
             ? { accountId: input.accountId }
             : {}),
           ...(ownerEmail !== undefined ? { ownerEmail } : {}),
+          ...(input.templateDetached ? { templateDetached: true } : {}),
         },
         tx,
       );
@@ -988,19 +1018,36 @@ export async function createAgent(
       // failure so a retry with the same name doesn't collide with a
       // half-seeded agent. Members/repos have their own dedicated handling
       // below.
+      //
+      // ATP-2.2: an attached agent takes the resolved template (specialty
+      // defaults + deployment/account layers) from the reconcile engine in
+      // this same transaction; a detached agent (or a deployment without the
+      // engine) gets the built-in specialty defaults copied directly.
+      const seededEnvKeys = new Set<string>();
       try {
-        for (const pattern of extensionDefaults?.tools ?? type?.tools ?? []) {
-          await deps.agentToolService.add(agent.id, pattern, tx);
-        }
-        for (const pluginName of resolveDefaultPlugins(
-          extensionDefaults?.plugins,
-        )) {
-          await deps.agentPluginService.add(
-            agent.id,
-            pluginName,
-            undefined,
-            tx,
-          );
+        if (deps.templateReconcile && !input.templateDetached) {
+          await deps.templateReconcile.reconcile(agent.id, tx);
+          if (tx) {
+            const rows = await tx.agentEnv.findMany({
+              where: { agentId: agent.id },
+              select: { key: true },
+            });
+            for (const r of rows) seededEnvKeys.add(r.key);
+          }
+        } else {
+          for (const pattern of extensionDefaults?.tools ?? type?.tools ?? []) {
+            await deps.agentToolService.add(agent.id, pattern, tx);
+          }
+          for (const pluginName of resolveDefaultPlugins(
+            extensionDefaults?.plugins,
+          )) {
+            await deps.agentPluginService.add(
+              agent.id,
+              pluginName,
+              undefined,
+              tx,
+            );
+          }
         }
       } catch (err) {
         console.error(
@@ -1094,7 +1141,7 @@ export async function createAgent(
         }
       }
 
-      return { ok: true, agent };
+      return { ok: true, agent, seededEnvKeys };
     },
   );
 
@@ -1116,7 +1163,13 @@ export async function createAgent(
   // Non-secret defaults (e.g. ANTHROPIC_MODEL) are seeded alongside so they
   // show up in the agent's env view; the secret credentials below are
   // operator-supplied only and never defaulted.
-  const initialEnv: Record<string, string> = { ...DEFAULT_AGENT_ENV };
+  // A template env value for the same key replaces the built-in default;
+  // explicit credentials below are written custom and always win.
+  const initialEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(DEFAULT_AGENT_ENV)) {
+    if (!txResult.seededEnvKeys.has(key)) initialEnv[key] = value;
+  }
+  Object.assign(initialEnv, input.env);
   if (input.claudeCodeOauthToken) {
     initialEnv.CLAUDE_CODE_OAUTH_TOKEN = input.claudeCodeOauthToken;
   }

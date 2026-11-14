@@ -903,6 +903,174 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/template/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconcile the agent against its template
+         * @description Applies the agent's merged template (specialty defaults, deployment/account layers) to its env, tools, plugins and crons in one transaction: adds missing items, updates template-sourced rows, removes orphans, and leaves custom rows and tombstones alone. A detached agent is left untouched (status `detached`). Called automatically on agent startup and when a template changes.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Template reconcile summary */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TemplateReconcileResult"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/template/detach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Detach the agent from its template
+         * @description Stops applying template writes to the agent. Existing rows stay as they are. Admin or session member only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Agent detached */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TemplateDetachResult"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/template/reattach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reattach the agent to its template
+         * @description Clears the detach flag and reconciles the agent against its template. Custom rows are kept. Admin or session member only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Template reconcile summary */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TemplateReconcileResult"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/template/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset the agent to its template
+         * @description Drops the agent's custom rows (overrides and tombstones) for every key its template defines, or only the one `kind`/`key` given, then reconciles so the template values return as template-sourced rows. 409 when the agent is detached. Admin or session member only.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ResetTemplateBody"];
+                };
+            };
+            responses: {
+                /** @description Template reconcile summary */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TemplateReconcileResult"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/crons/reconcile": {
         parameters: {
             query?: never;
@@ -4541,6 +4709,16 @@ export interface components {
             restrictSlackToMembersRaw?: string;
             claudeCodeOauthToken?: string;
             anthropicApiKey?: string;
+            /**
+             * @example {
+             *       "ANTHROPIC_MODEL": "claude-opus-4-1"
+             *     }
+             */
+            env?: {
+                [key: string]: string;
+            };
+            /** @example false */
+            templateDetached?: boolean;
         };
         Ok: {
             /** @enum {boolean} */
@@ -4643,6 +4821,58 @@ export interface components {
             preCheck?: string | null;
             /** @example morning-brief */
             name?: string | null;
+        };
+        TemplateReconcileResult: {
+            agentId: string;
+            /** @enum {string} */
+            status: "reconciled" | "detached" | "unknown_specialty";
+            counts: {
+                env: {
+                    created: number;
+                    updated: number;
+                    adopted: number;
+                    deleted: number;
+                };
+                tool: {
+                    created: number;
+                    updated: number;
+                    adopted: number;
+                    deleted: number;
+                };
+                plugin: {
+                    created: number;
+                    updated: number;
+                    adopted: number;
+                    deleted: number;
+                };
+                cron: {
+                    created: number;
+                    updated: number;
+                    adopted: number;
+                    deleted: number;
+                };
+            };
+            systemCrons: {
+                created: number;
+                updated: number;
+                deleted: number;
+            };
+            conflicts: {
+                /** @enum {string} */
+                kind: "env" | "tool" | "plugin" | "cron";
+                key: string;
+                /** @enum {string} */
+                reason: "cron_name_conflict" | "invalid_cron_schedule" | "denylisted_env_key";
+            }[];
+            toolsEmptyGuarded: boolean;
+        };
+        TemplateDetachResult: {
+            templateDetached: boolean;
+        };
+        ResetTemplateBody: {
+            /** @enum {string} */
+            kind?: "env" | "tool" | "plugin" | "cron";
+            key?: string;
         };
         ReconcileCronResult: {
             created: number;

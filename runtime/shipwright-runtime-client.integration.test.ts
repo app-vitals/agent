@@ -338,3 +338,32 @@ describe("HttpShipwrightRuntimeClient.reconcileSystemCrons", () => {
     );
   });
 });
+
+// ─── reconcileTemplate ─────────────────────────────────────────────────────────
+
+describe("HttpShipwrightRuntimeClient.reconcileTemplate", () => {
+  it("POSTs /agents/{id}/template/reconcile and resolves on 200", async () => {
+    const { fn, calls } = capturingFetch(200, { status: "reconciled" });
+    const client = new HttpShipwrightRuntimeClient({
+      apiUrl: API_URL,
+      apiKey: API_KEY,
+      fetchFn: fn,
+    });
+
+    await expect(client.reconcileTemplate(AGENT_ID)).resolves.toBeUndefined();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toContain(`/agents/${AGENT_ID}/template/reconcile`);
+  });
+
+  it("throws ShipwrightClientError on a non-2xx response", async () => {
+    const client = new HttpShipwrightRuntimeClient({
+      apiUrl: API_URL,
+      apiKey: API_KEY,
+      fetchFn: fakeFetch(404, { error: "Not found" }),
+    });
+
+    const err = await client.reconcileTemplate(AGENT_ID).catch((e) => e);
+    expect(err).toBeInstanceOf(ShipwrightClientError);
+    expect(err.statusCode).toBe(404);
+  });
+});
