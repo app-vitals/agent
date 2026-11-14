@@ -649,6 +649,34 @@ describeOrSkip("AgentTemplateReconcileService (integration)", () => {
     });
   });
 
+  it("a system cron override with an invalid schedule keeps the default and reports a conflict", async () => {
+    const agentId = await agent();
+    await service.reconcile(agentId);
+    const loop = await prisma.agentCronJob.findFirstOrThrow({
+      where: { agentId, name: "fx-loop" },
+    });
+
+    await template(null, null, [
+      {
+        kind: "cron",
+        key: "fx-loop",
+        payload: { schedule: "every 5 min", prompt: "/fx-template" },
+      },
+    ]);
+    const result = await service.reconcile(agentId);
+    expect(result.conflicts).toEqual([
+      { kind: "cron", key: "fx-loop", reason: "invalid_cron_schedule" },
+    ]);
+    const rows = await prisma.agentCronJob.findMany({ where: { agentId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: loop.id,
+      system: true,
+      schedule: "*/5 * * * *",
+      prompt: "/fx",
+    });
+  });
+
   // ─── idempotency and atomicity ────────────────────────────────────────────
 
   it("is idempotent: a second reconcile writes nothing", async () => {

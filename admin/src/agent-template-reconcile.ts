@@ -385,6 +385,16 @@ export class AgentTemplateReconcileService {
       const winner = merged.cron.get(def.name);
       if (!winner || winner.layer === "specialty-default") return def;
       const f = cronFieldsOf(winner.payload);
+      // An invalid override schedule would land on a required system cron and
+      // break scheduling at runtime; keep the specialty default instead.
+      if (f.schedule !== undefined && !isValidCron(f.schedule)) {
+        result.conflicts.push({
+          kind: "cron",
+          key: def.name,
+          reason: "invalid_cron_schedule",
+        });
+        return def;
+      }
       return {
         name: def.name,
         schedule: f.schedule ?? def.schedule,
