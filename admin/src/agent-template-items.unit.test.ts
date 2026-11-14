@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  assertTemplateEnvKeyAllowed,
   openTemplateItemPayload,
   sealTemplateItemPayload,
 } from "./agent-template-items.ts";
@@ -51,5 +52,19 @@ describe("sealTemplateItemPayload", () => {
       expect(sealTemplateItemPayload(kind, payload, crypto)).toBe(payload);
       expect(openTemplateItemPayload(kind, payload, crypto)).toBe(payload);
     }
+  });
+});
+
+describe("assertTemplateEnvKeyAllowed", () => {
+  it("rejects per-agent credential keys, case-insensitively", () => {
+    for (const key of ["SLACK_BOT_TOKEN", "gh_token", "ANTHROPIC_API_KEY"]) {
+      expect(() => assertTemplateEnvKeyAllowed(key)).toThrow(
+        UnprocessableEntityError,
+      );
+    }
+  });
+
+  it("allows ordinary keys", () => {
+    expect(() => assertTemplateEnvKeyAllowed("LINEAR_API_KEY")).not.toThrow();
   });
 });

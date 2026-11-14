@@ -250,6 +250,9 @@ export function createAdminAuthMiddleware(deps: {
     if (path === "/agents" || path === "/agents/") {
       return method === "GET" || method === "POST";
     }
+    // /templates (ATP-1.3): the handlers resolve the caller's account and
+    // confine them to it, so the middleware only lets session users through.
+    if (path === "/templates" || path.startsWith("/templates/")) return true;
     const agentId = extractAgentId(path);
     if (!agentId || !callerScopeResolver) return false;
     return scopeIncludesAgent(await callerScopeResolver(email, false), agentId);

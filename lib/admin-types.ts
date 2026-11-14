@@ -3921,6 +3921,417 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List agent templates
+         * @description Platform admins see every template (optionally narrowed by `accountId` / `specialty`); account callers see only their account's. Secret env values are masked as `***`.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    accountId?: string;
+                    specialty?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Templates */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentTemplatesList"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (caller has no account, or names another account / the deployment scope) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Template not found (or not in the caller's account) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        /**
+         * Create or replace an agent template
+         * @description Creates the template for the (accountId, specialty) scope, or replaces the items of the existing one (201 / 200). Account callers may only write their own account (403 otherwise); only platform admins write deployment-wide templates. 422 for an unknown specialty, a denylisted env key (per-agent credentials: Slack tokens, GH_TOKEN, Anthropic credentials, task-store URL/token), an invalid item payload, a cron item without a name key, or a duplicate (kind, key). Env values are encrypted at rest; a secret env item sent as `"***"` keeps its stored value.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["PutTemplateBody"];
+                };
+            };
+            responses: {
+                /** @description Template replaced */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentTemplate"];
+                    };
+                };
+                /** @description Template created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentTemplate"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (caller has no account, or names another account / the deployment scope) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Template not found (or not in the caller's account) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an agent template
+         * @description Returns the template with its items. Secret env values are masked as `***`; non-secret ones are returned in clear.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Template */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentTemplate"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (caller has no account, or names another account / the deployment scope) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Template not found (or not in the caller's account) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /**
+         * Delete an agent template
+         * @description Deletes the template and all of its items.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Template deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (caller has no account, or names another account / the deployment scope) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Template not found (or not in the caller's account) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/templates/{id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add or replace a template item
+         * @description Upserts one item by (kind, key) without touching the others. Same validation as PUT /templates (422).
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["TemplateItemInput"];
+                };
+            };
+            responses: {
+                /** @description Template with the item applied */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentTemplate"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (caller has no account, or names another account / the deployment scope) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Template not found (or not in the caller's account) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Validation failed */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Remove a template item
+         * @description Removes the item identified by the `kind` and `key` query params (a query rather than a path segment because plugin and tool keys can contain `/`). 404 when it does not exist.
+         */
+        delete: {
+            parameters: {
+                query: {
+                    kind: components["schemas"]["TemplateItemKind"];
+                    key: string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Item removed */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (caller has no account, or names another account / the deployment scope) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Template not found (or not in the caller's account) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5413,6 +5824,72 @@ export interface components {
              */
             repositorySelection: "all" | "selected" | "none";
             repositories?: string[];
+        };
+        AgentTemplatesList: {
+            templates: components["schemas"]["AgentTemplate"][];
+        };
+        AgentTemplate: {
+            /** @example clx1234567890 */
+            id: string;
+            /** @example null */
+            accountId: string | null;
+            /** @example specialist */
+            specialty: string | null;
+            items: components["schemas"]["TemplateItem"][];
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            updatedAt: string;
+        };
+        TemplateItem: {
+            kind: components["schemas"]["TemplateItemKind"];
+            /**
+             * @description Env var name, tool pattern, plugin name or cron name (cron items need a stable, non-empty name).
+             * @example LINEAR_API_KEY
+             */
+            key: string;
+            /** @description Secret env values are returned masked as "***". */
+            payload: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: date-time
+             * @example 2026-01-01T00:00:00.000Z
+             */
+            updatedAt: string;
+        };
+        /** @enum {string} */
+        TemplateItemKind: "env" | "tool" | "plugin" | "cron";
+        PutTemplateBody: {
+            /** @description Owning account; null or omitted = deployment-wide (platform admins only). Account callers may omit it or send their own account. */
+            accountId?: string | null;
+            /** @description Specialty the template applies to; null = every specialty. */
+            specialty?: string | null;
+            items: components["schemas"]["TemplateItemInput"][];
+        };
+        TemplateItemInput: {
+            kind: components["schemas"]["TemplateItemKind"];
+            /**
+             * @description Env var name, tool pattern, plugin name or cron name (cron items need a stable, non-empty name).
+             * @example LINEAR_API_KEY
+             */
+            key: string;
+            /**
+             * @description Kind-specific fields. env: {value, secret?}; tool: {enabled?}; plugin: {version?, enabled?}; cron: {schedule, prompt, channel?, user?, silent?, enabled?, preCheck?}.
+             * @example {
+             *       "value": "lin_abc",
+             *       "secret": true
+             *     }
+             */
+            payload?: {
+                [key: string]: unknown;
+            };
         };
     };
     responses: never;
