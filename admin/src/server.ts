@@ -48,3 +48,18 @@ export { HttpGoogleAuthClient } from "./google-auth-client.ts";
 export type { GoogleAuthClient } from "./google-auth-client.ts";
 export { PrismaClient } from "../prisma/client/client.ts";
 export { createAdminPrismaClient } from "./prisma-client.ts";
+export {
+  renderSettingsLayout,
+  mergeSettingsNavItems,
+} from "./admin-ui-settings-layout.ts";
+export type {
+  SettingsNav,
+  SettingsNavItem,
+  SettingsNavSection,
+  RenderSettingsLayoutOptions,
+} from "./admin-ui-settings-layout.ts";
+export type {
+  AdminExtension,
+  AdminExtensionContext,
+  SettingsNavContribution,
+} from "./admin-extension.ts";

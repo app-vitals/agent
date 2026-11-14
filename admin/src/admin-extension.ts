@@ -24,6 +24,12 @@
  *   agentDetailCards(ctx)  — extra cards on the agent detail page, each placed
  *                            in the header or the Configuration group
  *   backgroundPasses(ctx)  — interval loops, started after the platform sweepers
+ *   settingsNavItems(ctx)  — extra settings-sidebar entries, each naming the
+ *                            section it joins (an unknown section is appended).
+ *                            Merged into the nav with mergeSettingsNavItems
+ *                            (admin-ui-settings-layout.ts, also exported from
+ *                            server.ts with renderSettingsLayout). A throwing
+ *                            hook is logged and contributes nothing
  *   specialtyDefaults(name) — a specialty's default crons/tools/plugins. Like
  *                            serviceIntegrations it needs no context and is
  *                            collected before the services are built; the cron
@@ -196,6 +202,15 @@ export interface AdminOpenApiContribution {
   };
 }
 
+/** One settings-sidebar entry contributed by an extension. */
+export interface SettingsNavContribution {
+  /** Label of the section to join; an unknown label appends a new section. */
+  section: string;
+  label: string;
+  path: string;
+  adminOnly?: boolean;
+}
+
 export interface AdminExtension {
   name?: string;
   /** See the header: env-only, resolved before the provisioner is built. */
@@ -209,6 +224,7 @@ export interface AdminExtension {
   adminUiRoutes?(ctx: AdminExtensionContext): AdminRouteContribution[];
   agentDetailCards?(ctx: AdminExtensionContext): AgentDetailCardSlot[];
   backgroundPasses?(ctx: AdminExtensionContext): AdminBackgroundPass[];
+  settingsNavItems?(ctx: AdminExtensionContext): SettingsNavContribution[];
   openApi?(): AdminOpenApiContribution;
 }
 
@@ -219,6 +235,7 @@ export const ADMIN_EXTENSION_HOOK_ORDER = [
   "adminUiRoutes",
   "agentDetailCards",
   "backgroundPasses",
+  "settingsNavItems",
 ] as const;
 
 export interface ResolvedAdminExtensions {
@@ -230,6 +247,7 @@ export interface ResolvedAdminExtensions {
   adminUiRoutes: AdminRouteContribution[];
   agentDetailCards: AgentDetailCardSlot[];
   backgroundPasses: AdminBackgroundPass[];
+  settingsNavItems: SettingsNavContribution[];
 }
 
 /**
@@ -248,6 +266,17 @@ export function resolveAdminExtensions(
   const adminUiRoutes = collect((ext) => ext.adminUiRoutes?.(ctx));
   const agentDetailCards = collect((ext) => ext.agentDetailCards?.(ctx));
   const backgroundPasses = collect((ext) => ext.backgroundPasses?.(ctx));
+  const settingsNavItems = extensions.flatMap((ext) => {
+    try {
+      return ext.settingsNavItems?.(ctx) ?? [];
+    } catch (err) {
+      console.error(
+        `[admin] extension "${ext.name ?? "unnamed"}" settingsNavItems failed:`,
+        err,
+      );
+      return [];
+    }
+  });
   const agentPhaseMethodologyService = services
     .map((s) => s.agentPhaseMethodologyService)
     .filter((svc) => svc !== undefined)
@@ -265,6 +294,7 @@ export function resolveAdminExtensions(
     adminUiRoutes,
     agentDetailCards,
     backgroundPasses,
+    settingsNavItems,
   };
 }
 

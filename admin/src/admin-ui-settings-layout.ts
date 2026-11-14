@@ -5,6 +5,7 @@
  * Styles live in baseStyles() between the "Settings layout" markers.
  */
 
+import type { SettingsNavContribution } from "./admin-extension.ts";
 import { escapeHtml, renderAdminToolbar } from "./admin-ui-styles.ts";
 
 export interface SettingsNavItem {
@@ -74,4 +75,27 @@ export function renderSettingsLayout(
     </main>
   </div>
 </div>`;
+}
+
+/**
+ * Appends contributed items into the section with the matching label (an
+ * unknown section is appended at the end). Pure: the input nav is not mutated.
+ */
+export function mergeSettingsNavItems(
+  nav: SettingsNav,
+  items: SettingsNavContribution[],
+): SettingsNav {
+  const sections: SettingsNavSection[] = nav.sections.map((s) => ({
+    label: s.label,
+    items: [...s.items],
+  }));
+  for (const { section, ...item } of items) {
+    let target = sections.find((s) => s.label === section);
+    if (!target) {
+      target = { label: section, items: [] };
+      sections.push(target);
+    }
+    target.items.push(item);
+  }
+  return { sections };
 }
