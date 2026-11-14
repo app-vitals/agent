@@ -28,8 +28,8 @@ export interface ShipwrightToolbarOptions {
    */
   showAccount?: boolean;
   /**
-   * Render the admin-only "Settings" nav entry (enterprise GitHub apps,
-   * GHE-1.4). Defaults to false.
+   * Render the "Settings" nav entry (links to /admin/settings; shown to
+   * admins and account members). Defaults to false.
    */
   showSettings?: boolean;
 }
@@ -235,7 +235,7 @@ export function renderShipwrightToolbar(
       <a href="${adminBase}/admin/prs" class="vos-nav-link${active("/admin/prs")}">PRs</a>
       <a href="${adminBase}/admin/chat" class="vos-nav-link${active("/admin/chat")}">Chat</a>
       <a href="${adminBase}/admin/queue-activity" class="vos-nav-link${isQueueActivity ? " active" : ""}">Queue &amp; Activity</a>
-      ${opts.showAccount ? `<a href="${adminBase}/admin/account" class="vos-nav-link${active("/admin/account")}">Account</a>\n      ` : ""}${opts.showSettings ? `<a href="${adminBase}/admin/settings/github-enterprise" class="vos-nav-link${active("/admin/settings")}">Settings</a>\n      ` : ""}<a href="${metricsUrl}" class="vos-nav-link${active(metricsUrl)}">Metrics</a>
+      ${opts.showAccount ? `<a href="${adminBase}/admin/account" class="vos-nav-link${active("/admin/account")}">Account</a>\n      ` : ""}${opts.showSettings ? `<a href="${adminBase}/admin/settings" class="vos-nav-link${active("/admin/settings")}">Settings</a>\n      ` : ""}<a href="${metricsUrl}" class="vos-nav-link${active(metricsUrl)}">Metrics</a>
     </div>
     <div class="vos-user">
       <span class="vos-username">${escapeHtml(userName)}</span>

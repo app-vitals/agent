@@ -262,6 +262,32 @@ describe("toolbar Settings entry", () => {
   test("hidden outside a settings-nav context, shown inside one", () => {
     expect(renderAdminToolbar("a@x.com")).not.toContain("/admin/settings");
     const html = runWithSettingsNav(true, () => renderAdminToolbar("a@x.com"));
-    expect(html).toContain('href="/admin/settings/github-enterprise"');
+    expect(html).toContain('href="/admin/settings" class="vos-nav-link');
+  });
+});
+
+describe("settings shell wrapper (SGL-2.2)", () => {
+  const html = renderGithubEnterpriseSettingsPage({
+    userEmail: "a@x.com",
+    isAdmin: true,
+    status: { configured: false, installer: null, lookup: null },
+  });
+  test("renders inside the settings layout with the active GHE item", () => {
+    expect(html).toContain("settings-sidebar");
+    expect(html).toContain(
+      'href="/admin/settings/github-enterprise" aria-current="page">GitHub Enterprise',
+    );
+  });
+  test("drops the ad hoc Agent templates cross-link button", () => {
+    expect(html).not.toContain('btn btn-secondary">Agent templates');
+  });
+  test("hides the adminOnly GHE item from non-admins", () => {
+    const h = renderGithubEnterpriseSettingsPage({
+      userEmail: "a@x.com",
+      status: { configured: false, installer: null, lookup: null },
+    });
+    expect(h).not.toContain(
+      'class="settings-nav-link" href="/admin/settings/github-enterprise"',
+    );
   });
 });

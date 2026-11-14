@@ -99,3 +99,50 @@ export function mergeSettingsNavItems(
   }
   return { sections };
 }
+
+export const SETTINGS_GHE_PATH = "/admin/settings/github-enterprise";
+export const SETTINGS_TEMPLATES_PATH = "/admin/settings/templates";
+
+export interface BuildSettingsNavOptions {
+  /** Include the GitHub Enterprise item (its routes are registered). */
+  githubEnterprise?: boolean;
+  /** Include the Templates item (its routes are registered). */
+  templates?: boolean;
+  /** Extension-contributed items (SGL-2.1). */
+  extraItems?: readonly SettingsNavContribution[];
+}
+
+/**
+ * Base settings nav (SGL-2.2): the Platform section plus extension items.
+ * Account/Personal sections arrive in SGL-2.3. Empty sections are dropped.
+ */
+export function buildSettingsNav(
+  opts: BuildSettingsNavOptions = {},
+): SettingsNav {
+  const platform: SettingsNavItem[] = [];
+  if (opts.githubEnterprise) {
+    platform.push({
+      label: "GitHub Enterprise",
+      path: SETTINGS_GHE_PATH,
+      adminOnly: true,
+    });
+  }
+  if (opts.templates) {
+    platform.push({ label: "Templates", path: SETTINGS_TEMPLATES_PATH });
+  }
+  const base: SettingsNav = {
+    sections:
+      platform.length > 0 ? [{ label: "Platform", items: platform }] : [],
+  };
+  return mergeSettingsNavItems(base, [...(opts.extraItems ?? [])]);
+}
+
+/** First nav item visible to the viewer, or undefined. */
+export function firstVisibleSettingsItem(
+  nav: SettingsNav,
+  isAdmin: boolean,
+): SettingsNavItem | undefined {
+  return nav.sections
+    .flatMap((s) => s.items)
+    .find((i) => isAdmin || !i.adminOnly);
+}

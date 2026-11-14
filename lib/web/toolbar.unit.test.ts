@@ -254,8 +254,19 @@ describe("renderShipwrightToolbar Settings entry (GHE-1.4)", () => {
   test("rendered and active when showSettings is true", () => {
     const html = renderShipwrightToolbar({ ...base, showSettings: true });
     expect(html).toContain(
-      'href="/admin/settings/github-enterprise" class="vos-nav-link active">Settings</a>',
+      'href="/admin/settings" class="vos-nav-link active">Settings</a>',
     );
+  });
+  test("active on any /admin/settings/* sub-page and links to /admin/settings", () => {
+    const html = renderShipwrightToolbar({
+      ...base,
+      activePath: "/admin/settings/templates",
+      showSettings: true,
+    });
+    expect(html).toContain(
+      'href="/admin/settings" class="vos-nav-link active"',
+    );
+    expect(html).not.toContain('href="/admin/settings/github-enterprise"');
   });
   test("readOnly never renders it", () => {
     expect(

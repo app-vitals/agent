@@ -42,6 +42,7 @@ import type { AccountOnboardingService } from "./account-onboarding.ts";
 import type { AccountService } from "./accounts.ts";
 import {
   type AgentDetailCardSlot,
+  type SettingsNavContribution,
   renderAgentDetailCardSlots,
 } from "./admin-extension.ts";
 import { registerAccountRoutes } from "./admin-ui-account.ts";
@@ -51,6 +52,10 @@ import {
 } from "./admin-ui-account-nav.ts";
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
+import {
+  buildSettingsNav,
+  firstVisibleSettingsItem,
+} from "./admin-ui-settings-layout.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
 import { registerAdminTemplatesRoutes } from "./admin-ui-templates.ts";
 import type { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
@@ -316,6 +321,11 @@ export interface AdminUIDeps {
    * group); absent renders none.
    */
   agentDetailCards?: readonly AgentDetailCardSlot[];
+  /**
+   * Optional extension items for the settings sidebar (SGL-2.1/2.2,
+   * ResolvedAdminExtensions.settingsNavItems); absent adds none.
+   */
+  settingsNavItems?: readonly SettingsNavContribution[];
   /**
    * True when an extension mounts /admin/agents/:id/queue-activity (the coding
    * extension, AEP-3.6); the agents list and agent detail render their Queue &
@@ -915,11 +925,22 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
 
   // GHE-1.4: the admin-only "Settings" toolbar entry. Registered before the
   // Account middleware; the two merge their flags in the shared store.
-  if (githubEnterpriseApi) {
+  // SGL-2.2: shown to admins and to account members.
+  if (githubEnterpriseApi || templateService) {
     app.use("/admin/*", async (c, next) => {
       const token = getCookie(c, SESSION_COOKIE);
       const user = token ? await getSessionUser(token, sessionSecret) : null;
-      return runWithSettingsNav(user?.isAdmin === true, () => next());
+      let show = user?.isAdmin === true;
+      if (user && !show && accountServices) {
+        try {
+          show =
+            (await accountServices.accounts.getByMemberEmail(user.email)) !==
+            null;
+        } catch {
+          // nav is cosmetic — never fail the page over the lookup
+        }
+      }
+      return runWithSettingsNav(show, () => next());
     });
   }
 
@@ -3714,9 +3735,32 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
 
   // ─── Enterprise GitHub apps settings (GHE-1.4) ───────────────────────────
 
+  const settingsNav = buildSettingsNav({
+    githubEnterprise: Boolean(githubEnterpriseApi),
+    templates: Boolean(templateService),
+    extraItems: deps.settingsNavItems ?? [],
+  });
+
+  // SGL-2.2: /admin/settings lands on the first nav item the viewer can see.
+  if (githubEnterpriseApi || templateService) {
+    app.get("/admin/settings", requireAuth, (c) => {
+      const first = firstVisibleSettingsItem(
+        settingsNav,
+        c.var.isAdmin === true,
+      );
+      if (!first) {
+        return new Response("No settings are available for your account.", {
+          status: 404,
+        });
+      }
+      return c.redirect(first.path, 302);
+    });
+  }
+
   if (githubEnterpriseApi) {
     registerAdminGithubEnterpriseRoutes(app, {
       requireAuth,
+      settingsNav,
       api: githubEnterpriseApi,
       html,
     });
@@ -3728,6 +3772,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     registerAdminTemplatesRoutes(app, {
       requireAuth,
       templateService,
+      settingsNav,
       callerScopeResolver,
       ...(accountServices ? { accounts: accountServices.accounts } : {}),
       specialtyRegistry,

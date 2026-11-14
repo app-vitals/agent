@@ -7,6 +7,7 @@
  * `{ error }` bodies as readable messages. No key is ever read back.
  */
 
+import type { SettingsNav } from "./admin-ui-settings-layout.ts";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { readPrivateKeyField } from "./github-enterprise-pem-upload.ts";
 import { warningCodeFor } from "./github-enterprise-warnings.ts";
@@ -22,6 +23,8 @@ export interface AdminGithubEnterpriseRouteDeps {
   requireAuth: MiddlewareHandler<AdminUIEnv>;
   /** Calls the GHE-1.3 API app (its `.request`), e.g. `/github-enterprise/apps`. */
   api: (path: string, init?: RequestInit) => Response | Promise<Response>;
+  /** Settings sidebar nav (SGL-2.2). */
+  settingsNav?: SettingsNav;
   html: (content: string, opts?: { status?: number }) => Response;
 }
 
@@ -103,6 +106,8 @@ export function registerAdminGithubEnterpriseRoutes(
       return deps.html(
         renderGithubEnterpriseSettingsPage({
           userEmail: c.var.userEmail,
+          isAdmin: c.var.isAdmin === true,
+          ...(deps.settingsNav ? { nav: deps.settingsNav } : {}),
           status: { configured: false, installer: null, lookup: null },
           error: flash.error ?? statusRes.error,
         }),
@@ -123,6 +128,8 @@ export function registerAdminGithubEnterpriseRoutes(
     return deps.html(
       renderGithubEnterpriseSettingsPage({
         userEmail: c.var.userEmail,
+        isAdmin: c.var.isAdmin === true,
+        ...(deps.settingsNav ? { nav: deps.settingsNav } : {}),
         status,
         orgs,
         orgsError,

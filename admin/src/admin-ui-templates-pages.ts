@@ -9,7 +9,12 @@
  */
 
 import { renderAdminPage } from "./admin-ui-layout.ts";
-import { escapeHtml, renderAdminToolbar } from "./admin-ui-styles.ts";
+import { escapeHtml } from "./admin-ui-styles.ts";
+import {
+  buildSettingsNav,
+  renderSettingsLayout,
+  type SettingsNav,
+} from "./admin-ui-settings-layout.ts";
 
 export const ADMIN_TEMPLATES_PATH = "/admin/settings/templates";
 
@@ -28,6 +33,10 @@ export interface TemplateItemRow {
 
 export interface TemplatesPageOpts {
   userEmail: string;
+  /** Viewer is an admin (drives adminOnly sidebar items). */
+  isAdmin?: boolean;
+  /** Settings sidebar nav; defaults to the base Platform nav. */
+  nav?: SettingsNav;
   /** Accounts the caller may pick; the deployment-wide option is included only for admins. */
   accountOptions: TemplateScopeOption[];
   specialtyOptions: TemplateScopeOption[];
@@ -140,16 +149,20 @@ export function renderTemplatesPage(o: TemplatesPageOpts): string {
     : `<p class="help-text">No template exists for this scope yet. Adding an item creates it.</p>`;
   return renderAdminPage({
     title: "Templates — Settings — Shipwright Admin",
-    body: `${renderAdminToolbar(o.userEmail, BASE)}
-  <div class="vos-page">
-    <div class="page-header"><h1 class="page-title">Agent templates</h1></div>
-    ${error}${notice}
+    body: renderSettingsLayout({
+      userName: o.userEmail,
+      title: "Agent templates",
+      nav:
+        o.nav ?? buildSettingsNav({ githubEnterprise: true, templates: true }),
+      active: BASE,
+      isAdmin: o.isAdmin ?? false,
+      body: `${error}${notice}
     <div class="card">
       <p class="help-text">Default env vars, tools, plugins and crons for new agents in a scope. Secret values are masked after saving; leave <code>***</code> to keep the stored value.</p>
       ${scopePicker(o)}
       ${del}
     </div>
-    ${(["env", "tool", "plugin", "cron"] as const).map((k) => kindCard(o, k)).join("\n")}
-  </div>`,
+    ${(["env", "tool", "plugin", "cron"] as const).map((k) => kindCard(o, k)).join("\n")}`,
+    }),
   });
 }

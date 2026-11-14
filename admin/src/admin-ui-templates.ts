@@ -8,6 +8,7 @@
  * errors (denylisted env key, unknown specialty, bad payload) are shown inline.
  */
 
+import type { SettingsNav } from "./admin-ui-settings-layout.ts";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { accountIdFromScope } from "./account-agent-create.ts";
 import type { AccountService } from "./accounts.ts";
@@ -39,6 +40,8 @@ export interface AdminTemplatesRouteDeps {
     "list" | "replace" | "putItem" | "deleteItem" | "delete"
   >;
   callerScopeResolver: CallerScopeResolver;
+  /** Settings sidebar nav (SGL-2.2). */
+  settingsNav?: SettingsNav;
   /** Optional: without it admins can only pick deployment-wide. */
   accounts?: Pick<AccountService, "listWithCounts" | "getWithCounts">;
   specialtyRegistry: Pick<SpecialtyTypeResolver, "listTypes">;
@@ -141,6 +144,8 @@ export function registerAdminTemplatesRoutes(
     return deps.html(
       renderTemplatesPage({
         userEmail: c.var.userEmail,
+        isAdmin: c.var.isAdmin === true,
+        ...(deps.settingsNav ? { nav: deps.settingsNav } : {}),
         accountOptions: await accountOptions(actor),
         specialtyOptions: specialtyOptions(),
         accountId: scope.accountId,
