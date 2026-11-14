@@ -53,6 +53,7 @@ import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
 import { registerAdminTemplatesRoutes } from "./admin-ui-templates.ts";
+import type { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
 import type { AgentTemplateService } from "./agent-templates.ts";
 import {
   type GithubAccessPreviewView,
@@ -392,6 +393,8 @@ export interface AdminUIDeps {
   specialtyRegistry?: SpecialtyTypeResolver;
   /** Extension-supplied specialty defaults, consulted before the built-in type. */
   specialtyDefaults?: SpecialtyDefaultsResolver;
+  /** ATP-2.2: seeds the resolved agent template inside the create transaction. */
+  templateReconcile?: Pick<AgentTemplateReconcileService, "reconcile">;
   /**
    * Cleanup deps for the full delete-agent orchestration (POST
    * /admin/agents/:id/delete → deleteAgentFully()). Matches
@@ -866,6 +869,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     accountServices,
     githubEnterpriseApi,
     templateService,
+    templateReconcile,
     agentsApi,
     specialtyRegistry = new SpecialtyTypes(),
     specialtyDefaults,
@@ -1656,6 +1660,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         specialtyRegistry,
         specialtyDefaults,
         anthropicFederationEnabled: deps.anthropicFederationEnabled,
+        ...(templateReconcile ? { templateReconcile } : {}),
       },
       {
         name,

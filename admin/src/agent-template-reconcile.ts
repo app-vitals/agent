@@ -52,11 +52,12 @@ import {
   type MergedTemplateItem,
   mergeTemplateLayers,
   resolveSpecialtyDefaultSet,
+  type SpecialtyDefaultSet,
   specialtyDefaultLayer,
   type TemplateLayerInput,
   templateLayerForScope,
 } from "./agent-template-merge.ts";
-import { NotFoundError } from "./errors.ts";
+import { ConflictError, NotFoundError } from "./errors.ts";
 import type { PrismaTransactionClient } from "./prisma-tx.ts";
 import type {
   SpecialtyDefaultCron,
@@ -172,43 +173,180 @@ export class AgentTemplateReconcileService {
     private specialtyDefaults: SpecialtyDefaultsResolver = () => undefined,
   ) {}
 
-  /** Reconcile one agent against its merged template, in one transaction. */
-  async reconcile(agentId: string): Promise<TemplateReconcileResult> {
-    return this.prisma.$transaction(async (tx) => {
-      // Serialize concurrent reconciles of the same agent.
-      await tx.$queryRaw`SELECT "id" FROM "Agent" WHERE "id" = ${agentId} FOR UPDATE`;
-      const agent = await tx.agent.findUnique({
-        where: { id: agentId },
-        select: { specialty: true, accountId: true, templateDetached: true },
-      });
-      if (!agent) throw new NotFoundError(`agent ${agentId} not found`);
-      if (agent.templateDetached) return emptyResult(agentId, "detached");
+  /**
+   * Reconcile one agent against its merged template, in one transaction.
+   * Pass `tx` to join a caller's transaction instead (createAgent() seeds the
+   * template inside its create transaction); a failure then rolls back with
+   * the caller's writes.
+   */
+  async reconcile(
+    agentId: string,
+    tx?: PrismaTransactionClient,
+  ): Promise<TemplateReconcileResult> {
+    if (tx) return this.run(tx, agentId);
+    return this.prisma.$transaction((t) => this.run(t, agentId));
+  }
 
-      const defaults = resolveSpecialtyDefaultSet(
-        agent.specialty,
-        this.specialtyRegistry,
-        this.specialtyDefaults,
-      );
-      if (!defaults) {
+  /**
+   * Fan a template change out to the agents that follow it: every attached
+   * agent the template's scope covers (deployment-wide = all accounts, an
+   * account = that account's agents; a specialty narrows to that type).
+   * One transaction per agent; a failing agent is logged and skipped so one
+   * bad agent never blocks the rest.
+   */
+  async reconcileScope(scope: {
+    accountId: string | null;
+    specialty: string | null;
+  }): Promise<{ reconciled: number; failed: number }> {
+    const agents = await this.prisma.agent.findMany({
+      where: {
+        templateDetached: false,
+        ...(scope.accountId !== null ? { accountId: scope.accountId } : {}),
+        ...(scope.specialty !== null ? { specialty: scope.specialty } : {}),
+      },
+      select: { id: true },
+    });
+    let reconciled = 0;
+    let failed = 0;
+    for (const { id } of agents) {
+      try {
+        await this.reconcile(id);
+        reconciled++;
+      } catch (err) {
+        failed++;
         console.error(
-          `template reconcile: no known type for specialty "${agent.specialty}" (agent ${agentId}) — leaving it untouched`,
+          `template fan-out: reconcile of agent ${id} failed:`,
+          err instanceof Error ? err.message : String(err),
         );
-        return emptyResult(agentId, "unknown_specialty");
       }
+    }
+    return { reconciled, failed };
+  }
 
-      const merged = await this.resolve(
-        tx,
-        agent.accountId,
-        agent.specialty,
-        specialtyDefaultLayer(defaults),
+  /** Set or clear the agent's detach flag (no reconcile). */
+  async setDetached(agentId: string, detached: boolean): Promise<void> {
+    const { count } = await this.prisma.agent.updateMany({
+      where: { id: agentId },
+      data: { templateDetached: detached },
+    });
+    if (count === 0) throw new NotFoundError(`agent ${agentId} not found`);
+  }
+
+  /**
+   * Reset to template: drops the agent's custom rows (overrides and
+   * tombstones) for every key the merged template defines, or just `only`'s
+   * key, then reconciles so the template values come back as template rows.
+   * Rows for keys the template does not define stay. One transaction.
+   */
+  async reset(
+    agentId: string,
+    only?: { kind: AgentTemplateItemKind; key: string },
+  ): Promise<TemplateReconcileResult> {
+    return this.prisma.$transaction((tx) => this.run(tx, agentId, { only }));
+  }
+
+  private async run(
+    tx: PrismaTransactionClient,
+    agentId: string,
+    reset?: { only?: { kind: AgentTemplateItemKind; key: string } },
+  ): Promise<TemplateReconcileResult> {
+    // Serialize concurrent reconciles of the same agent.
+    await tx.$queryRaw`SELECT "id" FROM "Agent" WHERE "id" = ${agentId} FOR UPDATE`;
+    const agent = await tx.agent.findUnique({
+      where: { id: agentId },
+      select: { specialty: true, accountId: true, templateDetached: true },
+    });
+    if (!agent) throw new NotFoundError(`agent ${agentId} not found`);
+    if (agent.templateDetached) {
+      if (reset) {
+        throw new ConflictError(
+          `agent ${agentId} is detached from its template; reattach it first`,
+        );
+      }
+      return emptyResult(agentId, "detached");
+    }
+
+    const defaults = resolveSpecialtyDefaultSet(
+      agent.specialty,
+      this.specialtyRegistry,
+      this.specialtyDefaults,
+    );
+    if (!defaults) {
+      console.error(
+        `template reconcile: no known type for specialty "${agent.specialty}" (agent ${agentId}) — leaving it untouched`,
       );
-      const result = emptyResult(agentId, "reconciled");
-      // Env goes last: it is the only kind that encrypts on write.
-      await this.reconcileTools(tx, agentId, merged, result);
-      await this.reconcilePlugins(tx, agentId, merged, result);
-      await this.reconcileCrons(tx, agentId, merged, defaults.crons, result);
-      await this.reconcileEnv(tx, agentId, merged, result);
-      return result;
+      return emptyResult(agentId, "unknown_specialty");
+    }
+
+    const merged = await this.resolve(
+      tx,
+      agent.accountId,
+      agent.specialty,
+      specialtyDefaultLayer(defaults),
+    );
+    if (reset) {
+      await this.dropCustomRows(tx, agentId, merged, defaults, reset.only);
+    }
+    const result = emptyResult(agentId, "reconciled");
+    // Env goes last: it is the only kind that encrypts on write.
+    await this.reconcileTools(tx, agentId, merged, result);
+    await this.reconcilePlugins(tx, agentId, merged, result);
+    await this.reconcileCrons(tx, agentId, merged, defaults.crons, result);
+    await this.reconcileEnv(tx, agentId, merged, result);
+    return result;
+  }
+
+  /** Reset step: delete custom rows (incl. tombstones) the template defines. */
+  private async dropCustomRows(
+    tx: PrismaTransactionClient,
+    agentId: string,
+    merged: MergedTemplate,
+    defaults: SpecialtyDefaultSet,
+    only?: { kind: AgentTemplateItemKind; key: string },
+  ): Promise<void> {
+    const keys = (kind: AgentTemplateItemKind, all: Iterable<string>) =>
+      [...all].filter((k) => !only || (only.kind === kind && only.key === k));
+    const systemNames = new Set(defaults.crons.map((c) => c.name));
+    await tx.agentTool.deleteMany({
+      where: {
+        agentId,
+        source: "custom",
+        pattern: { in: keys("tool", merged.tool.keys()) },
+      },
+    });
+    await tx.agentPlugin.deleteMany({
+      where: {
+        agentId,
+        source: "custom",
+        name: { in: keys("plugin", merged.plugin.keys()) },
+      },
+    });
+    await tx.agentCronJob.deleteMany({
+      where: {
+        agentId,
+        system: false,
+        source: "custom",
+        name: {
+          in: keys(
+            "cron",
+            [...merged.cron.keys()].filter((k) => !systemNames.has(k)),
+          ),
+        },
+      },
+    });
+    await tx.agentEnv.deleteMany({
+      where: {
+        agentId,
+        source: "custom",
+        key: {
+          in: keys(
+            "env",
+            [...merged.env.keys()].filter(
+              (k) => !TEMPLATE_ENV_DENYLIST.has(k.toUpperCase()),
+            ),
+          ),
+        },
+      },
     });
   }
 

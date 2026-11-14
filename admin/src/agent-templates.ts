@@ -153,7 +153,33 @@ export class AgentTemplateService {
     private prisma: PrismaClient,
     private crypto: TokenCrypto,
     private specialtyRegistry: Pick<SpecialtyTypeResolver, "tryGetType">,
+    /**
+     * ATP-2.2: applies a template write to the agents that follow it. Optional
+     * (additive); absent means template writes are not propagated.
+     */
+    private fanOut?: {
+      reconcileScope(scope: {
+        accountId: string | null;
+        specialty: string | null;
+      }): Promise<unknown>;
+    },
   ) {}
+
+  /** Best-effort fan-out: the template write already committed. */
+  private async propagate(scope: {
+    accountId: string | null;
+    specialty: string | null;
+  }): Promise<void> {
+    if (!this.fanOut) return;
+    try {
+      await this.fanOut.reconcileScope(scope);
+    } catch (err) {
+      console.error(
+        "template fan-out failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
 
   private toView(row: TemplateRow): TemplateView {
     const items = [...row.items]
@@ -322,8 +348,9 @@ export class AgentTemplateService {
       }
     }
 
+    let outcome: { template: TemplateView; created: boolean };
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      outcome = await this.prisma.$transaction(async (tx) => {
         const existing = await tx.agentTemplate.findFirst({
           where: { accountId, specialty },
           include: { items: true },
@@ -370,6 +397,8 @@ export class AgentTemplateService {
       }
       throw err;
     }
+    await this.propagate({ accountId, specialty });
+    return outcome;
   }
 
   /** Add or replace one item of a template. */
@@ -401,6 +430,7 @@ export class AgentTemplateService {
         data: { updatedAt: new Date() },
       }),
     ]);
+    await this.propagate(existing);
     return this.get(actor, templateId);
   }
 
@@ -411,7 +441,7 @@ export class AgentTemplateService {
     kind: AgentTemplateItemKind,
     key: string,
   ): Promise<void> {
-    await this.load(actor, templateId);
+    const existing = await this.load(actor, templateId);
     const { count } = await this.prisma.agentTemplateItem.deleteMany({
       where: { templateId, kind, key },
     });
@@ -422,11 +452,13 @@ export class AgentTemplateService {
       where: { id: templateId },
       data: { updatedAt: new Date() },
     });
+    await this.propagate(existing);
   }
 
   /** Delete a template and (by cascade) its items. */
   async delete(actor: TemplateActor, id: string): Promise<void> {
-    await this.load(actor, id);
+    const existing = await this.load(actor, id);
     await this.prisma.agentTemplate.delete({ where: { id } });
+    await this.propagate(existing);
   }
 }

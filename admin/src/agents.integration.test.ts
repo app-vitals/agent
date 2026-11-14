@@ -25,6 +25,7 @@ import { AgentEnvService } from "./agent-envs.ts";
 import { AgentMemberService } from "./agent-members.ts";
 import { AgentPluginService } from "./agent-plugins.ts";
 import type { AgentProvisioner, ProvisionResult } from "./agent-provisioner.ts";
+import { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
 import { AgentToolService } from "./agent-tools.ts";
 import type { CreateAgentDeps } from "./agents.ts";
 import { AgentService, createAgent } from "./agents.ts";
@@ -34,6 +35,8 @@ import type {
   SpecialtyTypeResolver,
 } from "./specialty-types.ts";
 import { makeTokenCrypto } from "./token-crypto.ts";
+
+const FIXTURE_DEFAULTS = () => ({ plugins: ["shipwright"] });
 
 const TEST_DB = process.env.DATABASE_URL_ADMIN_TEST;
 const describeOrSkip = TEST_DB ? describe : describe.skip;
@@ -116,6 +119,7 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
   let agentMemberService: AgentMemberService;
   let agentEnvService: AgentEnvService;
   let agentCronJobService: AgentCronJobService;
+  let templateReconcile: AgentTemplateReconcileService;
 
   beforeEach(async () => {
     prisma = makePrisma();
@@ -133,11 +137,20 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
       fakeSpecialtyTypes(),
     );
 
+    templateReconcile = new AgentTemplateReconcileService(
+      prisma,
+      makeTokenCrypto(),
+      fakeSpecialtyTypes(),
+      FIXTURE_DEFAULTS,
+    );
+
     // Truncate between tests — this suite shares a DB with every other
     // admin/src/*.integration.test.ts file (see docs/test-readiness/
     // test-system.md's "real per-run DB with truncate-between-tests"
     // convention, needed because several services already open their own
     // interactive $transaction internally).
+    await prisma.agentTemplateItem.deleteMany();
+    await prisma.agentTemplate.deleteMany();
     await prisma.agentTool.deleteMany();
     await prisma.agentPlugin.deleteMany();
     await prisma.agentMember.deleteMany();
@@ -161,7 +174,8 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
       agentCronJobService,
       provisioner: makeProvisioner(),
       specialtyRegistry: fakeSpecialtyTypes(),
-      specialtyDefaults: () => ({ plugins: ["shipwright"] }),
+      specialtyDefaults: FIXTURE_DEFAULTS,
+      templateReconcile,
       ...overrides,
     };
   }
@@ -219,9 +233,10 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
       },
     };
 
+    // A detached agent takes the direct built-in-defaults copy.
     const result = await createAgent(
       deps({ agentToolService: failingAgentToolService }),
-      baseInput(),
+      baseInput({ templateDetached: true }),
     );
 
     expect(result).toEqual({ ok: false, errorCode: "seed_failed" });
@@ -239,7 +254,7 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
 
     const result = await createAgent(
       deps({ agentPluginService: failingAgentPluginService }),
-      baseInput(),
+      baseInput({ templateDetached: true }),
     );
 
     expect(result).toEqual({ ok: false, errorCode: "seed_failed" });
@@ -247,6 +262,28 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
     // sequence (not just the agent row) rolls back atomically.
     expect(await prisma.agent.findMany()).toEqual([]);
     expect(await prisma.agentTool.findMany()).toEqual([]);
+  });
+
+  it("a failure of the template seeding step rolls back the agent and every row the template wrote", async () => {
+    const reconcileThenFail = {
+      reconcile: async (
+        agentId: string,
+        tx?: Parameters<AgentTemplateReconcileService["reconcile"]>[1],
+      ): Promise<never> => {
+        await templateReconcile.reconcile(agentId, tx);
+        throw new Error("boom: template seeding failed");
+      },
+    };
+
+    const result = await createAgent(
+      deps({ templateReconcile: reconcileThenFail }),
+      baseInput(),
+    );
+
+    expect(result).toEqual({ ok: false, errorCode: "seed_failed" });
+    expect(await prisma.agent.findMany()).toEqual([]);
+    expect(await prisma.agentTool.findMany()).toEqual([]);
+    expect(await prisma.agentPlugin.findMany()).toEqual([]);
   });
 
   it("invalid repo format leaves ZERO Agent row behind, including manifest-seeded tools/plugins", async () => {
@@ -323,6 +360,192 @@ describeOrSkip("createAgent() — integration (real Postgres)", () => {
       await prisma.agent.findUnique({ where: { id: result.agent.id } }),
     ).not.toBeNull();
   });
+  describe("agent template at provisioning (ATP-2.2)", () => {
+    async function seedTemplate(
+      accountId: string | null,
+      specialty: string | null,
+      items: {
+        kind: "env" | "tool" | "plugin" | "cron";
+        key: string;
+        payload: Record<string, unknown>;
+      }[],
+    ) {
+      const t = await prisma.agentTemplate.create({
+        data: { accountId, specialty },
+      });
+      await prisma.agentTemplateItem.createMany({
+        data: items.map((i) => ({
+          templateId: t.id,
+          kind: i.kind,
+          key: i.key,
+          payload: (i.kind === "env"
+            ? {
+                ...i.payload,
+                value: makeTokenCrypto().encrypt(String(i.payload.value)),
+              }
+            : i.payload) as never,
+        })),
+      });
+    }
+
+    const TEMPLATE_ITEMS = [
+      { kind: "env", key: "TEAM_FLAG", payload: { value: "on" } },
+      { kind: "env", key: "ANTHROPIC_MODEL", payload: { value: "tpl-model" } },
+      { kind: "tool", key: "Grep", payload: {} },
+      { kind: "plugin", key: "extra-plugin", payload: { version: null } },
+      {
+        kind: "cron",
+        key: "nightly",
+        payload: { schedule: "0 3 * * *", prompt: "/nightly" },
+      },
+    ] as const;
+
+    it("a new agent receives the merged template (env, tools, plugins, crons) as template-sourced rows, plus the built-in specialty defaults", async () => {
+      await seedTemplate(null, null, [...TEMPLATE_ITEMS]);
+
+      const result = await createAgent(deps(), baseInput());
+      if (!result.ok) throw new Error("expected success");
+      const agentId = result.agent.id;
+
+      const tools = await prisma.agentTool.findMany({ where: { agentId } });
+      expect(tools.map((t) => t.pattern).sort()).toEqual(
+        [...CODING_TYPE.tools, "Grep"].sort(),
+      );
+      expect(tools.every((t) => t.source === "template")).toBe(true);
+
+      const plugins = await prisma.agentPlugin.findMany({ where: { agentId } });
+      expect(plugins.map((p) => p.name).sort()).toEqual([
+        "agent-platform@app-vitals-agent",
+        "extra-plugin",
+        "shipwright",
+      ]);
+      expect(plugins.every((p) => p.source === "template")).toBe(true);
+
+      const crons = await prisma.agentCronJob.findMany({ where: { agentId } });
+      expect(crons.map((c) => [c.name, c.source])).toEqual([
+        ["nightly", "template"],
+      ]);
+
+      const envs = await prisma.agentEnv.findMany({ where: { agentId } });
+      const sourceOf = (key: string) => envs.find((e) => e.key === key)?.source;
+      expect(sourceOf("TEAM_FLAG")).toBe("template");
+      // The template value replaces the built-in ANTHROPIC_MODEL default.
+      expect(sourceOf("ANTHROPIC_MODEL")).toBe("template");
+      expect(
+        makeTokenCrypto().decrypt(
+          envs.find((e) => e.key === "ANTHROPIC_MODEL")?.value ?? "",
+        ),
+      ).toBe("tpl-model");
+    });
+
+    it("an explicit env value in the request wins per key, is written custom, and survives later reconciles", async () => {
+      await seedTemplate(null, null, [...TEMPLATE_ITEMS]);
+
+      const result = await createAgent(
+        deps(),
+        baseInput({ env: { TEAM_FLAG: "mine", EXTRA: "x" } }),
+      );
+      if (!result.ok) throw new Error("expected success");
+      const agentId = result.agent.id;
+
+      const read = async (key: string) => {
+        const row = await prisma.agentEnv.findUnique({
+          where: { agentId_key: { agentId, key } },
+        });
+        return (
+          row && {
+            value: makeTokenCrypto().decrypt(row.value),
+            source: row.source,
+          }
+        );
+      };
+      expect(await read("TEAM_FLAG")).toEqual({
+        value: "mine",
+        source: "custom",
+      });
+      expect(await read("EXTRA")).toEqual({ value: "x", source: "custom" });
+      // Keys the request did not set still come from the template.
+      expect(await read("ANTHROPIC_MODEL")).toEqual({
+        value: "tpl-model",
+        source: "template",
+      });
+
+      await templateReconcile.reconcile(agentId);
+      expect(await read("TEAM_FLAG")).toEqual({
+        value: "mine",
+        source: "custom",
+      });
+    });
+
+    it("an account-scoped template applies only to agents of that account", async () => {
+      const a = await prisma.account.create({
+        data: { name: "A", status: "active", maxAgents: 5 },
+      });
+      const b = await prisma.account.create({
+        data: { name: "B", status: "active", maxAgents: 5 },
+      });
+      await seedTemplate(a.id, null, [
+        { kind: "env", key: "ACCOUNT_FLAG", payload: { value: "a" } },
+      ]);
+
+      const inA = await createAgent(
+        deps(),
+        baseInput({ name: "in-a", accountId: a.id }),
+      );
+      const inB = await createAgent(
+        deps(),
+        baseInput({ name: "in-b", accountId: b.id }),
+      );
+      if (!inA.ok || !inB.ok) throw new Error("expected success");
+      const has = async (agentId: string) =>
+        (await prisma.agentEnv.count({
+          where: { agentId, key: "ACCOUNT_FLAG" },
+        })) === 1;
+      expect(await has(inA.agent.id)).toBe(true);
+      expect(await has(inB.agent.id)).toBe(false);
+    });
+
+    it("templateDetached:true yields only the built-in specialty defaults and ignores later template writes", async () => {
+      await seedTemplate(null, null, [...TEMPLATE_ITEMS]);
+
+      const result = await createAgent(
+        deps(),
+        baseInput({ templateDetached: true }),
+      );
+      if (!result.ok) throw new Error("expected success");
+      const agentId = result.agent.id;
+
+      expect(
+        (await prisma.agent.findUnique({ where: { id: agentId } }))
+          ?.templateDetached,
+      ).toBe(true);
+      const tools = await prisma.agentTool.findMany({ where: { agentId } });
+      expect(tools.map((t) => t.pattern).sort()).toEqual(
+        [...CODING_TYPE.tools].sort(),
+      );
+      const plugins = await prisma.agentPlugin.findMany({ where: { agentId } });
+      expect(plugins.map((p) => p.name).sort()).toEqual([
+        "agent-platform@app-vitals-agent",
+        "shipwright",
+      ]);
+      expect(await prisma.agentCronJob.count({ where: { agentId } })).toBe(0);
+      const envKeys = (
+        await prisma.agentEnv.findMany({ where: { agentId } })
+      ).map((e) => e.key);
+      expect(envKeys).toEqual(["ANTHROPIC_MODEL"]);
+      expect(
+        (await prisma.agentEnv.findMany({ where: { agentId } }))[0]?.source,
+      ).toBe("custom");
+
+      // A later reconcile does not touch it.
+      const again = await templateReconcile.reconcile(agentId);
+      expect(again.status).toBe("detached");
+      expect(await prisma.agentTool.count({ where: { agentId } })).toBe(
+        CODING_TYPE.tools.length,
+      );
+    });
+  });
+
   describe("account quota (SSP-4.1)", () => {
     async function makeAccount(
       overrides: { status?: string; maxAgents?: number } = {},
