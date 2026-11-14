@@ -2,7 +2,7 @@
 
 The admin service is a single Bun + Hono process (package `@app-vitals/agent-admin`)
 that owns the platform's control plane: agent records and their env vars, cron
-jobs, tools, tokens and plugins; self-serve accounts; provisioning of the
+jobs, tools, tokens, plugins and templates (ATP-1.1); self-serve accounts; provisioning of the
 Kubernetes workloads behind each agent; a server-rendered admin UI; and the
 runtime API deployed agents call to fetch their own config. State lives in its
 own Postgres database (Prisma, `admin/prisma/schema/`).
