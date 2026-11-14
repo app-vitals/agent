@@ -5,6 +5,7 @@ import {
   type AdminBackgroundPass,
   type AdminExtension,
   type AdminExtensionContext,
+  type AdminPlatformServices,
   type AgentDetailCardSlot,
   applyOpenApiContributions,
   collectOpenApiContributions,
@@ -628,5 +629,21 @@ describe("withExtensionAgentTypes", () => {
     ]);
     expect(wrapped.hasExtensionType?.("coding")).toBe(true);
     expect(wrapped.hasExtensionType?.("specialist")).toBe(false);
+  });
+});
+
+describe("AdminPlatformServices.githubLookup", () => {
+  it("is optional: a services object without it satisfies the type", () => {
+    // Compile-time check (tsc): the Omit<> shape is assignable only while the
+    // member is optional.
+    const without = {} as Omit<AdminPlatformServices, "githubLookup">;
+    const services: AdminPlatformServices = without;
+    expect(services.githubLookup).toBeUndefined();
+    const withLookup: Pick<AdminPlatformServices, "githubLookup"> = {
+      githubLookup: {
+        listRepositories: async () => ({ configured: false, repos: [] }),
+      },
+    };
+    expect(withLookup.githubLookup).toBeDefined();
   });
 });
