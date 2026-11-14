@@ -109,6 +109,7 @@ import {
   createGithubInstallationRepos,
   createGithubSync,
 } from "./github-installation-wiring.ts";
+import { createGithubLookupService } from "./github-lookup-repositories.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";
@@ -176,6 +177,12 @@ export async function startAdmin(
         stopPoolObservability = stop;
       },
     },
+  );
+
+  // Shared by the extension context's githubLookup and the GHE routes below.
+  const githubEnterpriseAppService = new GitHubEnterpriseAppService(
+    prisma,
+    makeStrictTokenCrypto(),
   );
 
   // Construct TokenCrypto — reads SHIPWRIGHT_ENCRYPTION_KEY at call time
@@ -382,6 +389,9 @@ export async function startAdmin(
       accountService,
       callerScopeResolver,
       provisioner,
+      githubLookup: createGithubLookupService({
+        appService: githubEnterpriseAppService,
+      }),
     },
   };
   const resolvedExtensions = resolveAdminExtensions(
@@ -467,10 +477,6 @@ export async function startAdmin(
   //    MUST be mounted before admin-ui (/admin/*) to avoid shadowing.
   // Built before the admin API: GHE-2.4's access preview reads the same Apps.
   // Strict crypto: no plain-text key storage.
-  const githubEnterpriseAppService = new GitHubEnterpriseAppService(
-    prisma,
-    makeStrictTokenCrypto(),
-  );
   const githubAccessPreview = createGithubAccessPreview({
     appService: githubEnterpriseAppService,
   });

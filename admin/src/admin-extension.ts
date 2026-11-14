@@ -61,6 +61,7 @@ import type { AgentService } from "./agents.ts";
 import type { AdminDeps, parseAdminApiKeys } from "./agents-api.ts";
 import type { AgentPhaseMethodologyServiceLike } from "./api.ts";
 import type { createCallerScopeResolver } from "./caller-scope.ts";
+import type { GithubLookupService } from "./github-lookup-repositories.ts";
 import type { PushService } from "./push-service.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import type { ServiceIntegration } from "./service-integration.ts";
@@ -85,6 +86,11 @@ export interface AdminPlatformServices {
   accountService: AccountService;
   callerScopeResolver: ReturnType<typeof createCallerScopeResolver>;
   provisioner: AgentProvisioner;
+  /**
+   * Lists the repositories the lookup GitHub App can see. Optional so existing
+   * extensions (and contexts they build) keep compiling.
+   */
+  githubLookup?: GithubLookupService;
 }
 
 /** Everything an extension's hooks may need from the platform. */
