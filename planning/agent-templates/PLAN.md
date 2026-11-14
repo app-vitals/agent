@@ -47,7 +47,8 @@ is the single provisioning implementation behind `POST /agents` and `/admin/agen
 ## Tasks
 | Task | Title | Layer | Cx / model | Hours | Depends on |
 |---|---|---|---|---|---|
-| ATP-1.1 | feat: add AgentTemplate schema and row source markers | Database | 5 / opus | 5 | — |
+| ATP-0.1 | test: make Prisma row mocks tolerant of added platform columns (app-vitals/shipwright) | Shared | 2 / haiku | 2 | — |
+| ATP-1.1 | feat: add AgentTemplate schema and row source markers | Database | 5 / opus | 5 | 0.1 |
 | ATP-1.2 | feat: mark admin writes custom and tombstone deleted rows | API | 4 / sonnet | 4 | 1.1 |
 | ATP-1.3 | feat: template CRUD API with scoping and env crypto | API | 4 / sonnet | 5 | 1.1 |
 | ATP-2.1 | feat: per-agent template reconcile engine | Background | 5 / opus | 8 | 1.2, 1.3 |
@@ -57,19 +58,25 @@ is the single provisioning implementation behind `POST /agents` and `/admin/agen
 
 ```
 [START]
-  └─ ATP-1.1
+  └─ ATP-0.1 (shipwright)
+        └─ ATP-1.1
         ├─ ATP-1.2 ─┐
         └─ ATP-1.3 ─┴─ ATP-2.1 ─ ATP-2.2 ─ ATP-2.4
               └─ ATP-2.3
 ```
 
-Breaking Change Safety: every task is additive (new tables, defaulted columns, new endpoints); existing write paths
-only gain a `source` stamp. Safe to deploy standalone: yes for all.
+Breaking Change Safety: every task is additive at runtime (new tables, defaulted columns, new endpoints). ATP-1.1 is not
+safe standalone for the type contract, though: Prisma row types make every column a required key even when the DB has a
+default, so new columns on AgentEnv/AgentTool/AgentPlugin/AgentCronJob break shipwright's exhaustive mock literals
+(`shipwright consumer compat` typecheck, found on #204). ATP-0.1 migrates those mocks first (expand → migrate order);
+ATP-1.1 depends on it. Safe to deploy standalone: yes for all other tasks.
 
 Not carried: setting the Vitals OS Sentry DSN — done by Dan in the Settings UI after rollout; it lives in the DB, not a
 repo, so no task.
 
 ## Decision Log
+- ATP-0.1 added after #204: the original plan wrongly marked ATP-1.1 safe standalone and listed no shipwright task. Making
+  shipwright's mocks resilient beats a lockstep bump because future column additions then need no shipwright change.
 - Layering: merge by key, more specific scope wins (Dan: template is default, explicit provisioning values override).
 - Provisioning opt-out via `templateDetached` rather than named templates (deferred).
 - Phase methodology and policy columns excluded from v1 (coding-owned).
