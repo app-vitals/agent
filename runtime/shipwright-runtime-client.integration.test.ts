@@ -43,6 +43,7 @@ const SAMPLE_CRONS: AgentCronJob[] = [
   {
     id: "cron-1",
     agentId: AGENT_ID,
+    source: "custom",
     name: "daily-brief",
     schedule: "0 6 * * *",
     prompt: "Run the morning brief",

@@ -42,6 +42,7 @@ export const TOKEN_ID = "token-test-abc";
 export const MOCK_CRON = {
   id: CRON_ID,
   agentId: AGENT_ID,
+  source: "custom",
   schedule: "0 * * * *",
   prompt: "check status",
   channel: "C123456",
@@ -62,6 +63,7 @@ export const MOCK_CRON = {
 export const MOCK_TOOL = {
   id: TOOL_ID,
   agentId: AGENT_ID,
+  source: "custom",
   pattern: "Bash(git:*)",
   enabled: true,
   createdAt: new Date("2024-01-01"),
@@ -310,6 +312,7 @@ export function makeMockDeps(
       add: async (agentId: string, name: string) => ({
         id: "p1",
         agentId,
+        source: "custom",
         name,
         version: null,
         enabled: true,

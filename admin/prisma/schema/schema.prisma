@@ -1,6 +1,6 @@
 // Shipwright — Admin Service Schema
 // Owns: Agent, AgentEnv, AgentCronJob, AgentTool, AgentToken, AgentPlugin,
-// AgentMarketplace,
+// AgentMarketplace, AgentTemplate, AgentTemplateItem,
 // plus the coding-owned models in coding.prisma (AgentWorkQueueSnapshot,
 // AgentPhaseMethodology, SessionFollow, SessionAlertState).
 // Agent is a first-class model (standalone, not embedded in a User model).
@@ -89,6 +89,9 @@ model Agent {
   // reported by the runtime at boot (overwritten each report). Written ONLY by
   // PUT /agents/:id/baked-marketplaces; never by PATCH or any UI.
   bakedMarketplaces      String[] @default([])
+  // ATP-1.1: true once the agent stops following its template (template
+  // changes no longer reach its source="template" rows). Additive, default false.
+  templateDetached       Boolean  @default(false)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -118,6 +121,7 @@ model AgentEnv {
   key       String   // env var name
   value     String   // AES-256-GCM encrypted
   secret    Boolean  @default(false) // when true, GET /agents/:id/envs masks the value as ***
+  source    String   @default("custom") // ATP-1.1: 'template' | 'custom'; which rows a template sync owns
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -160,6 +164,7 @@ model AgentCronJob {
   preCheck  String?  // optional pre-check script e.g. "shipwright:check-docs-freshness.ts"
   name      String?  // stable key for system crons; null for user-created crons
   system    Boolean  @default(false)
+  source    String   @default("custom") // ATP-1.1: 'template' | 'custom'; which rows a template sync owns
   // Set when the trial-expiry lockdown (not the user) disabled this cron, so
   // restoreLockdownDisabled() can re-enable exactly those crons. Null for
   // enabled crons and for crons the user disabled manually.
@@ -196,7 +201,9 @@ model AgentTool {
   agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
   pattern   String
   enabled   Boolean  @default(true)
+  source    String   @default("custom") // ATP-1.1: 'template' | 'custom'; which rows a template sync owns
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt // ATP-1.1; existing rows backfilled to the migration time
 
   @@unique([agentId, pattern])
 }
@@ -227,6 +234,7 @@ model AgentPlugin {
   name      String   // plugin package name e.g. "@shipwright/plugin"
   version   String?  // pinned version; null = latest
   enabled   Boolean  @default(true)
+  source    String   @default("custom") // ATP-1.1: 'template' | 'custom'; which rows a template sync owns
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -266,9 +274,58 @@ model Account {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  agents  Agent[]
-  members AccountMember[]
-  invites AccountInvite[]
+  agents    Agent[]
+  members   AccountMember[]
+  invites   AccountInvite[]
+  templates AgentTemplate[]
+}
+
+// ─── Agent Templates ──────────────────────────────────────────────────────────
+// ATP-1.1: a template is the default env/tool/plugin/cron set for agents of a
+// given scope. accountId null = deployment-wide; specialty null = every
+// specialty. Rows copied from a template onto an agent carry source="template"
+// on AgentEnv/AgentTool/AgentPlugin/AgentCronJob; hand-made rows are "custom".
+//
+// UNIQUENESS: at most one template per (accountId, specialty), with NULL
+// treated as a value. Prisma cannot express partial unique indexes, so they
+// are hand-written in 20261113000000_add_agent_templates/migration.sql:
+//   AgentTemplate_accountId_specialty_key  (both set)
+//   AgentTemplate_specialty_global_key     (accountId NULL)
+//   AgentTemplate_accountId_any_key        (specialty NULL)
+//   AgentTemplate_global_any_key           (both NULL)
+// Prisma's schema diff does not see them, so keep them when editing this
+// model and re-create them by hand if the table is ever rebuilt.
+
+model AgentTemplate {
+  id        String   @id @default(cuid())
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  specialty String? // Specialty name (manifest key); null = any specialty
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items AgentTemplateItem[]
+
+  @@index([accountId])
+}
+
+// One entry of a template. kind is 'env' | 'tool' | 'plugin' | 'cron'
+// (validated in the service layer); key is the env var name, tool pattern,
+// plugin spec or cron name. payload holds the kind-specific fields; an env
+// item's payload.value is AES-256-GCM encrypted (see
+// admin/src/agent-template-items.ts).
+
+model AgentTemplateItem {
+  id         String        @id @default(cuid())
+  templateId String
+  template   AgentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  kind       String
+  key        String
+  payload    Json          @default("{}")
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([templateId, kind, key])
 }
 
 model AccountMember {

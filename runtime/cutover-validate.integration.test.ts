@@ -22,6 +22,7 @@ function makeCron(id: string): AgentCronJob {
   return {
     id,
     agentId: AGENT_ID,
+    source: "custom",
     schedule: "0 9 * * *",
     prompt: "/shipwright:dev-task",
     channel: "C123456",
