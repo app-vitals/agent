@@ -75,7 +75,9 @@ bundle's `features` object (held in `agent-features-ref.ts`; absent means all
 off):
 
 - `transcriptUploader` uploads a redacted cron-run transcript after
-  `completeRun` when `features.transcriptUpload` is true.
+  `completeRun` when `features.transcriptUpload` is true. The same deps back a
+  second uploader exposed to extensions as `AgentExtensionContext.transcriptUploader`,
+  gated by `features.loopTranscriptUpload` instead.
 - `repoAccessProbe` probes per-repo GitHub access for the installations
   reporter when `features.repoAccessCheck` is true.
 - `createRunNowHonourer` runs a cron job once on each sync tick when the admin
