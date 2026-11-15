@@ -128,6 +128,8 @@ export interface AgentDetail {
    * state.
    */
   bakedMarketplaces?: string[];
+  /** ATP-2.4: the agent no longer follows its template. */
+  templateDetached?: boolean;
 }
 
 export interface CronJobItem {
@@ -141,6 +143,8 @@ export interface CronJobItem {
   system: boolean;
   parentCronId: string | null;
   preCheck?: string | null;
+  /** ATP-2.4: `template` (inherited) or `custom`. */
+  source?: string;
   lastRun?: {
     startedAt: Date;
     completedAt: Date | null;
@@ -179,6 +183,8 @@ export interface ToolItem {
   id: string;
   pattern: string;
   enabled: boolean;
+  /** ATP-2.4: `template` (inherited) or `custom`. */
+  source?: string;
   createdAt: Date;
 }
 
@@ -194,6 +200,8 @@ export interface PluginItem {
   name: string;
   version: string | null;
   enabled: boolean;
+  /** ATP-2.4: `template` (inherited) or `custom`. */
+  source?: string;
   createdAt: Date;
 }
 
@@ -502,6 +510,16 @@ function runtimeSectionsOnchange(display: "" | "none"): string {
     .join(";");
 }
 
+/** ATP-2.4: one template-provided default on the provisioning form. */
+export interface NewAgentTemplateItem {
+  kind: string;
+  key: string;
+  /** Display value (env only; secrets already masked). */
+  value?: string;
+  /** Human label of the template scope. */
+  scope: string;
+}
+
 export function renderNewLocalAgentPage(
   userName: string,
   types: SpecialtyOption[],
@@ -516,6 +534,12 @@ export function renderNewLocalAgentPage(
      * the self-serve specialty (the server forces it regardless).
      */
     selfServe?: { remaining: number; max: number; contactEmail: string };
+    /**
+     * ATP-2.4: present when agent templates are available. Lists the
+     * template-provided defaults and adds the opt-out checkbox; `allowEnv`
+     * (platform admins) adds the explicit env override box.
+     */
+    template?: { items: NewAgentTemplateItem[]; allowEnv: boolean };
   },
 ): string {
   const error = opts?.error;
@@ -590,6 +614,46 @@ export function renderNewLocalAgentPage(
         <li>A Claude API key or OAuth token</li>
       </ul>
     </div>`
+    : "";
+  const tplOpts = opts?.template;
+  const templateFieldsetHtml = tplOpts
+    ? `<fieldset id="template-section" style="border:1px solid #e8e8ee;border-radius:8px;padding:16px">
+          <legend style="font-size:13px;font-weight:600;padding:0 8px">Agent template</legend>
+          ${
+            tplOpts.items.length === 0
+              ? `<p style="font-size:13px;color:#6b7280;margin-bottom:12px">No template items apply to new agents.</p>`
+              : `<p style="font-size:13px;color:#6b7280;margin-bottom:8px">New agents start with these template defaults${tplOpts.allowEnv ? "; anything you enter below overrides them" : ""}:</p>
+          <table class="data-table" style="margin-bottom:12px">
+            <thead><tr><th>Kind</th><th>Key</th><th>Default</th><th>Applies to</th></tr></thead>
+            <tbody>${tplOpts.items
+              .map(
+                (i) =>
+                  `<tr><td>${escapeHtml(i.kind)}</td><td class="mono">${escapeHtml(i.key)}</td><td class="mono">${i.value === undefined ? "—" : escapeHtml(i.value)}</td><td>${escapeHtml(i.scope)}</td></tr>`,
+              )
+              .join("")}</tbody>
+          </table>`
+          }
+          ${
+            tplOpts.allowEnv
+              ? `<div class="form-group">
+            <label class="form-label" for="env">Env overrides (optional)</label>
+            <textarea id="env" name="env" class="form-input mono" rows="3" placeholder="KEY=value (one per line)"></textarea>
+            <p style="font-size:12px;color:#6b7280;margin-top:4px">
+              Values entered here win over the template defaults above and stay fixed when the template changes.
+            </p>
+          </div>`
+              : ""
+          }
+          <div class="form-group" style="margin-bottom:0">
+            <label style="font-size:13px">
+              <input type="checkbox" name="templateDetached" value="true" />
+              Start without the template (opt out)
+            </label>
+            <p style="font-size:12px;color:#6b7280;margin-top:4px">
+              The agent gets only its built-in defaults and ignores later template changes until you reattach it.
+            </p>
+          </div>
+        </fieldset>`
     : "";
   const typeFieldHtml = selfServe
     ? `<input type="hidden" name="type" value="${escapeHtml(getSelfServeSpecialty())}" />`
@@ -826,6 +890,7 @@ export function renderNewLocalAgentPage(
             </div>
           </div>
         </fieldset>
+        ${templateFieldsetHtml}
         <div>
           <button type="submit" class="btn btn-primary">Create agent →</button>
           <a href="/admin/agents" class="btn btn-secondary" style="margin-left:8px">Cancel</a>
@@ -938,7 +1003,12 @@ function renderGroup(name: string, stat: string, bodyHtml: string): string {
 export function renderAgentDetailPage(
   agent: AgentDetail,
   envResult:
-    | { env: Record<string, string>; secretKeys: string[] }
+    | {
+        env: Record<string, string>;
+        secretKeys: string[];
+        /** ATP-2.4: row source per key. */
+        sources?: Record<string, string>;
+      }
     | Record<string, string>,
   crons: CronJobItem[],
   tools: ToolItem[],
@@ -995,6 +1065,12 @@ export function renderAgentDetailPage(
      * could be listed. Absent means unknown: no coverage warning is shown.
      */
     installationRepos?: readonly string[];
+    /**
+     * ATP-2.4: present when agent templates are available. Turns on the
+     * inherited/custom badges, the detach/reattach toggle and the per-item
+     * reset controls.
+     */
+    template?: { detached: boolean };
   },
 ): string {
   // Reference time for relative timestamps — injected by tests for determinism,
@@ -1016,19 +1092,66 @@ export function renderAgentDetailPage(
       : [],
   );
 
+  // ATP-2.4: inherited/custom badge, per-item reset and agent-wide controls.
+  const tpl = opts?.template;
+  const agentPath = `/admin/agents/${escapeHtml(agent.id)}`;
+  const sourceBadge = (source: string | undefined): string =>
+    !tpl || (source !== "template" && source !== "custom")
+      ? ""
+      : source === "template"
+        ? ` <span class="badge badge-template" data-source="template" title="Inherited from the agent template">template</span>`
+        : ` <span class="badge badge-custom" data-source="custom" title="Set on this agent; overrides the template">custom</span>`;
+  const resetForm = (
+    source: string | undefined,
+    kind: string,
+    key: string | null | undefined,
+  ): string =>
+    !tpl || tpl.detached || source !== "custom" || !key
+      ? ""
+      : `<form method="POST" action="${agentPath}/template/reset" style="display:inline;margin-left:4px">
+          <input type="hidden" name="kind" value="${kind}" />
+          <input type="hidden" name="key" value="${escapeHtml(key)}" />
+          <button type="submit" class="btn btn-secondary" style="font-size:11px;padding:3px 8px" title="Drop this agent's override and restore the template value">Reset to template</button>
+        </form>`;
+  const envSources =
+    envResult && "sources" in envResult
+      ? ((envResult as { sources?: Record<string, string> }).sources ?? {})
+      : {};
+  const templateCard = tpl
+    ? `<div class="card" id="template">
+      <div class="card-title">Agent template</div>
+      ${
+        tpl.detached
+          ? `<p style="font-size:13px;margin-bottom:12px"><span class="badge badge-gray">Detached from template</span>
+        Template changes no longer reach this agent. Reattaching reconciles it against the template now; your custom rows are kept.</p>
+      <form method="POST" action="${agentPath}/template/reattach">
+        <button type="submit" class="btn btn-primary">Reattach to template</button>
+      </form>`
+          : `<p style="font-size:13px;margin-bottom:12px"><span class="badge badge-template">Following template</span>
+        Rows marked <em>template</em> are managed from Settings &gt; Templates; editing one makes it <em>custom</em>.</p>
+      <form method="POST" action="${agentPath}/template/detach" style="display:inline">
+        <button type="submit" class="btn btn-secondary">Detach from template</button>
+      </form>
+      <form method="POST" action="${agentPath}/template/reset" style="display:inline;margin-left:8px">
+        <button type="submit" class="btn btn-secondary" title="Drop every override of a key the template defines">Reset all to template</button>
+      </form>`
+      }
+    </div>`
+    : "";
+
   const envRows =
     Object.keys(envVars).length === 0
       ? `<tr><td colspan="3" class="empty-state">No env vars set.</td></tr>`
       : Object.entries(envVars)
           .map(
             ([k]) => `<tr>
-      <td class="mono">${escapeHtml(k)}${secretKeySet.has(k) ? ' <span title="Secret">🔒</span>' : ""}</td>
+      <td class="mono">${escapeHtml(k)}${secretKeySet.has(k) ? ' <span title="Secret">🔒</span>' : ""}${sourceBadge(envSources[k])}</td>
       <td class="mono" style="color:#6b7280">••••••••</td>
       <td>
         <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/envs/delete" style="display:inline">
           <input type="hidden" name="key" value="${escapeHtml(k)}" />
           <button type="submit" class="btn btn-danger" style="font-size:11px;padding:3px 8px">Delete</button>
-        </form>
+        </form>${resetForm(envSources[k], "env", k)}
       </td>
     </tr>`,
           )
@@ -1232,13 +1355,13 @@ export function renderAgentDetailPage(
 
     return `<tr>
       <td class="mono">${escapeHtml(c.schedule)}</td>
-      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.name ? `${c.name}: ${c.prompt}` : c.prompt)}</td>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.name ? `${c.name}: ${c.prompt}` : c.prompt)}${sourceBadge(c.system ? undefined : c.source)}</td>
       <td class="mono" style="font-size:11px;color:#6b7280;max-width:170px;overflow:hidden;text-overflow:ellipsis">${c.preCheck ? escapeHtml(c.preCheck) : "—"}</td>
       <td>${c.channel ? escapeHtml(c.channel) : c.user ? escapeHtml(c.user) : "—"}</td>
       <td><span class="badge ${c.enabled ? "badge-green" : "badge-gray"}">${c.enabled ? "enabled" : "disabled"}</span></td>
       <td style="font-size:11px">${lastRunHtml}</td>
       <td class="col-created">${escapeHtml(new Date(c.createdAt).toLocaleDateString("en-US", { timeZone: timezone }))}</td>
-      <td style="white-space:nowrap">${actions}${editForm}</td>
+      <td style="white-space:nowrap">${actions}${resetForm(c.system ? undefined : c.source, "cron", c.name)}${editForm}</td>
     </tr>
     ${nestedPhasesRow}`;
   }
@@ -1259,7 +1382,7 @@ export function renderAgentDetailPage(
       : tools
           .map(
             (t) => `<tr>
-      <td class="mono">${escapeHtml(t.pattern)}</td>
+      <td class="mono">${escapeHtml(t.pattern)}${sourceBadge(t.source)}</td>
       <td><span class="badge ${t.enabled ? "badge-green" : "badge-gray"}">${t.enabled ? "enabled" : "disabled"}</span></td>
       <td>${escapeHtml(new Date(t.createdAt).toLocaleDateString("en-US", { timeZone: timezone }))}</td>
       <td style="white-space:nowrap">
@@ -1269,7 +1392,7 @@ export function renderAgentDetailPage(
         </form>
         <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/tools/${escapeHtml(t.id)}/delete" style="display:inline;margin-left:4px">
           <button type="submit" class="btn btn-danger" style="font-size:11px;padding:3px 8px">Delete</button>
-        </form>
+        </form>${resetForm(t.source, "tool", t.pattern)}
       </td>
     </tr>`,
           )
@@ -1301,7 +1424,7 @@ export function renderAgentDetailPage(
       : plugins
           .map(
             (p) => `<tr>
-      <td class="mono">${escapeHtml(p.name)}</td>
+      <td class="mono">${escapeHtml(p.name)}${sourceBadge(p.source)}</td>
       <td class="mono">${p.version ? escapeHtml(p.version) : "latest"}</td>
       <td><span class="badge ${p.enabled ? "badge-green" : "badge-gray"}">${p.enabled ? "enabled" : "disabled"}</span></td>
       <td>${escapeHtml(new Date(p.createdAt).toLocaleDateString("en-US", { timeZone: timezone }))}</td>
@@ -1309,7 +1432,7 @@ export function renderAgentDetailPage(
         <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/plugins/delete" style="display:inline">
           <input type="hidden" name="pluginId" value="${escapeHtml(p.id)}" />
           <button type="submit" class="btn btn-danger" style="font-size:11px;padding:3px 8px">Remove</button>
-        </form>
+        </form>${resetForm(p.source, "plugin", p.name)}
       </td>
     </tr>`,
           )
@@ -2019,7 +2142,7 @@ export function renderAgentDetailPage(
   const configurationGroup = renderGroup(
     "Configuration",
     configurationStat,
-    `${envVarsSection}${reposSection}${(opts?.configurationCardsHtml ?? []).join("")}${agentPolicySection}`,
+    `${templateCard}${envVarsSection}${reposSection}${(opts?.configurationCardsHtml ?? []).join("")}${agentPolicySection}`,
   );
   const accessGroup = renderGroup(
     "Access",

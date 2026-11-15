@@ -91,6 +91,7 @@ import {
   renderGithubAppInstallPage,
   renderGithubAppManifestRedirectPage,
   renderLoginPage,
+  type NewAgentTemplateItem,
   renderNewLocalAgentPage,
   renderProvisionCompletePage,
   renderProvisionXappTokenPage,
@@ -848,6 +849,23 @@ export function createAgentAccessChecks(deps: {
 const DEFAULT_PLUGIN_MARKETPLACE = "shipwright";
 
 /**
+ * ATP-2.4: parse the create form's `KEY=value` lines (blank lines and `#`
+ * comments skipped). Null when a line is malformed.
+ */
+function parseEnvLines(raw: string | undefined): Record<string, string> | null {
+  const env: Record<string, string> = {};
+  for (const line of (raw ?? "").split(/\r?\n/)) {
+    const t = line.trim();
+    if (t === "" || t.startsWith("#")) continue;
+    const eq = t.indexOf("=");
+    const key = eq < 0 ? "" : t.slice(0, eq).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return null;
+    env[key] = t.slice(eq + 1).trim();
+  }
+  return env;
+}
+
+/**
  * Validate a plugin install spec and return its canonical
  * "<plugin>@<marketplace>" form. Throws UnprocessableEntityError if malformed.
  */
@@ -1524,6 +1542,38 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     return accountIdFromScope(await callerScopeResolver(userEmail, false));
   }
 
+  // ATP-2.4: the template items a new agent in this scope would inherit,
+  // flattened for display. Best effort: a failing lookup shows none.
+  async function templateDefaultItems(
+    isAdmin: boolean,
+    accountId: string | null,
+  ): Promise<NewAgentTemplateItem[]> {
+    if (!templateService) return [];
+    try {
+      const templates = await templateService.list(
+        isAdmin || accountId === null
+          ? { kind: "admin" }
+          : { kind: "account", accountId },
+      );
+      return templates.flatMap((t) => {
+        const scope = `${t.accountId ? "account" : "all accounts"}, ${t.specialty ?? "all types"}`;
+        return t.items.map((i): NewAgentTemplateItem => {
+          const secret = i.payload.secret === true;
+          return {
+            kind: i.kind,
+            key: i.key,
+            ...(i.kind === "env" && typeof i.payload.value === "string"
+              ? { value: secret ? "***" : i.payload.value }
+              : {}),
+            scope,
+          };
+        });
+      });
+    } catch {
+      return [];
+    }
+  }
+
   app.get("/admin/agents/new", requireAuth, async (c) => {
     const accountId = await resolveCreateAccountId(
       c.var.userEmail,
@@ -1556,6 +1606,17 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         canProvision: provisioner.canProvision,
         anthropicFederationEnabled: deps.anthropicFederationEnabled,
         ...(selfServeOpts ? { selfServe: selfServeOpts } : {}),
+        ...(templateService
+          ? {
+              template: {
+                items: await templateDefaultItems(
+                  c.var.isAdmin,
+                  accountId,
+                ),
+                allowEnv: c.var.isAdmin === true,
+              },
+            }
+          : {}),
       }),
     );
   });
@@ -1589,8 +1650,12 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     let ghAppId: string | undefined;
     let ghAppInstallationId: string | undefined;
     let ghAppPrivateKey: string | undefined;
+    let templateDetachedRaw: string | undefined;
+    let envRaw: string | undefined;
     try {
       const formData = await c.req.formData();
+      templateDetachedRaw = formData.get("templateDetached")?.toString();
+      envRaw = formData.get("env")?.toString();
       name = formData.get("name")?.toString()?.trim();
       specialty = formData.get("type")?.toString()?.trim();
       reposRaw = formData.get("repos")?.toString()?.trim();
@@ -1627,6 +1692,15 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           : undefined;
     } catch {
       return c.redirect("/admin/agents/new", 302);
+    }
+    // ATP-2.4: explicit env entries (platform admins only) override template
+    // defaults per key; the opt-out checkbox starts the agent detached.
+    const explicitEnv = c.var.isAdmin ? parseEnvLines(envRaw) : {};
+    if (explicitEnv === null) {
+      return c.redirect(
+        `/admin/agents/new?error=${encodeURIComponent("Env overrides must be KEY=value lines.")}`,
+        302,
+      );
     }
     const connectSlack = connectSlackRaw === "true";
     // SSP-4.2: account users always create self-serve-specialty agents in their own
@@ -1695,6 +1769,8 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         claudeCodeOauthToken,
         anthropicApiKey,
         ...(accountId !== null ? { accountId } : {}),
+        ...(templateDetachedRaw === "true" ? { templateDetached: true } : {}),
+        ...(Object.keys(explicitEnv).length > 0 ? { env: explicitEnv } : {}),
         // PAI-1.2: owner is the authenticated session user, never form data.
         ownerEmail: c.var.userEmail,
       },
@@ -2333,6 +2409,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           marketplaces,
           githubEnterpriseConfigured: enterpriseConfigured,
           ...(installationRepos ? { installationRepos } : {}),
+          ...(agentsApi
+            ? { template: { detached: agent.templateDetached === true } }
+            : {}),
         },
       ),
     );
@@ -2395,6 +2474,75 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       await agentEnvService.deleteKey(agentId, key);
     }
     return c.redirect(`/admin/agents/${agentId}`, 302);
+  });
+
+  // ─── Agent template (ATP-2.4) ─────────────────────────────────────────────
+  // Thin forwards to the ATP-2.2 endpoints through the agents API seam, with
+  // the caller's session cookie, so its own auth and 409 rules apply.
+
+  const TEMPLATE_KINDS = ["env", "tool", "plugin", "cron"];
+
+  async function templateAction(
+    c: Context<AdminUIEnv>,
+    action: "detach" | "reattach" | "reset",
+    body?: Record<string, string>,
+  ): Promise<Response> {
+    const agentId = c.req.param("id") ?? "";
+    if (!agentsApi) return new Response("Not found", { status: 404 });
+    if (!(await assertAgentAccess(agentId, c.var.userEmail, c.var.isAdmin))) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const base = `/admin/agents/${agentId}`;
+    const res = await callApi(
+      c,
+      agentsApi,
+      `/agents/${encodeURIComponent(agentId)}/template/${action}`,
+      {
+        method: "POST",
+        ...(body
+          ? {
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            }
+          : {}),
+      },
+    );
+    if (res?.ok) return c.redirect(base, 302);
+    let message = "Could not update the agent template.";
+    try {
+      const j = (await res?.json()) as { error?: unknown };
+      if (typeof j.error === "string" && j.error) message = j.error;
+    } catch {
+      // keep the generic message
+    }
+    return c.redirect(`${base}?error=${encodeURIComponent(message)}`, 302);
+  }
+
+  app.post("/admin/agents/:id/template/detach", requireAuth, (c) =>
+    templateAction(c, "detach"),
+  );
+
+  app.post("/admin/agents/:id/template/reattach", requireAuth, (c) =>
+    templateAction(c, "reattach"),
+  );
+
+  app.post("/admin/agents/:id/template/reset", requireAuth, async (c) => {
+    let kind = "";
+    let key = "";
+    try {
+      const form = await c.req.formData();
+      kind = form.get("kind")?.toString() ?? "";
+      key = form.get("key")?.toString() ?? "";
+    } catch {
+      // no body: reset everything
+    }
+    if (kind !== "" && (!TEMPLATE_KINDS.includes(kind) || key === "")) {
+      return c.redirect(
+        `/admin/agents/${c.req.param("id")}?error=${encodeURIComponent("Unknown template item to reset.")}`,
+        302,
+      );
+    }
+    return templateAction(c, "reset", kind === "" ? {} : { kind, key });
   });
 
   // ─── Repo mutations ───────────────────────────────────────────────────────
@@ -3118,6 +3266,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             queueActivityLinks: deps.queueActivityLinks,
             marketplaces,
             githubEnterpriseConfigured: await githubEnterpriseConfigured(c),
+            ...(agentsApi
+              ? { template: { detached: agent.templateDetached === true } }
+              : {}),
           },
         ),
       );
