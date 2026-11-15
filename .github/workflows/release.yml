@@ -467,8 +467,10 @@ jobs:
     name: Notify Shipwright
     needs: [resolve, publish-npm, publish-image]
     # `!cancelled()` replaces the implicit `success()`, which fails when `guard`
-    # was skipped (tag push); each publish job must still have succeeded.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-image.result == 'success' && needs.resolve.outputs.dry_run != 'true' }}
+    # was skipped (tag push); each publish job must still have succeeded. The
+    # repo variable LEGACY_RELEASE_NOTIFY=false switches the dispatch off; unset
+    # (or any other value) leaves it on.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-image.result == 'success' && needs.resolve.outputs.dry_run != 'true' && vars.LEGACY_RELEASE_NOTIFY != 'false' }}
     timeout-minutes: 5
     runs-on: ubuntu-latest
     permissions:

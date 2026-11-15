@@ -179,6 +179,13 @@ describe("release workflow", () => {
     expect(job.env.VERSION).toBe("${{ needs.resolve.outputs.version }}");
   });
 
+  test("notify-shipwright is skipped only when the LEGACY_RELEASE_NOTIFY variable is 'false' (default on)", () => {
+    const cond = wf.jobs["notify-shipwright"].if;
+    expect(cond).toContain("vars.LEGACY_RELEASE_NOTIFY != 'false'");
+    // Unset must stay on: the guard may only be a `!= 'false'` comparison.
+    expect(cond).not.toContain("LEGACY_RELEASE_NOTIFY == 'true'");
+  });
+
   test("a failed dispatch fails the workflow (no continue-on-error) and opens an issue", () => {
     const job = wf.jobs["notify-shipwright"];
     expect(job.permissions.issues).toBe("write");
