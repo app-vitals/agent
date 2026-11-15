@@ -12,7 +12,12 @@ import {
   type GheWarningCode,
 } from "./github-enterprise-warnings.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
-import { escapeHtml, renderAdminToolbar } from "./admin-ui-styles.ts";
+import { escapeHtml } from "./admin-ui-styles.ts";
+import {
+  buildSettingsNav,
+  renderSettingsLayout,
+  type SettingsNav,
+} from "./admin-ui-settings-layout.ts";
 
 export const ADMIN_GITHUB_ENTERPRISE_PATH = "/admin/settings/github-enterprise";
 
@@ -53,6 +58,10 @@ export interface GheOrgs {
 
 export interface GithubEnterpriseSettingsPageOpts {
   userEmail: string;
+  /** Viewer is an admin (drives adminOnly sidebar items). */
+  isAdmin?: boolean;
+  /** Settings sidebar nav; defaults to the base Platform nav. */
+  nav?: SettingsNav;
   status: GheStatus;
   /** Present when the installer App is configured and the org list loaded. */
   orgs?: GheOrgs;
@@ -263,13 +272,18 @@ export function renderGithubEnterpriseSettingsPage(
 
   return renderAdminPage({
     title: "GitHub Enterprise — Settings — Shipwright Admin",
-    body: `${renderAdminToolbar(opts.userEmail, BASE)}
-  <div class="vos-page">
-    <div class="page-header"><h1 class="page-title">GitHub Enterprise apps</h1><a href="/admin/settings/templates" class="btn btn-secondary">Agent templates</a></div>
-    ${error}${notice}${intro}
+    body: renderSettingsLayout({
+      userName: opts.userEmail,
+      title: "GitHub Enterprise apps",
+      nav:
+        opts.nav ??
+        buildSettingsNav({ githubEnterprise: true, templates: true }),
+      active: BASE,
+      isAdmin: opts.isAdmin ?? false,
+      body: `${error}${notice}${intro}
     ${appCard("installer", status.installer, opts.warnings)}
     ${appCard("lookup", status.lookup, opts.warnings)}
-    ${orgsCard(opts)}
-  </div>`,
+    ${orgsCard(opts)}`,
+    }),
   });
 }

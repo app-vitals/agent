@@ -67,6 +67,7 @@ import {
   type AgentProvisioner,
   hasPerAgentIdentity,
 } from "./agent-provisioner.ts";
+import type { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AgentToolService } from "./agent-tools.ts";
 import type { AgentService } from "./agents.ts";
@@ -256,6 +257,15 @@ export interface AdminDeps {
   specialtyRegistry: SpecialtyTypeResolver;
   /** Extension-supplied specialty defaults, consulted before the built-in type. */
   specialtyDefaults?: SpecialtyDefaultsResolver;
+  /**
+   * ATP-2.2: per-agent template reconcile engine. Optional (additive): backs
+   * the /agents/{id}/template/* routes (503 when absent) and seeds the
+   * resolved template inside POST /agents.
+   */
+  agentTemplateReconcileService?: Pick<
+    AgentTemplateReconcileService,
+    "reconcile" | "reset" | "setDetached"
+  >;
   agentChatTokenService: Pick<
     AgentChatTokenService,
     "upsertDailyByModel" | "queryStats"
@@ -1055,6 +1065,115 @@ const createCronRoute = createRoute({
     },
     400: { description: "Bad request", ...jsonError },
   },
+});
+
+const TemplateReconcileCountsSchema = z.object({
+  created: z.number().int(),
+  updated: z.number().int(),
+  adopted: z.number().int(),
+  deleted: z.number().int(),
+});
+
+const TemplateReconcileResultSchema = z
+  .object({
+    agentId: z.string(),
+    status: z.enum(["reconciled", "detached", "unknown_specialty"]),
+    counts: z.object({
+      env: TemplateReconcileCountsSchema,
+      tool: TemplateReconcileCountsSchema,
+      plugin: TemplateReconcileCountsSchema,
+      cron: TemplateReconcileCountsSchema,
+    }),
+    systemCrons: z.object({
+      created: z.number().int(),
+      updated: z.number().int(),
+      deleted: z.number().int(),
+    }),
+    conflicts: z.array(
+      z.object({
+        kind: z.enum(["env", "tool", "plugin", "cron"]),
+        key: z.string(),
+        reason: z.enum([
+          "cron_name_conflict",
+          "invalid_cron_schedule",
+          "denylisted_env_key",
+        ]),
+      }),
+    ),
+    toolsEmptyGuarded: z.boolean(),
+  })
+  .openapi("TemplateReconcileResult");
+
+const TemplateDetachResultSchema = z
+  .object({ templateDetached: z.boolean() })
+  .openapi("TemplateDetachResult");
+
+const ResetTemplateBodySchema = z
+  .object({
+    kind: z.enum(["env", "tool", "plugin", "cron"]).optional(),
+    key: z.string().min(1).optional(),
+  })
+  .refine((b) => (b.kind === undefined) === (b.key === undefined), {
+    message: "kind and key must be given together",
+  })
+  .openapi("ResetTemplateBody");
+
+const templateRouteResponses = {
+  200: {
+    description: "Template reconcile summary",
+    content: { "application/json": { schema: TemplateReconcileResultSchema } },
+  },
+};
+
+const reconcileTemplateRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/template/reconcile",
+  summary: "Reconcile the agent against its template",
+  description:
+    "Applies the agent's merged template (specialty defaults, deployment/account layers) to its env, tools, plugins and crons in one transaction: adds missing items, updates template-sourced rows, removes orphans, and leaves custom rows and tombstones alone. A detached agent is left untouched (status `detached`). Called automatically on agent startup and when a template changes.",
+  request: { params: AgentIdParamSchema },
+  responses: templateRouteResponses,
+});
+
+const detachTemplateRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/template/detach",
+  summary: "Detach the agent from its template",
+  description:
+    "Stops applying template writes to the agent. Existing rows stay as they are. Admin or session member only.",
+  request: { params: AgentIdParamSchema },
+  responses: {
+    200: {
+      description: "Agent detached",
+      content: { "application/json": { schema: TemplateDetachResultSchema } },
+    },
+  },
+});
+
+const reattachTemplateRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/template/reattach",
+  summary: "Reattach the agent to its template",
+  description:
+    "Clears the detach flag and reconciles the agent against its template. Custom rows are kept. Admin or session member only.",
+  request: { params: AgentIdParamSchema },
+  responses: templateRouteResponses,
+});
+
+const resetTemplateRoute = createRoute({
+  method: "post",
+  path: "/agents/{id}/template/reset",
+  summary: "Reset the agent to its template",
+  description:
+    "Drops the agent's custom rows (overrides and tombstones) for every key its template defines, or only the one `kind`/`key` given, then reconciles so the template values return as template-sourced rows. 409 when the agent is detached. Admin or session member only.",
+  request: {
+    params: AgentIdParamSchema,
+    body: {
+      required: false,
+      content: { "application/json": { schema: ResetTemplateBodySchema } },
+    },
+  },
+  responses: templateRouteResponses,
 });
 
 const reconcileCronsRoute = createRoute({
@@ -2518,6 +2637,15 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         specialtyRegistry,
         specialtyDefaults,
         anthropicFederationEnabled: deps.anthropicFederationEnabled,
+        ...(deps.agentTemplateReconcileService
+          ? {
+              templateReconcile: {
+                reconcile: deps.agentTemplateReconcileService.reconcile.bind(
+                  deps.agentTemplateReconcileService,
+                ),
+              },
+            }
+          : {}),
       },
       {
         name: body.name,
@@ -2535,6 +2663,8 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         restrictSlackToMembersRaw: body.restrictSlackToMembersRaw,
         claudeCodeOauthToken: body.claudeCodeOauthToken,
         anthropicApiKey: body.anthropicApiKey,
+        ...(body.templateDetached ? { templateDetached: true } : {}),
+        ...(body.env ? { env: body.env } : {}),
       },
     );
 
@@ -2608,6 +2738,59 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     const body = c.req.valid("json");
     const cron = await agentCronJobService.create(agentId, body);
     return c.json({ cron: serializeCron(cron) }, 201);
+  });
+
+  // ─── Agent template (ATP-2.2) ──────────────────────────────────────────────
+
+  const templateEngine = () => {
+    if (!deps.agentTemplateReconcileService) {
+      throw new ApiError(503, "agent templates are not configured");
+    }
+    return deps.agentTemplateReconcileService;
+  };
+
+  // POST /agents/:id/template/reconcile — also what agent boot calls
+  app.openapi(reconcileTemplateRoute, async (c) => {
+    const { id: agentId } = c.req.valid("param");
+    return c.json(await templateEngine().reconcile(agentId), 200);
+  });
+
+  app.openapi(detachTemplateRoute, async (c) => {
+    if (!isAdminOrSessionMember(c)) {
+      throw new ForbiddenError(
+        "Only admin bearers and session users can detach an agent from its template",
+      );
+    }
+    const { id: agentId } = c.req.valid("param");
+    await templateEngine().setDetached(agentId, true);
+    return c.json({ templateDetached: true }, 200);
+  });
+
+  app.openapi(reattachTemplateRoute, async (c) => {
+    if (!isAdminOrSessionMember(c)) {
+      throw new ForbiddenError(
+        "Only admin bearers and session users can reattach an agent to its template",
+      );
+    }
+    const { id: agentId } = c.req.valid("param");
+    const engine = templateEngine();
+    await engine.setDetached(agentId, false);
+    return c.json(await engine.reconcile(agentId), 200);
+  });
+
+  app.openapi(resetTemplateRoute, async (c) => {
+    if (!isAdminOrSessionMember(c)) {
+      throw new ForbiddenError(
+        "Only admin bearers and session users can reset an agent to its template",
+      );
+    }
+    const { id: agentId } = c.req.valid("param");
+    const body = c.req.valid("json");
+    const only =
+      body?.kind !== undefined && body.key !== undefined
+        ? { kind: body.kind, key: body.key }
+        : undefined;
+    return c.json(await templateEngine().reset(agentId, only), 200);
   });
 
   // POST /agents/:id/crons/reconcile — static path must precede /:cronId routes

@@ -188,6 +188,19 @@ export const CreateAgentBodySchema = z
       .openapi({ example: "true" }),
     claudeCodeOauthToken: z.string().optional(),
     anthropicApiKey: z.string().optional(),
+    /**
+     * Explicit env values. They override the agent template per key and are
+     * kept as the agent's own (never overwritten by a template reconcile).
+     */
+    env: z
+      .record(z.string(), z.string())
+      .optional()
+      .openapi({ example: { ANTHROPIC_MODEL: "claude-opus-4-1" } }),
+    /**
+     * Opt out of the agent template: the agent gets only the built-in
+     * specialty defaults and no later template writes.
+     */
+    templateDetached: z.boolean().optional().openapi({ example: false }),
   })
   .openapi("CreateAgentBody");
 

@@ -38,6 +38,8 @@ interface ShipwrightRuntimeClient {
   getAgentConfigBundle(agentId: string): Promise<AgentConfigResponse>;
   listAgentCronJobs(agentId: string): Promise<AgentCronJob[]>;
   reconcileSystemCrons(agentId: string): Promise<void>;
+  /** ATP-2.2: apply the agent's template (env, tools, plugins, crons). */
+  reconcileTemplate(agentId: string): Promise<void>;
 }
 
 // ─── HttpShipwrightRuntimeClient ──────────────────────────────────────────────
@@ -112,6 +114,19 @@ export class HttpShipwrightRuntimeClient implements ShipwrightRuntimeClient {
       throw new ShipwrightClientError(
         response.status,
         `POST /agents/${agentId}/crons/reconcile failed: ${response.status}`,
+      );
+    }
+  }
+
+  async reconcileTemplate(agentId: string): Promise<void> {
+    const { response } = await this.adminClient.POST(
+      "/agents/{id}/template/reconcile",
+      { params: { path: { id: agentId } } },
+    );
+    if (!response.ok) {
+      throw new ShipwrightClientError(
+        response.status,
+        `POST /agents/${agentId}/template/reconcile failed: ${response.status}`,
       );
     }
   }

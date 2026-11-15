@@ -64,7 +64,12 @@ kubelet probes stay green during setup.
    ones removed or disabled since, ledger-scoped; see
    [agent-ops.md](./agent-ops.md#removal-and-the-ledger)), clone newly
    configured repos, and start Slack if credentials have appeared.
-5. `reconcileSystemCrons`, best effort and non-fatal.
+5. `reconcileTemplate` and `reconcileSystemCrons`, best effort and non-fatal.
+   `reconcileTemplate` applies the agent's merged template (ATP-2.2, via
+   `shipwright-runtime-client.ts`) from the admin API; this runs first so any
+   template-derived crons and tools are in place before system-cron reconciliation.
+   A failure (an admin without the route, or a transient error) is non-fatal and
+   never blocks boot.
 6. Cron sync loop (60 s; `reconcileCronTasks()` in `cron-sync.ts` unschedules removed jobs
    and reschedules any job whose schedule, prompt, channel, user, silent, preCheck or
    dispatch kind changed) and the periodic reconciler tick.

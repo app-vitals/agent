@@ -11,7 +11,7 @@
  *  2. Health server — binds immediately so kubelet probes stay green during setup
  *  3. runMiseStartup + installPlugins (defaults)
  *  4. Config sync — fetch AgentConfigBundle, apply env, install agent plugins (await first)
- *  5. reconcileSystemCrons — best-effort, non-fatal
+ *  5. reconcileTemplate + reconcileSystemCrons — best-effort, non-fatal
  *  6. Cron sync loop (60s)
  *  7. Slack Bolt Socket Mode app
  *  8. Graceful SIGTERM/SIGINT shutdown
@@ -705,9 +705,21 @@ export async function startAgent(
     console.log("[agent] config sync started (60s interval)");
   }
 
-  // ─── Step 5: reconcileSystemCrons — best-effort ───────────────────────────────
+  // ─── Step 5: reconcile template, then system crons — best-effort ─────────────
+  // The template reconcile runs first so its cron/tool/plugin rows are in
+  // place; a failure (older admin without the route, or a transient error) is
+  // non-fatal and never blocks boot.
 
   if (runtimeClient && agentId) {
+    try {
+      await runtimeClient.reconcileTemplate(agentId);
+      console.log("[agent] agent template reconciled");
+    } catch (err) {
+      console.error(
+        "[agent] reconcileTemplate failed (non-fatal):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     try {
       await runtimeClient.reconcileSystemCrons(agentId);
       console.log("[agent] system crons reconciled");

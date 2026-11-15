@@ -267,6 +267,14 @@ export function baseStyles(): string {
       background: #fde68a;
       color: #92400e;
     }
+    .badge-template {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+    .badge-custom {
+      background: #ede9fe;
+      color: #5b21b6;
+    }
 
     /* ─── Scope pills (filter chips) ────────────────────── */
     .scope-pill {

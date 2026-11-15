@@ -5,6 +5,8 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+  buildSettingsNav,
+  firstVisibleSettingsItem,
   renderSettingsLayout,
   type SettingsNav,
 } from "./admin-ui-settings-layout.ts";
@@ -102,5 +104,62 @@ describe("renderSettingsLayout", () => {
   test("toolbarPath defaults to active", () => {
     const withPath = render({ toolbarPath: "/admin/settings" });
     expect(withPath).toContain("vos-toolbar");
+  });
+});
+
+describe("buildSettingsNav / firstVisibleSettingsItem (SGL-2.2)", () => {
+  const both = { githubEnterprise: true, templates: true };
+  test("Platform section lists GHE (adminOnly) then Templates", () => {
+    expect(buildSettingsNav(both)).toEqual({
+      sections: [
+        {
+          label: "Platform",
+          items: [
+            {
+              label: "GitHub Enterprise",
+              path: "/admin/settings/github-enterprise",
+              adminOnly: true,
+            },
+            { label: "Templates", path: "/admin/settings/templates" },
+          ],
+        },
+      ],
+    });
+  });
+  test("omits unregistered features and empty sections", () => {
+    expect(buildSettingsNav({})).toEqual({ sections: [] });
+    expect(
+      buildSettingsNav({ templates: true }).sections[0]?.items.map(
+        (i) => i.label,
+      ),
+    ).toEqual(["Templates"]);
+  });
+  test("merges extension items into Platform or new sections", () => {
+    const nav = buildSettingsNav({
+      ...both,
+      extraItems: [
+        { section: "Platform", label: "A", path: "/a" },
+        { section: "Extras", label: "B", path: "/b" },
+      ],
+    });
+    expect(nav.sections.map((s) => s.label)).toEqual(["Platform", "Extras"]);
+    expect(nav.sections[0]?.items.map((i) => i.label)).toEqual([
+      "GitHub Enterprise",
+      "Templates",
+      "A",
+    ]);
+  });
+  test("first visible item respects adminOnly", () => {
+    const nav = buildSettingsNav(both);
+    expect(firstVisibleSettingsItem(nav, true)?.label).toBe(
+      "GitHub Enterprise",
+    );
+    expect(firstVisibleSettingsItem(nav, false)?.label).toBe("Templates");
+    expect(
+      firstVisibleSettingsItem(
+        buildSettingsNav({ githubEnterprise: true }),
+        false,
+      ),
+    ).toBeUndefined();
   });
 });

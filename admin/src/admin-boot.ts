@@ -83,6 +83,7 @@ import { AgentGitHubInstallationsService } from "./agent-github-installations.ts
 import { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import { AgentMemberService } from "./agent-members.ts";
 import { AgentPluginService } from "./agent-plugins.ts";
+import { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
 import { AgentTemplateService } from "./agent-templates.ts";
 import { createAgentTemplatesApp } from "./agent-templates-api.ts";
 import { AgentTokenService } from "./agent-tokens.ts";
@@ -211,6 +212,13 @@ export async function startAdmin(
     prisma,
     undefined,
     undefined,
+    specialtyDefaults,
+  );
+  // ATP-2.2: applies the agent template at create, boot and on template change.
+  const templateReconcileService = new AgentTemplateReconcileService(
+    prisma,
+    crypto,
+    specialtyRegistry,
     specialtyDefaults,
   );
   const agentCronRunService = new AgentCronRunService(prisma);
@@ -524,6 +532,7 @@ export async function startAdmin(
     chatService: deletionChatService,
     slack: slackClient,
     decrypt: crypto.decrypt,
+    agentTemplateReconcileService: templateReconcileService,
     sessionSecret,
     adminApiKeys,
     sentryClient: process.env.SENTRY_DSN ? Sentry : undefined,
@@ -582,6 +591,7 @@ export async function startAdmin(
     prisma,
     crypto,
     specialtyRegistry,
+    templateReconcileService,
   );
   root.route(
     "/",
@@ -641,6 +651,7 @@ export async function startAdmin(
     specialtyRegistry,
     specialtyDefaults,
     templateService,
+    templateReconcile: templateReconcileService,
     serviceIntegrations,
     chatService: deletionChatService,
     slack: slackClient,
@@ -692,6 +703,9 @@ export async function startAdmin(
       : {}),
     ...(resolvedExtensions.agentDetailCards.length > 0
       ? { agentDetailCards: resolvedExtensions.agentDetailCards }
+      : {}),
+    ...(resolvedExtensions.settingsNavItems.length > 0
+      ? { settingsNavItems: resolvedExtensions.settingsNavItems }
       : {}),
     ...resolvedExtensions.uiDeps,
   });
