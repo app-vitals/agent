@@ -13,6 +13,7 @@ import {
   type AgentDetail,
   type AgentListItem,
   agentSectionPath,
+  settingsRedirectSection,
   type CronJobItem,
   ERROR_KIND_LABELS,
   type MemberItem,
@@ -2211,6 +2212,30 @@ describe("renderAgentDetailPage — sections", () => {
     );
   });
 
+  test("agentSectionPath: appends encoded query params and skips undefined", () => {
+    expect(agentSectionPath("a1", "general", { error: "x y" })).toBe(
+      "/admin/agents/a1?error=x%20y",
+    );
+    expect(
+      agentSectionPath("a1", "access", { success: "ok", warning: "a&b=c" }),
+    ).toBe("/admin/agents/a1/access?success=ok&warning=a%26b%3Dc");
+    expect(agentSectionPath("a1", "extensions", { error: undefined })).toBe(
+      "/admin/agents/a1/extensions",
+    );
+    expect(agentSectionPath("a1", "automation", {})).toBe(
+      "/admin/agents/a1/automation",
+    );
+  });
+
+  test("settingsRedirectSection: Slack access form goes to access, policy form to configuration", () => {
+    const slack = new FormData();
+    slack.set("restrictSlackToMembers", "false");
+    expect(settingsRedirectSection(slack)).toBe("access");
+    const policy = new FormData();
+    policy.set("minConfidence", "70");
+    expect(settingsRedirectSection(policy)).toBe("configuration");
+  });
+
   test("defaults to General", () => {
     expect(render(undefined)).toBe(render("general"));
   });
@@ -2266,17 +2291,36 @@ describe("renderAgentDetailPage — sections", () => {
     expect(html).not.toContain('id="ext-header"');
   });
 
-  test("Access renders members, slack access and tokens (interim cards)", () => {
+  test("Access renders identity, members, allowlists, slack access and tokens", () => {
     const html = render("access");
+    expect(html).toContain("Owner &amp; identities");
     expect(html).toContain("member@example.com");
+    expect(html).toContain('action="/admin/agents/agent-123/members"');
+    expect(html).toContain(
+      'action="/admin/agents/agent-123/review-author-allowlist/add"',
+    );
+    expect(html).toContain(
+      'action="/admin/agents/agent-123/patch-author-allowlist/add"',
+    );
     expect(html).toContain('<div class="card-title">Slack access</div>');
     expect(html).toContain("Task Store Tokens");
+    expect(html).toContain('action="/admin/agents/agent-123/tokens"');
     expect(html).not.toContain('<div class="card-title">Tools</div>');
     expect(html).not.toContain("Cron Jobs");
   });
 
-  test("Extensions renders tools, plugins, marketplaces (interim cards)", () => {
+  test("Access hides members and Slack access when canManage is false", () => {
+    const html = render("access", { canManage: false }, false);
+    expect(html).not.toContain('action="/admin/agents/agent-123/members"');
+    expect(html).not.toContain('<div class="card-title">Slack access</div>');
+    expect(html).toContain("Task Store Tokens");
+  });
+
+  test("Extensions renders tools, plugins, marketplaces", () => {
     const html = render("extensions");
+    expect(html).toContain('action="/admin/agents/agent-123/tools"');
+    expect(html).toContain('action="/admin/agents/agent-123/plugins"');
+    expect(html).toContain('action="/admin/agents/agent-123/marketplaces"');
     expect(html).toContain('<div class="card-title">Tools</div>');
     expect(html).toContain('<div class="card-title">Plugins</div>');
     expect(html).toContain('<div class="card-title">Marketplaces</div>');
@@ -2306,13 +2350,6 @@ describe("renderAgentDetailPage — sections", () => {
     for (const section of AGENT_SECTIONS) {
       expect(render(section, { error: "boom" })).toContain("boom");
     }
-  });
-
-  test("the accordion is gone", () => {
-    const html = render("general");
-    expect(html).not.toContain('class="group"');
-    expect(html).not.toContain("Expand all");
-    expect(baseStyles()).not.toContain(".group-summary");
   });
 });
 
@@ -4331,8 +4368,8 @@ describe("renderAgentDetailPage — configuration card slots", () => {
     expect(two).toBeLessThan(policy);
   });
 
-  test("header cards render above the stat strip, configuration cards inside the Configuration group", () => {
-    const html = renderAgentDetailPage(
+  test("header cards render above the stat strip, configuration cards only on the Configuration section", () => {
+    const html = renderAgentDetailSection(
       AGENT,
       {},
       [],
@@ -4348,12 +4385,11 @@ describe("renderAgentDetailPage — configuration card slots", () => {
         configurationCardsHtml: ['<div class="card">cfg</div>'],
       },
     );
+    // Header cards live on General; config cards render only on Configuration.
     const statStrip = html.indexOf('<div class="stat-strip">');
-    const configuration = html.indexOf(
-      '<span class="group-title">Configuration</span>',
-    );
+    expect(html.indexOf("hdr")).toBeGreaterThan(-1);
     expect(html.indexOf("hdr")).toBeLessThan(statStrip);
-    expect(html.indexOf("cfg")).toBeGreaterThan(configuration);
+    expect(html).not.toContain(">cfg<");
   });
 });
 

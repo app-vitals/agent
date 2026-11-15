@@ -138,6 +138,31 @@ caching: nothing authenticated is cached); icons come from `admin/pwa-assets/`.
 `theme-tokens.json` holds the design tokens. `chat-markers.ts` and
 `attachment-validation.ts` support the chat pages.
 
+#### Agent detail sections
+
+The agent detail page is split into five section pages on the shared settings
+layout (sidebar nav): `GET /admin/agents/:id` (General, the bare path) and
+`GET /admin/agents/:id/:section` for `automation`, `configuration`, `access` and
+`extensions`.
+
+| Section | Cards |
+|---|---|
+| General | header info and Sync Manifest, header extension cards, stat strip, Danger Zone |
+| Automation | Cron Jobs |
+| Configuration | Env vars, Repos, configuration extension cards, Agent Policy |
+| Access | Owner and identities (GitHub username, access preview, GitHub Sync), Members, review/patch author allowlists, Slack access, Task Store Tokens |
+| Extensions | Tools, Plugins, Marketplaces |
+
+Every POST mutation redirects back to the section that owns its card, keeping
+`?error=`, `?success=` and `?warning=` banners (they render on every section).
+`agentSectionPath(id, section, query?)` builds these paths, and
+`AGENT_POST_SECTIONS` in `admin-ui-pages.ts` maps each `POST /admin/agents/:id/*`
+handler to its section; a unit test scans `admin-ui.ts` so a new handler cannot
+be added without an entry. `POST /settings` serves two forms: it redirects to
+Access when the Slack access form posted (`restrictSlackToMembers` present) and to
+Configuration for Agent Policy. Creating a token renders the Access page directly
+(200) so the raw token never appears in a URL.
+
 ### Fixtures and tests
 
 `fixtures/` holds recorded HTTP cassettes (k8s, Okta, Google, Slack, GitHub App,

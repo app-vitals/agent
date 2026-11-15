@@ -76,7 +76,9 @@ import {
   type AgentDetail,
   type AgentOption,
   type AgentSection,
+  agentSectionPath,
   isAgentSection,
+  settingsRedirectSection,
   renderAgentDetailPage,
   renderAgentsPage,
   renderChatMessageBubble,
@@ -728,17 +730,20 @@ async function redirectWithMembersWarning(
   agentMemberService: Pick<AgentMemberService, "listByAgentId">,
   agentId: string,
   restrictSlackToMembers: boolean,
+  section: AgentSection,
 ) {
   if (restrictSlackToMembers) {
     const members = await agentMemberService.listByAgentId(agentId);
     if (members.length === 0) {
       return c.redirect(
-        `/admin/agents/${agentId}?warning=restrict_slack_no_members`,
+        agentSectionPath(agentId, section, {
+          warning: "restrict_slack_no_members",
+        }),
         302,
       );
     }
   }
-  return c.redirect(`/admin/agents/${agentId}`, 302);
+  return c.redirect(agentSectionPath(agentId, section), 302);
 }
 
 // ─── HTML helper ──────────────────────────────────────────────────────────────
@@ -1817,6 +1822,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       agentMemberService,
       agent.id,
       restrictSlackToMembers,
+      "general",
     );
   });
 
@@ -1896,7 +1902,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         }),
       },
     );
-    const base = `/admin/agents/${agentId}`;
+    const base = agentSectionPath(agentId, "access");
     if (res?.ok) {
       return c.redirect(
         `${base}?success=${username === "" ? "github_username_cleared" : "github_username_saved"}`,
@@ -2346,7 +2352,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       value = formData.get("value")?.toString();
       secretStr = formData.get("secret")?.toString();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "configuration"), 302);
     }
     if (key && value !== undefined) {
       const isSecret = secretStr === "true";
@@ -2361,14 +2367,14 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         // value) on the agent page instead of a 500.
         if (err instanceof AnthropicCredentialsBlockedError) {
           return c.redirect(
-            `/admin/agents/${agentId}?error=${encodeURIComponent(err.message)}`,
+            agentSectionPath(agentId, "configuration", { error: err.message }),
             302,
           );
         }
         throw err;
       }
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "configuration"), 302);
   });
 
   app.post("/admin/agents/:id/envs/delete", requireAuth, async (c) => {
@@ -2381,12 +2387,12 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       key = formData.get("key")?.toString();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "configuration"), 302);
     }
     if (key) {
       await agentEnvService.deleteKey(agentId, key);
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "configuration"), 302);
   });
 
   // ─── Repo mutations ───────────────────────────────────────────────────────
@@ -2401,11 +2407,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       repo = formData.get("repo")?.toString()?.trim();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "configuration"), 302);
     }
     if (!repo || !isOrgRepo(repo)) {
       return c.redirect(
-        `/admin/agents/${agentId}?error=invalid_repo_format`,
+        agentSectionPath(agentId, "configuration", {
+          error: "invalid_repo_format",
+        }),
         302,
       );
     }
@@ -2418,12 +2426,12 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     const collision = describeRepoNameCollision(deduped);
     if (collision) {
       return c.redirect(
-        `/admin/agents/${agentId}?error=${encodeURIComponent(collision)}`,
+        agentSectionPath(agentId, "configuration", { error: collision }),
         302,
       );
     }
     await agentService.updateFields(agentId, { repos: deduped });
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "configuration"), 302);
   });
 
   app.post("/admin/agents/:id/repos/delete", requireAuth, async (c) => {
@@ -2436,7 +2444,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       repo = formData.get("repo")?.toString()?.trim();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "configuration"), 302);
     }
     if (repo) {
       const agent = await agentService.getDetail(agentId);
@@ -2446,7 +2454,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const updated = (agent.repos ?? []).filter((r) => r !== repo);
       await agentService.updateFields(agentId, { repos: updated });
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "configuration"), 302);
   });
 
   // ─── Author allowlist (review) mutations ───────────────────────────────────
@@ -2464,11 +2472,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         const formData = await c.req.formData();
         login = formData.get("login")?.toString()?.trim();
       } catch {
-        return c.redirect(`/admin/agents/${agentId}`, 302);
+        return c.redirect(agentSectionPath(agentId, "access"), 302);
       }
       if (!login || !isGithubLogin(login)) {
         return c.redirect(
-          `/admin/agents/${agentId}?error=invalid_author_allowlist_format`,
+          agentSectionPath(agentId, "access", {
+            error: "invalid_author_allowlist_format",
+          }),
           302,
         );
       }
@@ -2483,7 +2493,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       await agentService.updateFields(agentId, {
         reviewAuthorAllowlist: deduped,
       });
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "access"), 302);
     },
   );
 
@@ -2500,7 +2510,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         const formData = await c.req.formData();
         login = formData.get("login")?.toString()?.trim();
       } catch {
-        return c.redirect(`/admin/agents/${agentId}`, 302);
+        return c.redirect(agentSectionPath(agentId, "access"), 302);
       }
       if (login) {
         const agent = await agentService.getDetail(agentId);
@@ -2514,7 +2524,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           reviewAuthorAllowlist: updated,
         });
       }
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "access"), 302);
     },
   );
 
@@ -2533,11 +2543,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         const formData = await c.req.formData();
         login = formData.get("login")?.toString()?.trim();
       } catch {
-        return c.redirect(`/admin/agents/${agentId}`, 302);
+        return c.redirect(agentSectionPath(agentId, "access"), 302);
       }
       if (!login || !isGithubLogin(login)) {
         return c.redirect(
-          `/admin/agents/${agentId}?error=invalid_author_allowlist_format`,
+          agentSectionPath(agentId, "access", {
+            error: "invalid_author_allowlist_format",
+          }),
           302,
         );
       }
@@ -2552,7 +2564,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       await agentService.updateFields(agentId, {
         patchAuthorAllowlist: deduped,
       });
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "access"), 302);
     },
   );
 
@@ -2569,7 +2581,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         const formData = await c.req.formData();
         login = formData.get("login")?.toString()?.trim();
       } catch {
-        return c.redirect(`/admin/agents/${agentId}`, 302);
+        return c.redirect(agentSectionPath(agentId, "access"), 302);
       }
       if (login) {
         const agent = await agentService.getDetail(agentId);
@@ -2583,7 +2595,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           patchAuthorAllowlist: updated,
         });
       }
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "access"), 302);
     },
   );
 
@@ -2613,7 +2625,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     try {
       formData = await c.req.formData();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "configuration"), 302);
     }
 
     const readBool = (name: string): boolean | undefined => {
@@ -2665,6 +2677,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       agentMemberService,
       agent.id,
       agent.restrictSlackToMembers,
+      settingsRedirectSection(formData),
     );
   });
 
@@ -2696,10 +2709,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       enabled = enabledVal === "on" || enabledVal === "true";
       name = formData.get("name")?.toString() || null;
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "automation"), 302);
     }
     if (!schedule || !prompt) {
-      return c.redirect(`/admin/agents/${agentId}?error=missing_fields`, 302);
+      return c.redirect(
+        agentSectionPath(agentId, "automation", { error: "missing_fields" }),
+        302,
+      );
     }
     try {
       await agentCronJobService.create(agentId, {
@@ -2716,7 +2732,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         const msg = err.message.toLowerCase();
         if (msg.includes("invalid cron")) {
           return c.redirect(
-            `/admin/agents/${agentId}?error=invalid_schedule`,
+            agentSectionPath(agentId, "automation", {
+              error: "invalid_schedule",
+            }),
             302,
           );
         }
@@ -2726,14 +2744,19 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           msg.includes("target")
         ) {
           return c.redirect(
-            `/admin/agents/${agentId}?error=invalid_target`,
+            agentSectionPath(agentId, "automation", {
+              error: "invalid_target",
+            }),
             302,
           );
         }
       }
-      return c.redirect(`/admin/agents/${agentId}?error=create_failed`, 302);
+      return c.redirect(
+        agentSectionPath(agentId, "automation", { error: "create_failed" }),
+        302,
+      );
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "automation"), 302);
   });
 
   app.post("/admin/agents/:id/crons/:cronId/toggle", requireAuth, async (c) => {
@@ -2754,7 +2777,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     } catch {
       // ignore errors — redirect back regardless
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "automation"), 302);
   });
 
   app.post("/admin/agents/:id/crons/:cronId/update", requireAuth, async (c) => {
@@ -2780,7 +2803,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     }
     if (!schedule || !prompt) {
       return c.redirect(
-        `/admin/agents/${agentId}?error=${encodeURIComponent("schedule and prompt are required")}`,
+        agentSectionPath(agentId, "automation", {
+          error: "schedule and prompt are required",
+        }),
         302,
       );
     }
@@ -2792,7 +2817,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const existing = await agentCronJobService.get(agentId, cronId);
       if (existing.system) {
         return c.redirect(
-          `/admin/agents/${agentId}?error=${encodeURIComponent("system crons cannot be edited")}`,
+          agentSectionPath(agentId, "automation", {
+            error: "system crons cannot be edited",
+          }),
           302,
         );
       }
@@ -2807,13 +2834,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     } catch (err) {
       // Surface validation errors (e.g. invalid cron expression) back to the page.
       return c.redirect(
-        `/admin/agents/${agentId}?error=${encodeURIComponent(
-          err instanceof Error ? err.message : "cron update failed",
-        )}`,
+        agentSectionPath(agentId, "automation", {
+          error: err instanceof Error ? err.message : "cron update failed",
+        }),
         302,
       );
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "automation"), 302);
   });
 
   app.post("/admin/agents/:id/crons/:cronId/delete", requireAuth, async (c) => {
@@ -2831,13 +2858,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     } catch (err) {
       if (err instanceof ForbiddenError) {
         return c.redirect(
-          `/admin/agents/${agentId}?error=${encodeURIComponent(err.message)}`,
+          agentSectionPath(agentId, "automation", { error: err.message }),
           302,
         );
       }
       // other errors (NotFoundError, etc.) — redirect back silently
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "automation"), 302);
   });
 
   // ─── Tool mutations ───────────────────────────────────────────────────────
@@ -2852,17 +2879,20 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       pattern = formData.get("pattern")?.toString();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "extensions"), 302);
     }
     if (!pattern) {
-      return c.redirect(`/admin/agents/${agentId}?error=missing_fields`, 302);
+      return c.redirect(
+        agentSectionPath(agentId, "extensions", { error: "missing_fields" }),
+        302,
+      );
     }
     try {
       await agentToolService.add(agentId, pattern);
     } catch {
       // ignore errors — redirect back regardless
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "extensions"), 302);
   });
 
   app.post("/admin/agents/:id/tools/:toolId/toggle", requireAuth, async (c) => {
@@ -2883,7 +2913,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     } catch {
       // ignore errors — redirect back regardless
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "extensions"), 302);
   });
 
   app.post("/admin/agents/:id/tools/:toolId/delete", requireAuth, async (c) => {
@@ -2897,7 +2927,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     } catch {
       // ignore errors — redirect back regardless
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "extensions"), 302);
   });
 
   // ─── Marketplace mutations (PMK-1.5) ──────────────────────────────────────
@@ -2918,23 +2948,26 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       source = formData.get("source")?.toString().trim();
       ref = formData.get("ref")?.toString().trim() || undefined;
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "extensions"), 302);
     }
     if (!name || !source) {
-      return c.redirect(`/admin/agents/${agentId}?error=missing_fields`, 302);
+      return c.redirect(
+        agentSectionPath(agentId, "extensions", { error: "missing_fields" }),
+        302,
+      );
     }
     try {
       await agentMarketplaceService?.upsert(agentId, { name, source, ref });
     } catch (err) {
       if (err instanceof UnprocessableEntityError) {
         return c.redirect(
-          `/admin/agents/${agentId}?error=${encodeURIComponent(err.message)}`,
+          agentSectionPath(agentId, "extensions", { error: err.message }),
           302,
         );
       }
       // other errors — redirect back silently, like the tool routes
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "extensions"), 302);
   });
 
   app.post("/admin/agents/:id/marketplaces/delete", requireAuth, async (c) => {
@@ -2947,7 +2980,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       marketplaceId = formData.get("marketplaceId")?.toString();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "extensions"), 302);
     }
     if (marketplaceId) {
       try {
@@ -2956,7 +2989,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         // already gone, ignore
       }
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "extensions"), 302);
   });
 
   // ─── Plugin mutations (PUI-1.2) ───────────────────────────────────────────
@@ -2974,11 +3007,11 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       raw = formData.get("spec")?.toString().trim();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "extensions"), 302);
     }
     const redirectError = (message: string) =>
       c.redirect(
-        `/admin/agents/${agentId}?error=${encodeURIComponent(message)}`,
+        agentSectionPath(agentId, "extensions", { error: message }),
         302,
       );
     if (!raw) return redirectError("missing_fields");
@@ -2990,7 +3023,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       }
       // other errors — redirect back silently, like the tool routes
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "extensions"), 302);
   });
 
   app.post("/admin/agents/:id/plugins/delete", requireAuth, async (c) => {
@@ -3003,7 +3036,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       pluginId = formData.get("pluginId")?.toString();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "extensions"), 302);
     }
     if (pluginId) {
       try {
@@ -3012,7 +3045,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         // already gone, ignore
       }
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "extensions"), 302);
   });
 
   // ─── Token mutations ──────────────────────────────────────────────────────
@@ -3027,7 +3060,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       label = formData.get("label")?.toString() || undefined;
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "access"), 302);
     }
     const agent = await agentService.getDetail(agentId);
     if (!agent) {
@@ -3102,6 +3135,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           c.var.userEmail,
           c.var.isAdmin,
           {
+            section: "access",
             canManage: canManageAgents(c.var.isAdmin),
             newToken: rawToken,
             timezone,
@@ -3114,7 +3148,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         ),
       );
     } catch {
-      return c.redirect(`/admin/agents/${agentId}?error=create_failed`, 302);
+      return c.redirect(
+        agentSectionPath(agentId, "access", { error: "create_failed" }),
+        302,
+      );
     }
   });
 
@@ -3132,7 +3169,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       } catch {
         // ignore errors — redirect back regardless
       }
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "access"), 302);
     },
   );
 
@@ -3158,12 +3195,17 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       xoxpToken = formData.get("xoxpToken")?.toString();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}?error=missing_fields`, 302);
+      return c.redirect(
+        agentSectionPath(agentId, "general", { error: "missing_fields" }),
+        302,
+      );
     }
 
     if (!xoxpToken?.startsWith("xoxe.xoxp-")) {
       return c.redirect(
-        `/admin/agents/${agentId}?error=${encodeURIComponent("Slack app configuration token must start with xoxe.xoxp-")}`,
+        agentSectionPath(agentId, "general", {
+          error: "Slack app configuration token must start with xoxe.xoxp-",
+        }),
         302,
       );
     }
@@ -3172,7 +3214,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     const appId = envBundle?.env.SLACK_APP_ID;
     if (!appId) {
       return c.redirect(
-        `/admin/agents/${agentId}?error=${encodeURIComponent("SLACK_APP_ID is not set — provision the agent first.")}`,
+        agentSectionPath(agentId, "general", {
+          error: "SLACK_APP_ID is not set — provision the agent first.",
+        }),
         302,
       );
     }
@@ -3185,7 +3229,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const msg =
         err instanceof Error ? err.message : "Unknown error syncing manifest.";
       return c.redirect(
-        `/admin/agents/${agentId}?error=${encodeURIComponent(msg)}`,
+        agentSectionPath(agentId, "general", { error: msg }),
         302,
       );
     }
@@ -3235,7 +3279,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       );
     }
 
-    return c.redirect(`/admin/agents/${agentId}?success=manifest_synced`, 302);
+    return c.redirect(
+      agentSectionPath(agentId, "general", { success: "manifest_synced" }),
+      302,
+    );
   });
 
   // ─── connect-slack (UAP-1.1) ───────────────────────────────────────────────
@@ -3255,7 +3302,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       xoxpToken = formData.get("xoxpToken")?.toString();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}?error=missing_fields`, 302);
+      return c.redirect(
+        agentSectionPath(agentId, "access", { error: "missing_fields" }),
+        302,
+      );
     }
 
     const result = await slackProvisioningService.startConnect(
@@ -3266,7 +3316,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
 
     if (!result.ok) {
       return c.redirect(
-        `/admin/agents/${agentId}?error=${encodeURIComponent(result.error)}`,
+        agentSectionPath(agentId, "access", { error: result.error }),
         302,
       );
     }
@@ -3344,7 +3394,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         const query = ghConnectWarning
           ? `?success=reinstalled&warning=${encodeURIComponent(ghConnectWarning)}`
           : "?success=reinstalled";
-        return c.redirect(`/admin/agents/${result.agentId}${query}`, 302);
+        return c.redirect(
+          `${agentSectionPath(result.agentId, "access")}${query}`,
+          302,
+        );
       }
 
       // result.outcome === "needs_app_token"
@@ -3663,7 +3716,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const result = await githubProvisioningService.getAddOrgUrl(agentId);
       if (!result.ok) {
         return c.redirect(
-          `/admin/agents/${agentId}?error=${encodeURIComponent(result.error)}`,
+          agentSectionPath(agentId, "access", { error: result.error }),
           302,
         );
       }
@@ -3689,7 +3742,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       email = formData.get("email")?.toString()?.toLowerCase();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "access"), 302);
     }
     if (email) {
       try {
@@ -3698,7 +3751,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         // unique constraint violation — already a member, ignore
       }
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "access"), 302);
   });
 
   app.post("/admin/agents/:id/members/delete", requireAuth, async (c) => {
@@ -3713,7 +3766,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const formData = await c.req.formData();
       memberId = formData.get("memberId")?.toString();
     } catch {
-      return c.redirect(`/admin/agents/${agentId}`, 302);
+      return c.redirect(agentSectionPath(agentId, "access"), 302);
     }
     if (memberId) {
       try {
@@ -3722,7 +3775,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         // already gone, ignore
       }
     }
-    return c.redirect(`/admin/agents/${agentId}`, 302);
+    return c.redirect(agentSectionPath(agentId, "access"), 302);
   });
 
   // ─── Enterprise GitHub apps settings (GHE-1.4) ───────────────────────────
@@ -4569,9 +4622,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         // steps still need a retry.
         const failedSteps = result.failed.map((f) => f.step).join(", ");
         return c.redirect(
-          `/admin/agents/${agentId}?error=${encodeURIComponent(
-            `Cleanup incomplete — retry. Failed steps: ${failedSteps}`,
-          )}`,
+          agentSectionPath(agentId, "general", {
+            error: `Cleanup incomplete — retry. Failed steps: ${failedSteps}`,
+          }),
           302,
         );
       }
@@ -4586,11 +4639,11 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         302,
       );
     } catch (err) {
-      const msg =
-        err instanceof Error
-          ? encodeURIComponent(err.message)
-          : "delete_failed";
-      return c.redirect(`/admin/agents/${agentId}?error=${msg}`, 302);
+      const msg = err instanceof Error ? err.message : "delete_failed";
+      return c.redirect(
+        agentSectionPath(agentId, "general", { error: msg }),
+        302,
+      );
     }
   });
 

@@ -933,13 +933,72 @@ const AGENT_SECTION_LABELS: Record<AgentSection, string> = {
 /**
  * Path of one agent detail section (SGL-1.2). General is the bare agent path,
  * so existing links and redirects to /admin/agents/:id keep landing there.
+ * `query` params (e.g. error / success / warning) are URL-encoded and appended
+ * so post-action redirects keep their banner on the section that owns the card.
  */
 export function agentSectionPath(
   agentId: string,
   section: AgentSection = "general",
+  query?: Record<string, string | undefined>,
 ): string {
   const base = `/admin/agents/${encodeURIComponent(agentId)}`;
-  return section === "general" ? base : `${base}/${section}`;
+  const path = section === "general" ? base : `${base}/${section}`;
+  const qs = Object.entries(query ?? {})
+    .filter((e): e is [string, string] => e[1] !== undefined)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join("&");
+  return qs ? `${path}?${qs}` : path;
+}
+
+/**
+ * Section each POST /admin/agents/:id/* handler redirects back to (SGL-1.3):
+ * the section whose card renders the handler's form. Keys are the route path
+ * after `/admin/agents/:id`. A unit test scans admin-ui.ts so a new handler
+ * cannot be added without an entry here.
+ */
+export const AGENT_POST_SECTIONS: Readonly<Record<string, AgentSection>> = {
+  "/github-username": "access",
+  "/github-sync/apply-confirmed": "access",
+  "/repos/remove-confirmed": "configuration",
+  "/envs": "configuration",
+  "/envs/delete": "configuration",
+  "/repos/add": "configuration",
+  "/repos/delete": "configuration",
+  "/review-author-allowlist/add": "access",
+  "/review-author-allowlist/delete": "access",
+  "/patch-author-allowlist/add": "access",
+  "/patch-author-allowlist/delete": "access",
+  // Shared by the Slack access card (access) and the Agent Policy card
+  // (configuration); see settingsRedirectSection.
+  "/settings": "configuration",
+  "/crons": "automation",
+  "/crons/:cronId/toggle": "automation",
+  "/crons/:cronId/update": "automation",
+  "/crons/:cronId/delete": "automation",
+  "/tools": "extensions",
+  "/tools/:toolId/toggle": "extensions",
+  "/tools/:toolId/delete": "extensions",
+  "/marketplaces": "extensions",
+  "/marketplaces/delete": "extensions",
+  "/plugins": "extensions",
+  "/plugins/delete": "extensions",
+  "/tokens": "access",
+  "/tokens/:tokenId/revoke": "access",
+  "/sync-manifest": "general",
+  "/connect-slack": "access",
+  "/connect-slack/app-token": "access",
+  "/connect-github": "access",
+  "/members": "access",
+  "/members/delete": "access",
+  "/delete": "general",
+};
+
+/**
+ * POST /settings serves two forms: Slack access (access section, carries
+ * restrictSlackToMembers) and Agent Policy (configuration section).
+ */
+export function settingsRedirectSection(formData: FormData): AgentSection {
+  return formData.has("restrictSlackToMembers") ? "access" : "configuration";
 }
 
 export function renderAgentDetailPage(
@@ -2048,7 +2107,6 @@ export function renderAgentDetailPage(
     ${dangerZoneSection}`,
     automation: cronJobsSection,
     configuration: `${envVarsSection}${reposSection}${(opts?.configurationCardsHtml ?? []).join("")}${agentPolicySection}`,
-    // Interim until SGL-1.3 reworks these two sections: today's cards as-is.
     access: `${identitySection}${canManage ? membersSection : ""}${authorAllowlistReviewSection}${authorAllowlistPatchSection}${slackAccessSection}${tokensSection}`,
     extensions: `${toolsSection}${pluginsSection}${marketplacesSection}`,
   };
