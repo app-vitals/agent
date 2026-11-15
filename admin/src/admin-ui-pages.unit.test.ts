@@ -9,14 +9,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import {
+  AGENT_SECTIONS,
   type AgentDetail,
   type AgentListItem,
+  agentSectionPath,
+  settingsRedirectSection,
   type CronJobItem,
   ERROR_KIND_LABELS,
   type MemberItem,
   type PluginItem,
   renderAddAnotherOrgAction,
-  renderAgentDetailPage,
+  renderAgentDetailPage as renderAgentDetailSection,
   renderAgentsPage,
   renderChatMessageBubble,
   renderChatPage,
@@ -33,6 +36,23 @@ import {
 } from "./admin-ui-pages.ts";
 import { baseStyles, renderAdminToolbar } from "./admin-ui-styles.ts";
 import type { ChatMessage, ChatThread } from "./http-chat-client.ts";
+
+/**
+ * Renders every agent detail section (SGL-1.2) concatenated, so card-level
+ * assertions don't depend on which section a card lives in. Pass
+ * `opts.section` to render a single section instead.
+ */
+function renderAgentDetailPage(
+  ...args: Parameters<typeof renderAgentDetailSection>
+): string {
+  const opts = args[9];
+  if (opts?.section) return renderAgentDetailSection(...args);
+  return AGENT_SECTIONS.map((section) => {
+    const a = [...args] as typeof args;
+    a[9] = { ...opts, section };
+    return renderAgentDetailSection(...a);
+  }).join("\n");
+}
 
 // ─── Shared fixtures ──────────────────────────────────────────────────────────
 
@@ -2150,47 +2170,15 @@ describe("renderAgentDetailPage — patch author allowlist", () => {
   });
 });
 
-// ─── renderAgentDetailPage — accordion groups (AGA-1.1) ──────────────────────
+// ─── renderAgentDetailPage — per-section pages (SGL-1.2) ─────────────────────
 
-describe("renderAgentDetailPage — accordion groups", () => {
-  /**
-   * All 4 group `<details class="group">` blocks, in document order.
-   * A naive non-greedy `[\s\S]*?<\/details>` regex breaks here because
-   * several cards (e.g. Slack access's "Connect Slack" popover) nest their
-   * own unrelated `<details>` inside a group's body — this walks nesting
-   * depth so each group's true closing tag is found.
-   */
-  function extractGroups(html: string): string[] {
-    const groups: string[] = [];
-    const openTagRe = /<details class="group">/g;
-    let match: RegExpExecArray | null;
-    // biome-ignore lint/suspicious/noAssignInExpressions: standard regex-loop idiom
-    while ((match = openTagRe.exec(html)) !== null) {
-      const start = match.index;
-      let depth = 1;
-      let cursor = start + match[0].length;
-      const tagRe = /<details\b[^>]*>|<\/details>/g;
-      tagRe.lastIndex = cursor;
-      let tagMatch: RegExpExecArray | null;
-      // biome-ignore lint/suspicious/noAssignInExpressions: standard regex-loop idiom
-      while ((tagMatch = tagRe.exec(html)) !== null) {
-        if (tagMatch[0] === "</details>") {
-          depth--;
-        } else {
-          depth++;
-        }
-        if (depth === 0) {
-          cursor = tagRe.lastIndex;
-          break;
-        }
-      }
-      groups.push(html.slice(start, cursor));
-    }
-    return groups;
-  }
-
-  function render(opts?: Parameters<typeof renderAgentDetailPage>[9]): string {
-    return renderAgentDetailPage(
+describe("renderAgentDetailPage — sections", () => {
+  function render(
+    section: (typeof AGENT_SECTIONS)[number] | undefined,
+    opts?: Parameters<typeof renderAgentDetailPage>[9],
+    isAdmin = true,
+  ): string {
+    return renderAgentDetailSection(
       AGENT,
       {},
       [SYSTEM_CRON, CUSTOM_CRON],
@@ -2205,199 +2193,163 @@ describe("renderAgentDetailPage — accordion groups", () => {
         },
       ],
       USER_NAME,
-      true,
-      { timezone: "UTC", ...opts },
+      isAdmin,
+      {
+        timezone: "UTC",
+        extensionCardsHtml: ['<div id="ext-header">H</div>'],
+        configurationCardsHtml: ['<div id="ext-config">C</div>'],
+        ...(section ? { section } : {}),
+        ...opts,
+      },
     );
   }
 
-  test('renders exactly 4 <details class="group"> elements', () => {
-    const html = render();
-    expect(extractGroups(html)).toHaveLength(4);
-  });
-
-  test("groups are named Automation, Configuration, Access, Plugins & Tools in that order", () => {
-    const html = render();
-    const groups = extractGroups(html);
-    expect(groups[0]).toContain('<span class="group-title">Automation</span>');
-    expect(groups[1]).toContain(
-      '<span class="group-title">Configuration</span>',
-    );
-    expect(groups[2]).toContain('<span class="group-title">Access</span>');
-    expect(groups[3]).toContain(
-      '<span class="group-title">Plugins &amp; Tools</span>',
+  test("agentSectionPath: general is the bare agent path, others append the section", () => {
+    expect(agentSectionPath("a b")).toBe("/admin/agents/a%20b");
+    expect(agentSectionPath("a1", "general")).toBe("/admin/agents/a1");
+    expect(agentSectionPath("a1", "automation")).toBe(
+      "/admin/agents/a1/automation",
     );
   });
 
-  test("all 4 groups render collapsed (no `open` attribute) by default", () => {
-    const html = render();
-    const groupTags = html.match(/<details class="group"[^>]*>/g) ?? [];
-    expect(groupTags).toHaveLength(4);
-    for (const tag of groupTags) {
-      expect(tag).not.toContain("open");
-    }
-  });
-
-  test("groups stay collapsed even when agent.missingRequiredEnv is non-empty", () => {
-    const agent: AgentDetail = { ...AGENT, missingRequiredEnv: ["GH_TOKEN"] };
-    const html = renderAgentDetailPage(
-      agent,
-      {},
-      [SYSTEM_CRON],
-      [],
-      [],
-      [],
-      [],
-      USER_NAME,
-      true,
-      { timezone: "UTC" },
+  test("agentSectionPath: appends encoded query params and skips undefined", () => {
+    expect(agentSectionPath("a1", "general", { error: "x y" })).toBe(
+      "/admin/agents/a1?error=x%20y",
     );
-    const groupTags = html.match(/<details class="group"[^>]*>/g) ?? [];
-    expect(groupTags).toHaveLength(4);
-    for (const tag of groupTags) {
-      expect(tag).not.toContain("open");
-    }
-  });
-
-  test("Automation group contains the Cron Jobs card", () => {
-    const html = render();
-    const groups = extractGroups(html);
-    expect(groups[0]).toContain('<div class="card-title">Cron Jobs</div>');
-    expect(groups[0]).not.toContain("Env Vars");
-  });
-
-  test("Configuration group contains Env Vars and Repos cards", () => {
-    const html = render();
-    const groups = extractGroups(html);
-    expect(groups[1]).toContain('id="env-vars"');
-    expect(groups[1]).toContain('<div class="card-title">Repos</div>');
-    expect(groups[1]).not.toContain("Cron Jobs");
-  });
-
-  test("Access group contains Members, both author allowlists, Slack access, and Task Store Tokens cards", () => {
-    const html = render();
-    const groups = extractGroups(html);
-    expect(groups[2]).toContain("member@example.com");
-    expect(groups[2]).toContain(
-      '<div class="card-title">Author allowlist (review)</div>',
+    expect(
+      agentSectionPath("a1", "access", { success: "ok", warning: "a&b=c" }),
+    ).toBe("/admin/agents/a1/access?success=ok&warning=a%26b%3Dc");
+    expect(agentSectionPath("a1", "extensions", { error: undefined })).toBe(
+      "/admin/agents/a1/extensions",
     );
-    expect(groups[2]).toContain(
-      '<div class="card-title">Author allowlist (patch)</div>',
-    );
-    expect(groups[2]).toContain('<div class="card-title">Slack access</div>');
-    expect(groups[2]).toContain(
-      '<div class="card-title">Task Store Tokens</div>',
+    expect(agentSectionPath("a1", "automation", {})).toBe(
+      "/admin/agents/a1/automation",
     );
   });
 
-  test("Plugins & Tools group contains Tools and Plugins cards", () => {
-    const html = render();
-    const groups = extractGroups(html);
-    expect(groups[3]).toContain('<div class="card-title">Tools</div>');
-    expect(groups[3]).toContain('<div class="card-title">Plugins</div>');
+  test("settingsRedirectSection: Slack access form goes to access, policy form to configuration", () => {
+    const slack = new FormData();
+    slack.set("restrictSlackToMembers", "false");
+    expect(settingsRedirectSection(slack)).toBe("access");
+    const policy = new FormData();
+    policy.set("minConfidence", "70");
+    expect(settingsRedirectSection(policy)).toBe("configuration");
   });
 
-  test("Danger Zone stays a bare .card outside any group, after the last group", () => {
-    const html = render();
-    const lastGroupEnd = html.lastIndexOf("</details>");
-    const dangerZoneIndex = html.indexOf("Danger Zone");
-    expect(dangerZoneIndex).toBeGreaterThan(lastGroupEnd);
-    // Sits in its own .card, not nested in a .group-body.
-    const dangerZoneCardIndex = html.indexOf(
-      '<div class="card" style="border:1px solid #fca5a5">',
-    );
-    expect(dangerZoneCardIndex).toBeGreaterThan(lastGroupEnd);
+  test("defaults to General", () => {
+    expect(render(undefined)).toBe(render("general"));
   });
 
-  test("Danger Zone absent for non-admins, groups still render", () => {
-    const html = renderAgentDetailPage(
-      AGENT,
-      {},
-      [],
-      [],
-      [],
-      [],
-      [],
-      USER_NAME,
-      false,
-      { timezone: "UTC" },
+  test("General: header info, Sync Manifest, stat strip, header extension cards, Danger zone", () => {
+    const html = render("general");
+    expect(html).toContain("Sync Manifest");
+    expect(html).toContain('class="stat-strip"');
+    expect(html).toContain('id="ext-header"');
+    expect(html).toContain('class="settings-danger-zone"');
+    expect(html).toContain("Danger Zone");
+    expect(html).not.toContain("Cron Jobs");
+    expect(html).not.toContain('id="env-vars"');
+    expect(html).not.toContain('id="ext-config"');
+    expect(html).not.toContain("Agent Policy");
+  });
+
+  test("General: Danger zone is last, after the stat strip", () => {
+    const html = render("general");
+    expect(html.indexOf("Danger Zone")).toBeGreaterThan(
+      html.indexOf('class="stat-strip"'),
     );
+  });
+
+  test("General: Danger zone hidden when canManage is false", () => {
+    const html = render("general", { canManage: false }, false);
     expect(html).not.toContain("Danger Zone");
-    expect(extractGroups(html)).toHaveLength(4);
   });
 
-  test("each group's summary wraps the toggle+title in one span, separate from the stat span", () => {
-    const html = render();
-    const groups = extractGroups(html);
-    for (const group of groups) {
-      // Exactly one flush-left title span and one flush-right stat span
-      // inside the summary -- not a ::before on <summary> itself.
-      expect(group).toMatch(
-        /<summary class="group-summary">\s*<span class="group-title">[^<]*<\/span>\s*<span class="group-sub">[^<]*<\/span>\s*<\/summary>/,
+  test("Automation renders only the cron jobs card", () => {
+    const html = render("automation");
+    expect(html).toContain('<div class="card-title">Cron Jobs</div>');
+    expect(html).toContain('action="/admin/agents/agent-123/crons"');
+    expect(html).not.toContain('class="stat-strip"');
+    expect(html).not.toContain("Danger Zone");
+    expect(html).not.toContain('id="env-vars"');
+    expect(html).not.toContain("Agent Policy");
+  });
+
+  test("Configuration renders env vars, repos, config extension cards, policy in order", () => {
+    const html = render("configuration");
+    const idx = [
+      'id="env-vars"',
+      '<div class="card-title">Repos</div>',
+      'id="ext-config"',
+      '<div class="card-title">Agent Policy</div>',
+    ].map((m) => html.indexOf(m));
+    expect(idx.every((i) => i > -1)).toBe(true);
+    expect([...idx].sort((x, y) => x - y)).toEqual(idx);
+    expect(html).not.toContain("Cron Jobs");
+    expect(html).not.toContain('class="stat-strip"');
+    expect(html).not.toContain("Danger Zone");
+    expect(html).not.toContain('id="ext-header"');
+  });
+
+  test("Access renders identity, members, allowlists, slack access and tokens", () => {
+    const html = render("access");
+    expect(html).toContain("Owner &amp; identities");
+    expect(html).toContain("member@example.com");
+    expect(html).toContain('action="/admin/agents/agent-123/members"');
+    expect(html).toContain(
+      'action="/admin/agents/agent-123/review-author-allowlist/add"',
+    );
+    expect(html).toContain(
+      'action="/admin/agents/agent-123/patch-author-allowlist/add"',
+    );
+    expect(html).toContain('<div class="card-title">Slack access</div>');
+    expect(html).toContain("Task Store Tokens");
+    expect(html).toContain('action="/admin/agents/agent-123/tokens"');
+    expect(html).not.toContain('<div class="card-title">Tools</div>');
+    expect(html).not.toContain("Cron Jobs");
+  });
+
+  test("Access hides members and Slack access when canManage is false", () => {
+    const html = render("access", { canManage: false }, false);
+    expect(html).not.toContain('action="/admin/agents/agent-123/members"');
+    expect(html).not.toContain('<div class="card-title">Slack access</div>');
+    expect(html).toContain("Task Store Tokens");
+  });
+
+  test("Extensions renders tools, plugins, marketplaces", () => {
+    const html = render("extensions");
+    expect(html).toContain('action="/admin/agents/agent-123/tools"');
+    expect(html).toContain('action="/admin/agents/agent-123/plugins"');
+    expect(html).toContain('action="/admin/agents/agent-123/marketplaces"');
+    expect(html).toContain('<div class="card-title">Tools</div>');
+    expect(html).toContain('<div class="card-title">Plugins</div>');
+    expect(html).toContain('<div class="card-title">Marketplaces</div>');
+    expect(html).not.toContain("Task Store Tokens");
+  });
+
+  test("sidebar lists all five sections with the current one active", () => {
+    for (const section of AGENT_SECTIONS) {
+      const html = render(section);
+      for (const label of [
+        "General",
+        "Automation",
+        "Configuration",
+        "Access",
+        "Extensions",
+      ]) {
+        expect(html).toContain(`>${label}</a>`);
+      }
+      const active = html.match(
+        /<a class="settings-nav-link" href="([^"]*)" aria-current="page"/,
       );
+      expect(active?.[1]).toBe(agentSectionPath("agent-123", section));
     }
   });
 
-  test("Automation group's stat string reflects system/custom cron counts", () => {
-    const html = render();
-    const groups = extractGroups(html);
-    expect(groups[0]).toContain(
-      '<span class="group-sub">1 system · 1 custom</span>',
-    );
-  });
-
-  test("Plugins & Tools group's stat string reflects tool/plugin counts", () => {
-    const html = render();
-    const groups = extractGroups(html);
-    expect(groups[3]).toContain(
-      '<span class="group-sub">2 tools · 2 plugins</span>',
-    );
-  });
-
-  test("CSS: toggle glyph is a ::before on .group-title, not on the flex .group-summary", () => {
-    const styles = baseStyles();
-    expect(styles).toContain(".group-title::before");
-    expect(styles).not.toMatch(/\.group-summary\s*::before/);
-  });
-
-  test("CSS: .group-summary is a 2-sided flex row (space-between)", () => {
-    const styles = baseStyles();
-    const match = styles.match(/\.group-summary\s*\{[^}]*\}/);
-    expect(match).not.toBeNull();
-    expect(match?.[0]).toContain("display: flex");
-    expect(match?.[0]).toContain("justify-content: space-between");
-  });
-
-  test("Expand all button is present and renders as a real <button> element", () => {
-    const html = render();
-    expect(html).toContain("<button");
-    expect(html).toContain("Expand all");
-  });
-
-  test("Collapse all button is present and renders as a real <button> element", () => {
-    const html = render();
-    expect(html).toContain("<button");
-    expect(html).toContain("Collapse all");
-  });
-
-  test("inline script with expand/collapse logic is present in the rendered HTML", () => {
-    const html = render();
-    expect(html).toContain("<script>");
-    expect(html).toContain("document.querySelectorAll");
-    expect(html).toContain(".group");
-  });
-
-  test("inline script sets open=true on all .group elements when Expand all is clicked", () => {
-    const html = render();
-    expect(html).toContain("querySelectorAll");
-    expect(html).toContain(".group");
-    expect(html).toContain("el.open = true");
-  });
-
-  test("inline script sets open=false on all .group elements when Collapse all is clicked", () => {
-    const html = render();
-    expect(html).toContain("querySelectorAll");
-    expect(html).toContain(".group");
-    expect(html).toContain("el.open = false");
+  test("alerts render on every section", () => {
+    for (const section of AGENT_SECTIONS) {
+      expect(render(section, { error: "boom" })).toContain("boom");
+    }
   });
 });
 
@@ -2583,18 +2535,6 @@ describe("renderAgentDetailPage — stat strip", () => {
     // Should NOT have stat-tile-warning class
     const tileSection = tileSectionMatch?.[0] ?? "";
     expect(tileSection).not.toContain("stat-tile-warning");
-  });
-
-  test("stat strip renders before accordion groups", () => {
-    const html = render();
-    const statStripIndex = html.indexOf('class="stat-strip"');
-    const automationGroupIndex = html.indexOf(
-      '<span class="group-title">Automation</span>',
-    );
-
-    expect(statStripIndex).toBeGreaterThan(-1);
-    expect(automationGroupIndex).toBeGreaterThan(-1);
-    expect(statStripIndex < automationGroupIndex).toBe(true);
   });
 
   test("CSS: .stat-strip and .stat-tile classes exist in baseStyles", () => {
@@ -4026,6 +3966,7 @@ describe("all page renderers — single DOCTYPE and viewport meta (CFB-1.2)", ()
       () =>
         renderAgentDetailPage(AGENT, {}, [], [], [], [], [], USER_NAME, true, {
           timezone: "UTC",
+          section: "general",
         }),
     ],
     [
@@ -4387,14 +4328,15 @@ describe("renderAgentDetailPage — platform-only page (no extension cards)", ()
     expect(html).not.toContain("Recent Verification Activity");
   });
 
-  test("still renders every platform group", () => {
+  test("still renders every platform section nav entry", () => {
     for (const group of [
+      "General",
       "Automation",
       "Configuration",
       "Access",
-      "Plugins &amp; Tools",
+      "Extensions",
     ]) {
-      expect(html).toContain(`<span class="group-title">${group}</span>`);
+      expect(html).toContain(`>${group}</a>`);
     }
   });
 });
@@ -4426,8 +4368,8 @@ describe("renderAgentDetailPage — configuration card slots", () => {
     expect(two).toBeLessThan(policy);
   });
 
-  test("header cards render above the stat strip, configuration cards inside the Configuration group", () => {
-    const html = renderAgentDetailPage(
+  test("header cards render above the stat strip, configuration cards only on the Configuration section", () => {
+    const html = renderAgentDetailSection(
       AGENT,
       {},
       [],
@@ -4443,12 +4385,11 @@ describe("renderAgentDetailPage — configuration card slots", () => {
         configurationCardsHtml: ['<div class="card">cfg</div>'],
       },
     );
+    // Header cards live on General; config cards render only on Configuration.
     const statStrip = html.indexOf('<div class="stat-strip">');
-    const configuration = html.indexOf(
-      '<span class="group-title">Configuration</span>',
-    );
+    expect(html.indexOf("hdr")).toBeGreaterThan(-1);
     expect(html.indexOf("hdr")).toBeLessThan(statStrip);
-    expect(html.indexOf("cfg")).toBeGreaterThan(configuration);
+    expect(html).not.toContain(">cfg<");
   });
 });
 

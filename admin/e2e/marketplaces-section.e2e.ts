@@ -1,6 +1,6 @@
 /**
  * admin/e2e/marketplaces-section.e2e.ts
- * Admin UI — Marketplaces section on the agent page (PMK-1.5)
+ * Admin UI — Marketplaces section on the agent Extensions section (/admin/agents/:id/extensions) (PMK-1.5)
  *
  * Covers: remote rows listed, add and remove of a remote row, and baked rows
  * (reported by the runtime) rendered read-only with no controls.
@@ -12,7 +12,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type BrowserContext, type Page, expect, test } from "@playwright/test";
+import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { sign } from "hono/jwt";
 
 const PORT = 3496;
@@ -87,24 +87,7 @@ async function loadAgentPage(page: Page, context: BrowserContext) {
       sameSite: "Lax",
     },
   ]);
-  await page.goto(`${BASE_URL}/admin/agents/${AGENT_ID}`);
-  await openGroup(page);
-}
-
-// The section lives in the "Plugins & Tools" accordion group, collapsed on
-// every page load (including the redirect after each add/remove).
-async function openGroup(page: Page) {
-  // Set `open` rather than clicking the summary, so a still-old (already
-  // open) page can't be toggled shut; the table locator retries across the
-  // navigation.
-  await expect(async () => {
-    await page
-      .locator("details", { has: page.locator("#marketplaces-table") })
-      .evaluate((el) => {
-        (el as HTMLDetailsElement).open = true;
-      });
-    await expect(table(page)).toBeVisible({ timeout: 1000 });
-  }).toPass();
+  await page.goto(`${BASE_URL}/admin/agents/${AGENT_ID}/extensions`);
 }
 
 test("lists the remote row with source and ref, and the baked row", async ({
@@ -135,16 +118,14 @@ test("adds a remote row and then removes it", async ({ page, context }) => {
   await form.locator('input[name="source"]').fill("owner/added");
   await form.locator('input[name="ref"]').fill("main");
   await form.getByRole("button", { name: "Add marketplace" }).click();
-  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}`);
-  await openGroup(page);
+  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}/extensions`);
 
   const added = table(page).locator("tbody tr", { hasText: "added-remote" });
   await expect(added).toContainText("owner/added");
   await expect(added).toContainText("main");
 
   await added.getByRole("button", { name: "Remove" }).click();
-  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}`);
-  await openGroup(page);
+  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}/extensions`);
   await expect(
     table(page).locator("tbody tr", { hasText: "added-remote" }),
   ).toHaveCount(0);

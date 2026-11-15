@@ -11,7 +11,28 @@ import {
   renderGithubAccessResult,
   renderGithubUsernameRow,
 } from "./admin-ui-github-identity-pages.ts";
-import { type AgentDetail, renderAgentDetailPage } from "./admin-ui-pages.ts";
+import {
+  AGENT_SECTIONS,
+  type AgentDetail,
+  renderAgentDetailPage as renderAgentDetailSection,
+} from "./admin-ui-pages.ts";
+
+/**
+ * Renders every agent detail section (SGL-1.2) concatenated, so card-level
+ * assertions don't depend on which section a card lives in. Pass
+ * `opts.section` to render a single section instead.
+ */
+function renderAgentDetailPage(
+  ...args: Parameters<typeof renderAgentDetailSection>
+): string {
+  const opts = args[9];
+  if (opts?.section) return renderAgentDetailSection(...args);
+  return AGENT_SECTIONS.map((section) => {
+    const a = [...args] as typeof args;
+    a[9] = { ...opts, section };
+    return renderAgentDetailSection(...a);
+  }).join("\n");
+}
 
 const AGENT: AgentDetail = {
   id: "agent-123",

@@ -139,15 +139,24 @@ const post = (
     },
   });
 
+/** Concatenated HTML of every agent section page (the template UI is spread across them). */
+async function allSectionsHtml(
+  app: ReturnType<typeof createAdminUIApp>,
+): Promise<string> {
+  const pages = await Promise.all(
+    ["", "/automation", "/configuration", "/extensions"].map(async (s) =>
+      (await get(app, `/admin/agents/${AGENT_ID}${s}`)).text(),
+    ),
+  );
+  return pages.join("\n");
+}
+
 describe("agent page template badges (ATP-2.4)", () => {
   it("marks every env, tool, plugin and cron as inherited or custom", async () => {
     const { api } = fakeAgentsApi();
-    const html = await (
-      await get(
-        createAdminUIApp(detailDeps({ agentsApi: api })),
-        `/admin/agents/${AGENT_ID}`,
-      )
-    ).text();
+    const html = await allSectionsHtml(
+      createAdminUIApp(detailDeps({ agentsApi: api })),
+    );
     // 1 env + 1 tool + 1 plugin + 1 cron inherited; 1 env + 1 tool custom.
     expect(html.match(/data-source="template"/g)).toHaveLength(4);
     expect(html.match(/data-source="custom"/g)).toHaveLength(2);
@@ -184,13 +193,13 @@ describe("agent page template badges (ATP-2.4)", () => {
         },
       }),
     );
-    const before = await (await get(app, `/admin/agents/${AGENT_ID}`)).text();
+    const before = await allSectionsHtml(app);
     expect(before).toContain('data-source="template"');
     await post(app, `/admin/agents/${AGENT_ID}/envs`, {
       key: "TPL_KEY",
       value: "mine",
     });
-    const after = await (await get(app, `/admin/agents/${AGENT_ID}`)).text();
+    const after = await allSectionsHtml(app);
     expect(after).not.toContain('data-source="template"');
     expect(after).toContain('data-source="custom"');
   });
@@ -200,7 +209,7 @@ describe("detach / reattach (ATP-2.4)", () => {
   it("attached agent offers Detach; POST calls the detach endpoint", async () => {
     const { api, calls } = fakeAgentsApi();
     const app = createAdminUIApp(detailDeps({ agentsApi: api }));
-    const html = await (await get(app, `/admin/agents/${AGENT_ID}`)).text();
+    const html = await allSectionsHtml(app);
     expect(html).toContain(`/admin/agents/${AGENT_ID}/template/detach`);
     expect(html).not.toContain(`/template/reattach`);
 
@@ -221,7 +230,7 @@ describe("detach / reattach (ATP-2.4)", () => {
     const app = createAdminUIApp(
       detailDeps({ agentsApi: api, detached: true }),
     );
-    const html = await (await get(app, `/admin/agents/${AGENT_ID}`)).text();
+    const html = await allSectionsHtml(app);
     expect(html).toContain("Detached from template");
     expect(html).toContain(`/admin/agents/${AGENT_ID}/template/reattach`);
     expect(html).not.toContain(`/template/detach`);
@@ -257,12 +266,9 @@ describe("detach / reattach (ATP-2.4)", () => {
 describe("reset to template (ATP-2.4)", () => {
   it("custom rows get a per-item reset; template rows do not", async () => {
     const { api } = fakeAgentsApi();
-    const html = await (
-      await get(
-        createAdminUIApp(detailDeps({ agentsApi: api })),
-        `/admin/agents/${AGENT_ID}`,
-      )
-    ).text();
+    const html = await allSectionsHtml(
+      createAdminUIApp(detailDeps({ agentsApi: api })),
+    );
     // custom env MINE and custom tool Bash(ls:*) -> 2 per-item resets, plus
     // the agent-wide reset.
     expect(html.match(/name="kind" value="(env|tool)"/g)).toHaveLength(2);
