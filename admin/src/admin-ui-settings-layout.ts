@@ -101,11 +101,15 @@ export function mergeSettingsNavItems(
 }
 
 export const SETTINGS_GHE_PATH = "/admin/settings/github-enterprise";
+export const SETTINGS_ACCOUNT_PATH = "/admin/account";
+export const SETTINGS_ACCOUNTS_PATH = "/admin/accounts";
 export const SETTINGS_TEMPLATES_PATH = "/admin/settings/templates";
 
 export interface BuildSettingsNavOptions {
   /** Include the GitHub Enterprise item (its routes are registered). */
   githubEnterprise?: boolean;
+  /** Include Account (members) and, admin-only, Accounts (SGL-2.3). */
+  accounts?: boolean;
   /** Include the Templates item (its routes are registered). */
   templates?: boolean;
   /** Extension-contributed items (SGL-2.1). */
@@ -113,8 +117,9 @@ export interface BuildSettingsNavOptions {
 }
 
 /**
- * Base settings nav (SGL-2.2): the Platform section plus extension items.
- * Account/Personal sections arrive in SGL-2.3. Empty sections are dropped.
+ * Base settings nav: Account section (SGL-2.3), Platform section (GitHub
+ * Enterprise, Templates, admin-only Accounts) plus extension items. Empty
+ * sections are dropped.
  */
 export function buildSettingsNav(
   opts: BuildSettingsNavOptions = {},
@@ -130,10 +135,23 @@ export function buildSettingsNav(
   if (opts.templates) {
     platform.push({ label: "Templates", path: SETTINGS_TEMPLATES_PATH });
   }
-  const base: SettingsNav = {
-    sections:
-      platform.length > 0 ? [{ label: "Platform", items: platform }] : [],
-  };
+  if (opts.accounts) {
+    platform.push({
+      label: "Accounts",
+      path: SETTINGS_ACCOUNTS_PATH,
+      adminOnly: true,
+    });
+  }
+  const sections: SettingsNavSection[] = [];
+  if (opts.accounts) {
+    sections.push({
+      label: "Account",
+      items: [{ label: "Account", path: SETTINGS_ACCOUNT_PATH }],
+    });
+  }
+  if (platform.length > 0)
+    sections.push({ label: "Platform", items: platform });
+  const base: SettingsNav = { sections };
   return mergeSettingsNavItems(base, [...(opts.extraItems ?? [])]);
 }
 

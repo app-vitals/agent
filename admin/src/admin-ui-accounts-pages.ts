@@ -8,7 +8,12 @@ import type { AccountInvite } from "./account-invites.ts";
 import type { AccountMember } from "./account-members.ts";
 import type { AccountWithCounts } from "./accounts.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
-import { escapeHtml, renderAdminToolbar } from "./admin-ui-styles.ts";
+import {
+  buildSettingsNav,
+  renderSettingsLayout,
+  type SettingsNav,
+} from "./admin-ui-settings-layout.ts";
+import { escapeHtml } from "./admin-ui-styles.ts";
 
 export const ADMIN_ACCOUNTS_PATH = "/admin/accounts";
 
@@ -36,6 +41,8 @@ interface AccountsListPageOpts {
   accounts: AccountWithCounts[];
   /** accountId -> owner emails. */
   owners: Map<string, string[]>;
+  /** Settings sidebar nav; defaults to the base Account/Accounts nav. */
+  nav?: SettingsNav;
 }
 
 export function renderAccountsListPage(opts: AccountsListPageOpts): string {
@@ -60,16 +67,20 @@ export function renderAccountsListPage(opts: AccountsListPageOpts): string {
 
   return renderAdminPage({
     title: "Accounts — Shipwright Admin",
-    body: `${renderAdminToolbar(opts.userEmail, ADMIN_ACCOUNTS_PATH)}
-  <div class="vos-page">
-    <div class="page-header"><h1 class="page-title">Accounts</h1></div>
-    <div class="card">
+    body: renderSettingsLayout({
+      userName: opts.userEmail,
+      title: "Accounts",
+      nav: opts.nav ?? buildSettingsNav({ accounts: true }),
+      active: ADMIN_ACCOUNTS_PATH,
+      toolbarPath: "/admin/settings",
+      isAdmin: true,
+      body: `<div class="card">
       <table class="data-table">
         <thead><tr><th>Name</th><th>Owner</th><th>Members</th><th>Agents</th><th>Status</th><th>Trial expires</th><th>Created</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-    </div>
-  </div>`,
+    </div>`,
+    }),
   });
 }
 
@@ -80,6 +91,8 @@ interface AccountDetailPageOpts {
   members: AccountMember[];
   invites: AccountInvite[];
   error?: string;
+  /** Settings sidebar nav; defaults to the base Account/Accounts nav. */
+  nav?: SettingsNav;
 }
 
 function postForm(
@@ -110,8 +123,12 @@ export function renderAccountDetailPage(opts: AccountDetailPageOpts): string {
 
   const statusAction =
     account.status === "active"
-      ? postForm(id, "suspend", {}, "Suspend", true)
-      : postForm(id, "reactivate", {}, "Reactivate");
+      ? `<div class="settings-danger-zone">
+      <div class="settings-section-title">Danger zone</div>
+      <p class="help-text">Suspending locks down this account's crons until it is reactivated.</p>
+      ${postForm(id, "suspend", {}, "Suspend", true)}
+    </div>`
+      : `<div class="card">${postForm(id, "reactivate", {}, "Reactivate")}</div>`;
 
   const memberRows = opts.members
     .map(
@@ -150,12 +167,14 @@ export function renderAccountDetailPage(opts: AccountDetailPageOpts): string {
 
   return renderAdminPage({
     title: `${account.name} — Accounts — Shipwright Admin`,
-    body: `${renderAdminToolbar(opts.userEmail, ADMIN_ACCOUNTS_PATH)}
-  <div class="vos-page">
-    <div class="page-header">
-      <h1 class="page-title">${escapeHtml(account.name)} ${statusBadge(account.status)}</h1>
-      ${statusAction}
-    </div>
+    body: renderSettingsLayout({
+      userName: opts.userEmail,
+      title: account.name,
+      nav: opts.nav ?? buildSettingsNav({ accounts: true }),
+      active: ADMIN_ACCOUNTS_PATH,
+      toolbarPath: "/admin/settings",
+      isAdmin: true,
+      body: `<p>${statusBadge(account.status)}</p>
     <p><a href="${ADMIN_ACCOUNTS_PATH}">&larr; All accounts</a></p>
     ${errorHtml}
     <div class="card">
@@ -197,6 +216,7 @@ export function renderAccountDetailPage(opts: AccountDetailPageOpts): string {
         <tbody>${inviteRows}</tbody>
       </table>
     </div>
-  </div>`,
+    ${statusAction}`,
+    }),
   });
 }

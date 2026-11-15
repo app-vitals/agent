@@ -46,15 +46,13 @@ import {
   renderAgentDetailCardSlots,
 } from "./admin-extension.ts";
 import { registerAccountRoutes } from "./admin-ui-account.ts";
-import {
-  runWithAccountNav,
-  runWithSettingsNav,
-} from "./admin-ui-account-nav.ts";
+import { runWithSettingsNav } from "./admin-ui-account-nav.ts";
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
 import {
   buildSettingsNav,
   firstVisibleSettingsItem,
+  SETTINGS_ACCOUNT_PATH,
 } from "./admin-ui-settings-layout.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
 import { registerAdminTemplatesRoutes } from "./admin-ui-templates.ts";
@@ -949,10 +947,11 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     devAuthEnabled,
   });
 
-  // GHE-1.4: the admin-only "Settings" toolbar entry. Registered before the
-  // Account middleware; the two merge their flags in the shared store.
+  const accountNavEnabled = Boolean(selfServe?.enabled && accountServices);
+
+  // GHE-1.4: the admin-only "Settings" toolbar entry.
   // SGL-2.2: shown to admins and to account members.
-  if (githubEnterpriseApi || templateService) {
+  if (githubEnterpriseApi || templateService || accountNavEnabled) {
     app.use("/admin/*", async (c, next) => {
       const token = getCookie(c, SESSION_COOKIE);
       const user = token ? await getSessionUser(token, sessionSecret) : null;
@@ -967,28 +966,6 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         }
       }
       return runWithSettingsNav(show, () => next());
-    });
-  }
-
-  // SSP-3.2: show the toolbar's "Account" entry only for signed-in users who
-  // belong to an account, and only while self-serve is on. The flag is carried
-  // in AsyncLocalStorage so renderAdminToolbar() needs no extra parameter.
-  const accountNavEnabled = Boolean(selfServe?.enabled && accountServices);
-  if (accountNavEnabled && accountServices) {
-    app.use("/admin/*", async (c, next) => {
-      const token = getCookie(c, SESSION_COOKIE);
-      const user = token ? await getSessionUser(token, sessionSecret) : null;
-      let showAccount = false;
-      if (user) {
-        try {
-          showAccount =
-            (await accountServices.accounts.getByMemberEmail(user.email)) !==
-            null;
-        } catch {
-          // nav is cosmetic — never fail the page over the lookup
-        }
-      }
-      return runWithAccountNav(showAccount, () => next());
     });
   }
 
@@ -3977,16 +3954,29 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
   const settingsNav = buildSettingsNav({
     githubEnterprise: Boolean(githubEnterpriseApi),
     templates: Boolean(templateService),
+    accounts: accountNavEnabled,
     extraItems: deps.settingsNavItems ?? [],
   });
 
   // SGL-2.2: /admin/settings lands on the first nav item the viewer can see.
-  if (githubEnterpriseApi || templateService) {
-    app.get("/admin/settings", requireAuth, (c) => {
-      const first = firstVisibleSettingsItem(
-        settingsNav,
-        c.var.isAdmin === true,
-      );
+  if (githubEnterpriseApi || templateService || accountNavEnabled) {
+    app.get("/admin/settings", requireAuth, async (c) => {
+      // Admins without an account would 404 on the Account item; skip it.
+      let nav = settingsNav;
+      if (accountNavEnabled && accountServices) {
+        const account = await accountServices.accounts
+          .getByMemberEmail(c.var.userEmail)
+          .catch(() => null);
+        if (!account) {
+          nav = {
+            sections: settingsNav.sections.map((sec) => ({
+              ...sec,
+              items: sec.items.filter((i) => i.path !== SETTINGS_ACCOUNT_PATH),
+            })),
+          };
+        }
+      }
+      const first = firstVisibleSettingsItem(nav, c.var.isAdmin === true);
       if (!first) {
         return new Response("No settings are available for your account.", {
           status: 404,
@@ -4025,12 +4015,14 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     registerAccountRoutes(app, {
       enabled: accountNavEnabled,
       requireAuth,
+      settingsNav,
       ...accountServices,
       html,
     });
     registerAdminAccountsRoutes(app, {
       enabled: accountNavEnabled,
       requireAuth,
+      settingsNav,
       ...accountServices,
       agents: agentService,
       provisioner,

@@ -136,3 +136,32 @@ describe("renderAgentsPage Account column", () => {
     expect(html).not.toContain("<th>Account</th>");
   });
 });
+
+describe("accounts pages in the settings shell (SGL-2.3)", () => {
+  test("list page renders in the layout with Accounts active", () => {
+    const html = renderAccountsListPage({
+      userEmail: "a@x.com",
+      accounts: [],
+      owners: new Map(),
+    });
+    expect(html).toContain("settings-sidebar");
+    expect(html).toContain(
+      '<a class="settings-nav-link" href="/admin/accounts" aria-current="page">Accounts</a>',
+    );
+  });
+
+  test("detail page puts Suspend in the shared danger box", () => {
+    const html = renderAccountDetailPage({
+      userEmail: "a@x.com",
+      account,
+      agents: [],
+      members: [],
+      invites: [],
+    });
+    expect(html).toContain("settings-danger-zone");
+    expect(html).toContain("/admin/accounts/a1/suspend");
+    expect(html).toContain(
+      '<a class="settings-nav-link" href="/admin/accounts" aria-current="page">Accounts</a>',
+    );
+  });
+});

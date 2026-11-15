@@ -191,3 +191,31 @@ describe("toolbar Settings entry", () => {
     );
   });
 });
+
+describe("GET /admin/settings with accounts (SGL-2.3)", () => {
+  const selfServe = { enabled: true, contactEmail: "c@x.com" };
+  const build = (member: string | null) =>
+    createAdminUIApp(
+      makeMockDeps({
+        templateService,
+        selfServe,
+        accountServices: memberAccounts(member),
+      } as never),
+    );
+
+  it("lands an account member on Account", async () => {
+    const res = await build("m@acme.com").request("/admin/settings", {
+      headers: { cookie: await userCookie("m@acme.com") },
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/admin/account");
+  });
+
+  it("skips Account for an admin without an account", async () => {
+    const res = await build(null).request("/admin/settings", {
+      headers: { cookie: await adminCookie() },
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/admin/settings/templates");
+  });
+});

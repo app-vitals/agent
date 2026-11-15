@@ -178,6 +178,10 @@ describe("/admin/account", () => {
     const body = await res.text();
     expect(body).toContain("Acme");
     expect(body).toContain("1 / 2");
+    // SGL-2.3: rendered inside the settings shell; no top-level Account link.
+    expect(body).toContain("settings-sidebar");
+    expect(body).toContain('href="/admin/account" aria-current="page"');
+    expect(body).not.toContain('class="vos-nav-link" href="/admin/account"');
   });
 
   it("owner can invite, see it pending, and revoke it", async () => {
