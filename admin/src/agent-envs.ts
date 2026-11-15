@@ -37,6 +37,8 @@ export interface AgentEnvEntry {
 interface AgentEnvResult {
   env: Record<string, string>;
   secretKeys: string[];
+  /** ATP-2.4: row source per key (`template` | `custom`). */
+  sources?: Record<string, string>;
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -222,8 +224,10 @@ export class AgentEnvService {
 
     const env: Record<string, string> = {};
     const secretKeys: string[] = [];
+    const sources: Record<string, string> = {};
 
     for (const row of rows) {
+      sources[row.key] = row.source;
       if (row.secret) {
         env[row.key] = "***";
         secretKeys.push(row.key);
@@ -232,7 +236,7 @@ export class AgentEnvService {
       }
     }
 
-    return { env, secretKeys };
+    return { env, secretKeys, sources };
   }
 
   /**

@@ -152,6 +152,8 @@ export interface AgentDetail extends Partial<AgentAnthropicIdentity> {
   maxFindings?: number;
   cleanupMergedWorktrees?: boolean;
   cleanupAfterDays?: number;
+  /** ATP-2.4: the agent no longer follows its template. Optional for fixture compat. */
+  templateDetached?: boolean;
 }
 
 interface UpdateSelfHostedInput {
@@ -281,6 +283,7 @@ const SUMMARY_SELECT = {
   anthropicFederationRuleId: true,
   k8sServiceAccountName: true,
   podServiceAccountName: true,
+  templateDetached: true,
 } as const;
 
 const DETAIL_SELECT = {
