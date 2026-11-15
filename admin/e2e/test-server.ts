@@ -9,6 +9,7 @@
  * Usage:
  *   ADMIN_E2E_PORT=3490 bun run admin/e2e/test-server.ts
  *   ADMIN_E2E_AGENTS_MODE=1 ADMIN_E2E_PORT=3490 bun run admin/e2e/test-server.ts
+ *   ADMIN_E2E_SETTINGS=1 ADMIN_E2E_PORT=3498 bun run admin/e2e/test-server.ts
  *
  * The server exposes:
  *   GET /health               → 200 OK
@@ -240,6 +241,87 @@ function buildMockChatClient(): ChatClient {
 // chatClient is a genuine injection point and that the other chat e2e suites
 // are exercising the real UI, not a silently-degraded fallback.
 const CHAT_CLIENT_ABSENT = process.env.ADMIN_E2E_CHAT_CLIENT_ABSENT === "1";
+
+// ─── Settings-shell fixtures (SGL-2.4) ───────────────────────────────────────
+// When ADMIN_E2E_SETTINGS=1 the server wires the optional services that turn on
+// the /admin/settings sidebar: GitHub Enterprise, Templates (Platform) and
+// Account/Accounts (self-serve). Off by default so other suites are unchanged.
+const SETTINGS_MODE = process.env.ADMIN_E2E_SETTINGS === "1";
+
+const MOCK_ACCOUNT = {
+  id: "acct-e2e-1",
+  name: "E2E Account",
+  status: "active",
+  maxAgents: 5,
+  plan: null,
+  trialExpiresAt: null,
+  trialExpiryWarnedAt: null,
+  createdAt: new Date("2024-01-01"),
+  updatedAt: new Date("2024-01-01"),
+};
+
+function buildSettingsDeps(): Partial<AdminUIDeps> {
+  const members = [
+    {
+      id: "am-e2e-1",
+      accountId: MOCK_ACCOUNT.id,
+      email: "admin@example.com",
+      role: "owner",
+      createdAt: new Date("2024-01-01"),
+    },
+  ];
+  const counts = { ...MOCK_ACCOUNT, agentCount: 1, memberCount: 1 };
+  return {
+    selfServe: {
+      enabled: true,
+      defaultMaxAgents: 5,
+      contactEmail: "contact@example.com",
+    },
+    templateService: {
+      list: async () => [],
+      replace: async () => {
+        throw new Error("not used in e2e tests");
+      },
+      putItem: async () => {
+        throw new Error("not used in e2e tests");
+      },
+      deleteItem: async () => {
+        throw new Error("not used in e2e tests");
+      },
+      delete: async () => {
+        throw new Error("not used in e2e tests");
+      },
+    } as unknown as AdminUIDeps["templateService"],
+    githubEnterpriseApi: async (path: string) =>
+      path === "/github-enterprise/apps"
+        ? Response.json({ configured: false, installer: null, lookup: null })
+        : Response.json({}, { status: 404 }),
+    accountServices: {
+      accounts: {
+        getByMemberEmail: async () => MOCK_ACCOUNT,
+        update: async () => MOCK_ACCOUNT,
+        countAgents: async () => 1,
+        listWithCounts: async () => [counts],
+        getWithCounts: async () => counts,
+        listAgents: async () => [],
+      },
+      members: {
+        listByAccount: async () => members,
+        getByEmail: async () => members[0],
+        add: async () => members[0],
+        remove: async () => {},
+        promote: async () => {},
+        demote: async () => {},
+      },
+      invites: {
+        create: async () => ({}),
+        listPending: async () => [],
+        revoke: async () => {},
+      },
+      lifecycle: { update: async () => MOCK_ACCOUNT },
+    } as unknown as AdminUIDeps["accountServices"],
+  };
+}
 
 // ─── Mock deps factory ────────────────────────────────────────────────────────
 
@@ -485,6 +567,7 @@ function buildMockDeps(chatClient: ChatClient | undefined): AdminUIDeps {
     },
     appBaseUrl: `http://localhost:${ADMIN_E2E_PORT}`,
     chatClient,
+    ...(SETTINGS_MODE ? buildSettingsDeps() : {}),
   };
 }
 
