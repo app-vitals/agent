@@ -45,6 +45,7 @@ const ALLOWLIST: Set<string> = new Set([
   "HOST",
   // Admin Playwright e2e harness (admin/e2e/), not production configuration
   "ADMIN_E2E_CHAT_CLIENT_ABSENT",
+  "ADMIN_E2E_SETTINGS",
   "ADMIN_E2E_CHAT_PENDING",
   "ADMIN_E2E_PORT",
   "ADMIN_E2E_SESSION_SECRET",
