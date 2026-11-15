@@ -1,6 +1,6 @@
 /**
  * admin/e2e/plugins-section.e2e.ts
- * Admin UI — Plugins card add/remove on the agent page (PUI-1.2)
+ * Admin UI — Plugins card add/remove on the agent Extensions section (/admin/agents/:id/extensions) (PUI-1.2)
  *
  * Covers: seeded row listed, add by spec (explicit and bare), malformed spec
  * error, and remove.
@@ -12,7 +12,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type BrowserContext, type Page, expect, test } from "@playwright/test";
+import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { sign } from "hono/jwt";
 
 const PORT = 3497;
@@ -87,24 +87,7 @@ async function loadAgentPage(page: Page, context: BrowserContext) {
       sameSite: "Lax",
     },
   ]);
-  await page.goto(`${BASE_URL}/admin/agents/${AGENT_ID}`);
-  await openGroup(page);
-}
-
-// The section lives in the "Plugins & Tools" accordion group, collapsed on
-// every page load (including the redirect after each add/remove).
-async function openGroup(page: Page) {
-  // Set `open` rather than clicking the summary, so a still-old (already
-  // open) page can't be toggled shut; the table locator retries across the
-  // navigation.
-  await expect(async () => {
-    await page
-      .locator("details", { has: page.locator("#plugins-table") })
-      .evaluate((el) => {
-        (el as HTMLDetailsElement).open = true;
-      });
-    await expect(table(page)).toBeVisible({ timeout: 1000 });
-  }).toPass();
+  await page.goto(`${BASE_URL}/admin/agents/${AGENT_ID}/extensions`);
 }
 
 test("lists the seeded plugin", async ({ page, context }) => {
@@ -119,8 +102,7 @@ test("adds a plugin by spec and then removes it", async ({ page, context }) => {
   const form = page.locator("#add-plugin-form");
   await form.locator('input[name="spec"]').fill("added@seeded-remote");
   await form.getByRole("button", { name: "Add plugin" }).click();
-  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}`);
-  await openGroup(page);
+  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}/extensions`);
 
   const added = table(page).locator("tbody tr", {
     hasText: "added@seeded-remote",
@@ -128,8 +110,7 @@ test("adds a plugin by spec and then removes it", async ({ page, context }) => {
   await expect(added).toHaveCount(1);
 
   await added.getByRole("button", { name: "Remove" }).click();
-  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}`);
-  await openGroup(page);
+  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}/extensions`);
   await expect(
     table(page).locator("tbody tr", { hasText: "added@seeded-remote" }),
   ).toHaveCount(0);
@@ -146,8 +127,7 @@ test("a bare name defaults to the shipwright marketplace", async ({
   const form = page.locator("#add-plugin-form");
   await form.locator('input[name="spec"]').fill("barename");
   await form.getByRole("button", { name: "Add plugin" }).click();
-  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}`);
-  await openGroup(page);
+  await page.waitForURL(`${BASE_URL}/admin/agents/${AGENT_ID}/extensions`);
   await expect(
     table(page).locator("tbody tr", { hasText: "barename@shipwright" }),
   ).toHaveCount(1);
@@ -163,6 +143,5 @@ test("a malformed spec redirects with an error and adds nothing", async ({
   await form.locator('input[name="spec"]').fill("a@b@c");
   await form.getByRole("button", { name: "Add plugin" }).click();
   await page.waitForURL(/\?error=/);
-  await openGroup(page);
   await expect(table(page).locator("tbody tr")).toHaveCount(before);
 });
