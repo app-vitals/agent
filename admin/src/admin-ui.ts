@@ -849,10 +849,6 @@ export function createAgentAccessChecks(deps: {
 const DEFAULT_PLUGIN_MARKETPLACE = "shipwright";
 
 /**
- * Validate a plugin install spec and return its canonical
- * "<plugin>@<marketplace>" form. Throws UnprocessableEntityError if malformed.
- */
-/**
  * ATP-2.4: parse the create form's `KEY=value` lines (blank lines and `#`
  * comments skipped). Null when a line is malformed.
  */
@@ -869,6 +865,10 @@ function parseEnvLines(raw: string | undefined): Record<string, string> | null {
   return env;
 }
 
+/**
+ * Validate a plugin install spec and return its canonical
+ * "<plugin>@<marketplace>" form. Throws UnprocessableEntityError if malformed.
+ */
 function normalizePluginSpec(spec: string): string {
   if (!/^[^\s@]+(@[^\s@]+)?$/.test(spec)) {
     throw new UnprocessableEntityError(
