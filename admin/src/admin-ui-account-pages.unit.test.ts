@@ -9,7 +9,6 @@ import {
   renderZeroQuotaNotice,
 } from "./admin-ui-account-pages.ts";
 import { renderAdminToolbar } from "./admin-ui-styles.ts";
-import { runWithAccountNav } from "./admin-ui-account-nav.ts";
 
 const d = new Date("2026-01-01T00:00:00Z");
 const account = {
@@ -92,21 +91,22 @@ describe("renderZeroQuotaNotice", () => {
 });
 
 describe("renderAdminToolbar account nav", () => {
-  test("no Account entry outside the account-nav context", () => {
+  test("no top-level Account entry (Settings covers it, SGL-2.3)", () => {
     expect(renderAdminToolbar("u", "/admin/agents")).not.toContain(
-      "/admin/account",
+      'href="/admin/account"',
     );
   });
-  test("Account entry inside the context", () => {
-    const html = runWithAccountNav(true, () =>
-      renderAdminToolbar("u", "/admin/agents"),
+});
+
+describe("renderAccountPage in the settings shell", () => {
+  test("renders inside the layout with Account active and Settings in the toolbar", () => {
+    const html = render(true);
+    expect(html).toContain("settings-sidebar");
+    expect(html).toContain(
+      '<a class="settings-nav-link" href="/admin/account" aria-current="page">Account</a>',
     );
-    expect(html).toContain('href="/admin/account"');
   });
-  test("no entry when context says false", () => {
-    const html = runWithAccountNav(false, () =>
-      renderAdminToolbar("u", "/admin/agents"),
-    );
-    expect(html).not.toContain("/admin/account");
+  test("Accounts nav item only for admins", () => {
+    expect(render(true)).not.toContain('href="/admin/accounts"');
   });
 });

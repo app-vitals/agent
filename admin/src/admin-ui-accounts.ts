@@ -23,6 +23,7 @@ import {
   renderAccountDetailPage,
   renderAccountsListPage,
 } from "./admin-ui-accounts-pages.ts";
+import type { SettingsNav } from "./admin-ui-settings-layout.ts";
 import { reconcileAgentAfterAccountChange } from "./agent-account-assignment.ts";
 import type { AgentProvisioner } from "./agent-provisioner.ts";
 import type { AgentService } from "./agents.ts";
@@ -46,6 +47,8 @@ export interface AdminAccountsRouteDeps {
   /** SSP-5.3: assign/unassign agents (admin only). */
   agents: Pick<AgentService, "getDetail" | "updateFields">;
   provisioner: Pick<AgentProvisioner, "reconcile">;
+  /** Settings sidebar nav (SGL-2.3). */
+  settingsNav?: SettingsNav;
   html: (content: string, opts?: { status?: number }) => Response;
 }
 
@@ -82,7 +85,12 @@ export function registerAdminAccountsRoutes(
       }),
     );
     return deps.html(
-      renderAccountsListPage({ userEmail: c.var.userEmail, accounts, owners }),
+      renderAccountsListPage({
+        userEmail: c.var.userEmail,
+        accounts,
+        owners,
+        ...(deps.settingsNav ? { nav: deps.settingsNav } : {}),
+      }),
     );
   });
 
@@ -107,6 +115,7 @@ export function registerAdminAccountsRoutes(
         members,
         invites,
         error,
+        ...(deps.settingsNav ? { nav: deps.settingsNav } : {}),
       }),
       { status },
     );

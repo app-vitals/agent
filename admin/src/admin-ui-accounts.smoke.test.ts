@@ -250,6 +250,8 @@ describe("/admin/accounts", () => {
     const body = await res.text();
     expect(body).toContain("Acme");
     expect(body).toContain("owner@x.com");
+    expect(body).toContain("settings-sidebar");
+    expect(body).toContain('href="/admin/accounts" aria-current="page"');
   });
 
   it("403 for non-admin on every route", async () => {

@@ -19,6 +19,7 @@ import { normalizeEmail } from "./account-email.ts";
 import type { Account, AccountService } from "./accounts.ts";
 import { ACCOUNT_PATH, renderAccountPage } from "./admin-ui-account-pages.ts";
 import type { AdminUIEnv } from "./admin-ui.ts";
+import type { SettingsNav } from "./admin-ui-settings-layout.ts";
 
 export interface AccountRouteDeps {
   /** SHIPWRIGHT_SELF_SERVE_ENABLED === "enabled". */
@@ -30,6 +31,8 @@ export interface AccountRouteDeps {
     "listByAccount" | "getByEmail" | "remove" | "promote" | "demote"
   >;
   invites: Pick<AccountInviteService, "create" | "listPending" | "revoke">;
+  /** Settings sidebar nav (SGL-2.3). */
+  settingsNav?: SettingsNav;
   html: (content: string, opts?: { status?: number }) => Response;
 }
 
@@ -71,6 +74,8 @@ export function registerAccountRoutes(
         invites,
         isOwner,
         error,
+        isAdmin: c.var.isAdmin === true,
+        ...(deps.settingsNav ? { nav: deps.settingsNav } : {}),
       }),
       { status },
     );

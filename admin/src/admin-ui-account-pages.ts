@@ -8,7 +8,12 @@ import type { AccountInvite } from "./account-invites.ts";
 import type { AccountMember } from "./account-members.ts";
 import type { Account } from "./accounts.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
-import { escapeHtml, renderAdminToolbar } from "./admin-ui-styles.ts";
+import {
+  buildSettingsNav,
+  renderSettingsLayout,
+  type SettingsNav,
+} from "./admin-ui-settings-layout.ts";
+import { escapeHtml } from "./admin-ui-styles.ts";
 
 export const ACCOUNT_PATH = "/admin/account";
 
@@ -21,6 +26,10 @@ interface AccountPageOpts {
   /** True when the viewer is an owner; members get a read-only page. */
   isOwner: boolean;
   error?: string;
+  /** Settings sidebar nav; defaults to the base Account/Accounts nav. */
+  nav?: SettingsNav;
+  /** Platform admin viewing (shows adminOnly nav items). */
+  isAdmin?: boolean;
 }
 
 function emailForm(
@@ -88,13 +97,15 @@ export function renderAccountPage(opts: AccountPageOpts): string {
     : "";
 
   return renderAdminPage({
-    title: "Account — Shipwright Admin",
-    body: `${renderAdminToolbar(opts.userEmail, ACCOUNT_PATH)}
-  <div class="vos-page">
-    <div class="page-header">
-      <h1 class="page-title">${escapeHtml(account.name)}</h1>
-    </div>
-    ${errorHtml}
+    title: "Account — Settings — Shipwright Admin",
+    body: renderSettingsLayout({
+      userName: opts.userEmail,
+      title: account.name,
+      nav: opts.nav ?? buildSettingsNav({ accounts: true }),
+      active: ACCOUNT_PATH,
+      toolbarPath: "/admin/settings",
+      isAdmin: opts.isAdmin ?? false,
+      body: `${errorHtml}
     <div class="card">
       <div class="card-title">Account</div>
       <p>Agents: <strong>${opts.agentCount} / ${account.maxAgents}</strong></p>
@@ -118,8 +129,8 @@ export function renderAccountPage(opts: AccountPageOpts): string {
         </table>
       </div>
       ${inviteForm}
-    </div>
-  </div>`,
+    </div>`,
+    }),
   });
 }
 
