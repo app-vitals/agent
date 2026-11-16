@@ -122,6 +122,14 @@ describe("baseStyles — SGL-1.1 settings layout", () => {
     }
   });
 
+  test("full-width modifier and input cap", () => {
+    expect(css).toMatch(
+      /\.vos-page-wide\s*{\s*max-width:\s*none;\s*width:\s*100%;/,
+    );
+    expect(block).toMatch(/\.settings-content \.form-input[^}]*max-width: 640px/);
+    expect(block).toContain('.settings-content input[type="search"]');
+  });
+
   test("mobile media block references the settings classes", () => {
     const media = block.slice(
       block.indexOf(`@media (max-width: ${BREAKPOINT_MOBILE_MAX}px)`),

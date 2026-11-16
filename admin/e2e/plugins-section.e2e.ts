@@ -145,3 +145,17 @@ test("a malformed spec redirects with an error and adds nothing", async ({
   await page.waitForURL(/\?error=/);
   await expect(table(page).locator("tbody tr")).toHaveCount(before);
 });
+
+test("settings content grows with the viewport width", async ({
+  page,
+  context,
+}) => {
+  const contentWidth = async () =>
+    (await page.locator(".settings-content").boundingBox())?.width ?? 0;
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await loadAgentPage(page, context);
+  const narrow = await contentWidth();
+  await page.setViewportSize({ width: 1800, height: 900 });
+  const wide = await contentWidth();
+  expect(wide).toBeGreaterThan(narrow);
+});

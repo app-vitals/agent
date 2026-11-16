@@ -120,6 +120,7 @@ export function baseStyles(): string {
       margin: 0 auto;
       padding: 32px 24px 64px;
     }
+    .vos-page-wide { max-width: none; width: 100%; }
 
     /* ─── Hamburger toggle (CSS-only, no JS) ───────────── */
     .vos-nav-toggle { display: none; }

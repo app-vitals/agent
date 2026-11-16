@@ -60,6 +60,7 @@ describe("renderSettingsLayout", () => {
     expect(html).toContain("Profile</h1>");
     expect(html).toContain("<p>BODY</p>");
     expect(html).toContain('class="vos-page');
+    expect(html).toContain('class="vos-page vos-page-wide vos-page-settings"');
     expect(html).toContain("vos-toolbar");
   });
 
