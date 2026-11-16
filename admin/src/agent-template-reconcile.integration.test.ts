@@ -624,6 +624,47 @@ describeOrSkip("AgentTemplateReconcileService (integration)", () => {
     expect(crons).toEqual([]); // fx-loop was FIXTURE's system cron
   });
 
+  it("deletes an orphan system-cron parent with its children and detaches survivors", async () => {
+    const agentId = await agent();
+    const parent = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "shipwright-loop",
+        system: true,
+        schedule: "*/30 * * * *",
+        prompt: "/shipwright:loop",
+      },
+    });
+    for (const name of ["shipwright-dev-task", "shipwright-review"]) {
+      await prisma.agentCronJob.create({
+        data: {
+          agentId,
+          name,
+          system: true,
+          schedule: "0 * * * *",
+          prompt: `/${name}`,
+          parentCronId: parent.id,
+        },
+      });
+    }
+    const userCron = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "my-cron",
+        system: false,
+        schedule: "0 3 * * *",
+        prompt: "/mine",
+        parentCronId: parent.id,
+      },
+    });
+
+    await service.reconcile(agentId);
+
+    const rows = await prisma.agentCronJob.findMany({ where: { agentId } });
+    expect(rows.map((r) => r.name).sort()).toEqual(["fx-loop", "my-cron"]);
+    expect(rows.find((r) => r.id === userCron.id)?.parentCronId).toBeNull();
+  });
+
   it("a template cron named like a specialty system cron overrides it in place", async () => {
     const agentId = await agent();
     await service.reconcile(agentId);

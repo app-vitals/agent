@@ -577,6 +577,95 @@ describeOrSkip("AgentCronJobService (integration)", () => {
     expect(systemJobs.length).toBe(FIXTURE_CRONS.length);
   });
 
+  // Coding -> specialist shape: an orphan parent whose children are also
+  // orphans. parentCron is onDelete: Cascade, so a per-row delete of a child
+  // after its parent was deleted used to throw.
+  async function seedOrphanLoop(agentId: string): Promise<string[]> {
+    const parent = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "shipwright-loop",
+        system: true,
+        schedule: "*/30 * * * *",
+        prompt: "/shipwright:loop",
+      },
+    });
+    const ids = [parent.id];
+    for (const name of ["shipwright-dev-task", "shipwright-review"]) {
+      const child = await prisma.agentCronJob.create({
+        data: {
+          agentId,
+          name,
+          system: true,
+          schedule: "0 * * * *",
+          prompt: `/${name}`,
+          parentCronId: parent.id,
+        },
+      });
+      ids.push(child.id);
+    }
+    return ids;
+  }
+
+  it("reconcileSystemCrons() deletes an orphan parent together with its orphan children without throwing", async () => {
+    const agentId = await createAgent(prisma);
+    const orphanIds = await seedOrphanLoop(agentId);
+
+    const result = await service.reconcileSystemCrons(agentId);
+
+    expect(result.deleted).toBe(orphanIds.length);
+    expect(result.created).toBe(FIXTURE_CRONS.length);
+    expect(
+      await prisma.agentCronJob.count({ where: { id: { in: orphanIds } } }),
+    ).toBe(0);
+    const names = (await service.list(agentId)).map((j) => j.name).sort();
+    expect(names).toEqual(FIXTURE_CRONS.map((c) => c.name).sort());
+  });
+
+  it("reconcileSystemCrons() detaches a surviving cron whose parentCronId points at an orphan", async () => {
+    const agentId = await createAgent(prisma);
+    const orphanIds = await seedOrphanLoop(agentId);
+    const orphanParentId = orphanIds[0] as string;
+    const userCron = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "my-cron",
+        system: false,
+        schedule: "0 3 * * *",
+        prompt: "/mine",
+        parentCronId: orphanParentId,
+      },
+    });
+    // A system cron that is still a default, also linked to the orphan.
+    const defaultCron = await prisma.agentCronJob.create({
+      data: {
+        agentId,
+        name: "fixture-standalone",
+        system: true,
+        schedule: "0 7 * * 1",
+        prompt: "/fixture:standalone\n/fixture:follow-up",
+        parentCronId: orphanParentId,
+      },
+    });
+
+    const result = await service.reconcileSystemCrons(agentId);
+
+    expect(result.deleted).toBe(orphanIds.length);
+    expect(
+      await prisma.agentCronJob.count({ where: { id: { in: orphanIds } } }),
+    ).toBe(0);
+    const userAfter = await prisma.agentCronJob.findUnique({
+      where: { id: userCron.id },
+    });
+    expect(userAfter).not.toBeNull();
+    expect(userAfter?.parentCronId).toBeNull();
+    const defaultAfter = await prisma.agentCronJob.findUnique({
+      where: { id: defaultCron.id },
+    });
+    expect(defaultAfter).not.toBeNull();
+    expect(defaultAfter?.parentCronId).toBeNull();
+  });
+
   it("reconcileSystemCrons() for an unknown specialty changes nothing (no fallback)", async () => {
     const agentId = await createAgent(prisma, "Renamed Agent", "renamed-type");
 
