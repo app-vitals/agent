@@ -472,26 +472,23 @@ function registeredMatchesRow(
 
 /**
  * Runs `claude plugin marketplace <args>`; a non-zero exit warns, never throws.
- * `opts.env` overrides the spawn env; `opts.failureMessage` replaces the
- * generic warning (still exactly one warning per failed command).
+ * `opts.env` overrides the spawn env; `opts.failureHint` is appended to the
+ * warning, so a failed command still logs exactly one line.
  */
 async function runMarketplaceCommand(
   execFn: ExecFn,
   cwd: string,
   args: string[],
-  opts: {
-    env?: Record<string, string | undefined>;
-    failureMessage?: (result: { stdout: string; exitCode: number }) => string;
-  } = {},
+  opts: { env?: Record<string, string | undefined>; failureHint?: string } = {},
 ): Promise<boolean> {
   const result = await execFn("claude", ["plugin", "marketplace", ...args], {
     cwd,
     ...(opts.env ? { env: opts.env } : {}),
   });
   if (result.exitCode !== 0) {
+    const hint = opts.failureHint ? ` — ${opts.failureHint}` : "";
     console.warn(
-      opts.failureMessage?.(result) ??
-        `[agent] claude plugin marketplace ${args.join(" ")} exited ${result.exitCode}: ${result.stdout}`,
+      `[agent] claude plugin marketplace ${args.join(" ")} exited ${result.exitCode}: ${result.stdout}${hint}`,
     );
   }
   return result.exitCode === 0;
@@ -548,15 +545,13 @@ async function reconcileRemoteMarketplace(
     owner !== null
       ? {
           env: { ...process.env, SHIPWRIGHT_GH_OWNER: owner },
-          failureMessage: (r: { stdout: string; exitCode: number }) =>
-            `[agent] remote marketplace ${row.name} (${slug}) could not be cloned or updated (exit ${r.exitCode}): ${r.stdout} — install the GitHub App on ${owner} or add a repo from ${owner} to the agent's repo scope; under PAT auth, check the token can read ${slug}`,
+          failureHint: `remote marketplace ${row.name} (${slug}) could not be cloned or updated: install the GitHub App on ${owner} or add a repo from ${owner} to the agent's repo scope; under PAT auth, check the token can read ${slug}`,
         }
       : {};
 
   if (!registered) {
     const spec = row.ref ? `${row.source}#${row.ref}` : row.source;
-    // A failed add registers nothing, so an update would only fail (and warn) again.
-    if (!(await runMarketplaceCommand(execFn, cwd, ["add", spec], gh))) return;
+    await runMarketplaceCommand(execFn, cwd, ["add", spec], gh);
   }
   await runMarketplaceCommand(execFn, cwd, ["update", row.name], gh);
 

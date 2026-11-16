@@ -164,7 +164,7 @@ Each remote marketplace row has `name`, `source` (a GitHub `owner/repo` or https
    
    then remove it first with `claude plugin marketplace remove <name>`.
 4. **Add if missing.** If not registered, add it: `claude plugin marketplace add <source>[#<ref>]` (the `#<ref>` is included only when `ref` is present).
-5. **Update.** Run `claude plugin marketplace update <name>` after adding or skipping to refresh plugin manifests. If the `add` in step 4 fails, skip the update: a failed add registers nothing, so the update would only fail and warn again.
+5. **Update.** Always run `claude plugin marketplace update <name>` after adding or skipping to refresh plugin manifests.
 6. **Warn on manifest name mismatch.** The CLI registers a marketplace under its manifest's declared `name` field. If that name differs from the row's `name`, the registry will have an entry under the manifest name instead, and a warning is logged: plugin specs in the agent's `AgentPlugin` rows must reference the manifest name (use `@<manifest-name>` not `@<row-name>`).
 
 All marketplace operations are non-fatal: a non-zero exit from `claude` is logged as a warning and reconciliation continues. Operators can enable or remove remote marketplaces at any time via the admin UI or API; changes take effect within one config-sync tick (≤60 s) without a pod restart.
