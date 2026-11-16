@@ -130,12 +130,23 @@ model AgentEnv {
 }
 
 // ─── GitHub Enterprise Apps ───────────────────────────────────────────────────
-// Optional admin-level GitHub Apps, one per role ('installer' | 'lookup'), at most
-// two rows per deployment; no rows means the feature is off. Deliberately NOT in
-// AgentEnv so the private key can never reach the agent config bundle.
+// Optional admin-level GitHub Apps, one per (accountId, role) where role is
+// 'installer' | 'lookup'. accountId null = the deployment-wide pair (at most two
+// rows); an account row overrides it for that account. No rows means the feature
+// is off. Deliberately NOT in AgentEnv so the private key can never reach the
+// agent config bundle.
+//
+// UNIQUENESS: NULLs compare distinct in a plain unique index, so the
+// deployment-wide (accountId NULL) uniqueness is a partial unique index
+// hand-written in 20261116000000_github_enterprise_app_account_id/migration.sql:
+//   GitHubEnterpriseApp_role_global_key  (accountId NULL)
+// Prisma's schema diff does not see it; keep it when editing this model.
 
 model GitHubEnterpriseApp {
-  role                  String    @id // 'installer' | 'lookup'
+  id                    String    @id @default(cuid())
+  accountId             String?
+  account               Account?  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  role                  String    // 'installer' | 'lookup'
   appId                 String
   slug                  String
   enterpriseSlug        String?   // installer only
@@ -145,6 +156,8 @@ model GitHubEnterpriseApp {
   lastValidationError   String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
+
+  @@unique([accountId, role])
 }
 
 // ─── Agent Cron Jobs ──────────────────────────────────────────────────────────
@@ -279,6 +292,7 @@ model Account {
   members   AccountMember[]
   invites   AccountInvite[]
   templates AgentTemplate[]
+  githubEnterpriseApps GitHubEnterpriseApp[]
 }
 
 // ─── Agent Templates ──────────────────────────────────────────────────────────

@@ -79,6 +79,16 @@ describe("GitHub Enterprise key isolation", () => {
     ]);
   });
 
+  it("no source outside the allowlist reaches the key through the Account relation", () => {
+    const offenders = files
+      .map((f) => relative(REPO, f))
+      .filter((rel) => !ALLOWED.has(rel))
+      .filter((rel) =>
+        /githubEnterpriseApps/.test(readFileSync(join(REPO, rel), "utf-8")),
+      );
+    expect(offenders).toEqual([]);
+  });
+
   it("the config bundle and env serializers never read the enterprise table", () => {
     for (const rel of ["admin/src/agent-envs.ts", "admin/src/api.ts"]) {
       const src = readFileSync(join(REPO, rel), "utf-8");

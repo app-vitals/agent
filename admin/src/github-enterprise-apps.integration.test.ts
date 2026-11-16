@@ -88,7 +88,7 @@ describeOrSkip("GitHubEnterpriseAppService (integration)", () => {
 
   it("stores the key encrypted and round-trips it via getPrivateKey", async () => {
     await service.save(installer);
-    const row = await prisma.gitHubEnterpriseApp.findUnique({
+    const row = await prisma.gitHubEnterpriseApp.findFirst({
       where: { role: "installer" },
     });
     expect(row?.privateKeyEncrypted).not.toContain("SUPERSECRETPEMBODY");
@@ -134,19 +134,117 @@ describeOrSkip("GitHubEnterpriseAppService (integration)", () => {
 
   it("strict decrypt: tampered and legacy plain-text values throw", async () => {
     await service.save(installer);
-    const row = await prisma.gitHubEnterpriseApp.findUnique({
+    const row = await prisma.gitHubEnterpriseApp.findFirst({
       where: { role: "installer" },
     });
     const [iv, ct, tag] = (row?.privateKeyEncrypted ?? "").split(":");
     const flipped = (ct[0] === "0" ? "1" : "0") + ct.slice(1);
     for (const bad of [`${iv}:${flipped}:${tag}`, PEM]) {
       await prisma.gitHubEnterpriseApp.update({
-        where: { role: "installer" },
+        where: { id: row?.id },
         data: { privateKeyEncrypted: bad },
       });
       const err = await service.getPrivateKey("installer").catch((e) => e);
       expect(err).toBeInstanceOf(PrivateKeyDecryptError);
       expect(err.message).not.toContain("SUPERSECRETPEMBODY");
     }
+  });
+
+  describe("account scope", () => {
+    const lookup = { ...installer, role: "lookup" as const, appId: "900" };
+    let acctA: string;
+    let acctB: string;
+
+    beforeEach(async () => {
+      await prisma.account.deleteMany({
+        where: { name: { in: ["ghe-a", "ghe-b"] } },
+      });
+      acctA = (await prisma.account.create({ data: { name: "ghe-a" } })).id;
+      acctB = (await prisma.account.create({ data: { name: "ghe-b" } })).id;
+    });
+
+    afterEach(async () => {
+      await prisma.gitHubEnterpriseApp.deleteMany();
+      await prisma.account.deleteMany({
+        where: { id: { in: [acctA, acctB] } },
+      });
+    });
+
+    it("get(role, accountId) prefers the account row, else falls back to deployment-wide", async () => {
+      await service.save(lookup);
+      expect((await service.get("lookup", acctA))?.appId).toBe("900");
+      await service.save({ ...lookup, accountId: acctA, appId: "901" });
+      const own = await service.get("lookup", acctA);
+      expect(own?.appId).toBe("901");
+      expect(own?.accountId).toBe(acctA);
+      expect((await service.get("lookup", acctB))?.appId).toBe("900");
+      expect((await service.get("lookup"))?.appId).toBe("900");
+    });
+
+    it("get(role) without accountId never sees an account row", async () => {
+      await service.save({ ...lookup, accountId: acctA });
+      expect(await service.get("lookup")).toBeNull();
+      expect(await service.list()).toEqual([]);
+      expect(await service.list(acctA)).toHaveLength(1);
+    });
+
+    it("accounts are isolated: save/delete/recordValidation hit only the targeted row", async () => {
+      await service.save(lookup);
+      await service.save({ ...lookup, accountId: acctA, appId: "A" });
+      await service.save({ ...lookup, accountId: acctB, appId: "B" });
+      await service.recordValidation("lookup", { status: "ok" }, acctA);
+      expect((await service.get("lookup", acctA))?.lastValidationStatus).toBe(
+        "ok",
+      );
+      expect((await service.get("lookup", acctB))?.lastValidationStatus).toBe(
+        null,
+      );
+      expect((await service.get("lookup"))?.lastValidationStatus).toBe(null);
+      await service.delete("lookup", acctA);
+      expect((await service.get("lookup", acctA))?.appId).toBe("900");
+      expect((await service.get("lookup", acctB))?.appId).toBe("B");
+      expect(await prisma.gitHubEnterpriseApp.count()).toBe(2);
+    });
+
+    it("getPrivateKey follows the same fallback and decrypts the right row", async () => {
+      await service.save(lookup);
+      await service.save({
+        ...lookup,
+        accountId: acctA,
+        privateKey: `${PEM}-ACCT`,
+      });
+      expect(await service.getPrivateKey("lookup", acctA)).toBe(`${PEM}-ACCT`);
+      expect(await service.getPrivateKey("lookup", acctB)).toBe(PEM);
+      expect(await service.getPrivateKey("lookup")).toBe(PEM);
+    });
+
+    it("save is idempotent per (accountId, role), including the NULL scope", async () => {
+      await service.save(lookup);
+      await service.save({ ...lookup, appId: "again" });
+      await service.save({ ...lookup, accountId: acctA });
+      await service.save({ ...lookup, accountId: acctA, appId: "again" });
+      expect(await prisma.gitHubEnterpriseApp.count()).toBe(2);
+    });
+
+    it("the database rejects a second deployment-wide row for a role", async () => {
+      await service.save(lookup);
+      const dup = async () =>
+        prisma.gitHubEnterpriseApp.create({
+          data: {
+            role: "lookup",
+            appId: "x",
+            slug: "x",
+            privateKeyEncrypted: "x",
+          },
+        });
+      await expect(dup()).rejects.toThrow();
+    });
+
+    it("deleting an account cascades to its apps only", async () => {
+      await service.save(lookup);
+      await service.save({ ...lookup, accountId: acctA });
+      await prisma.account.delete({ where: { id: acctA } });
+      expect(await prisma.gitHubEnterpriseApp.count()).toBe(1);
+    });
   });
 });
