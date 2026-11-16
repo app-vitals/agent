@@ -155,6 +155,32 @@ export function buildSettingsNav(
   return mergeSettingsNavItems(base, [...(opts.extraItems ?? [])]);
 }
 
+/** The nav minus the Account item, for a viewer who has no account. */
+export function withoutAccountItem(nav: SettingsNav): SettingsNav {
+  return {
+    sections: nav.sections.map((sec) => ({
+      ...sec,
+      items: sec.items.filter((i) => i.path !== SETTINGS_ACCOUNT_PATH),
+    })),
+  };
+}
+
+/** Request-context key under which the viewer-resolved nav is stored. */
+export const SETTINGS_NAV_CONTEXT_KEY = "settingsNav";
+
+/**
+ * The viewer-resolved settings nav for the current /admin/* request: every
+ * platform item whose route is registered plus all extension-contributed
+ * items, with the Account item omitted for a viewer without an account.
+ * Lets extension adminUiRoutes handlers render renderSettingsLayout without
+ * rebuilding a partial copy of the nav. Undefined outside the admin UI.
+ */
+export function getSettingsNav(c: {
+  get(key: string): unknown;
+}): SettingsNav | undefined {
+  return c.get(SETTINGS_NAV_CONTEXT_KEY) as SettingsNav | undefined;
+}
+
 /** First nav item visible to the viewer, or undefined. */
 export function firstVisibleSettingsItem(
   nav: SettingsNav,

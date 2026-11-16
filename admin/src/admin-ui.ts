@@ -42,22 +42,14 @@ import type { AccountOnboardingService } from "./account-onboarding.ts";
 import type { AccountService } from "./accounts.ts";
 import {
   type AgentDetailCardSlot,
-  type SettingsNavContribution,
   renderAgentDetailCardSlots,
+  type SettingsNavContribution,
 } from "./admin-extension.ts";
 import { registerAccountRoutes } from "./admin-ui-account.ts";
 import { runWithSettingsNav } from "./admin-ui-account-nav.ts";
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
-import {
-  buildSettingsNav,
-  firstVisibleSettingsItem,
-  SETTINGS_ACCOUNT_PATH,
-} from "./admin-ui-settings-layout.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
-import { registerAdminTemplatesRoutes } from "./admin-ui-templates.ts";
-import type { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
-import type { AgentTemplateService } from "./agent-templates.ts";
 import {
   type GithubAccessPreviewView,
   renderGithubAccessError,
@@ -84,7 +76,7 @@ import {
   type AgentSection,
   agentSectionPath,
   isAgentSection,
-  settingsRedirectSection,
+  type NewAgentTemplateItem,
   renderAgentDetailPage,
   renderAgentsPage,
   renderChatMessageBubble,
@@ -94,11 +86,19 @@ import {
   renderGithubAppInstallPage,
   renderGithubAppManifestRedirectPage,
   renderLoginPage,
-  type NewAgentTemplateItem,
   renderNewLocalAgentPage,
   renderProvisionCompletePage,
   renderProvisionXappTokenPage,
+  settingsRedirectSection,
 } from "./admin-ui-pages.ts";
+import {
+  buildSettingsNav,
+  firstVisibleSettingsItem,
+  SETTINGS_NAV_CONTEXT_KEY,
+  type SettingsNav,
+  withoutAccountItem,
+} from "./admin-ui-settings-layout.ts";
+import { registerAdminTemplatesRoutes } from "./admin-ui-templates.ts";
 import type { AgentCronJobService } from "./agent-cron-jobs.ts";
 import type { DeleteAgentFullyDeps } from "./agent-deletion.ts";
 import { deleteAgentFully } from "./agent-deletion.ts";
@@ -108,6 +108,8 @@ import type { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import type { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
 import type { AgentProvisioner } from "./agent-provisioner.ts";
+import type { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
+import type { AgentTemplateService } from "./agent-templates.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AgentToolService } from "./agent-tools.ts";
 import type { AgentService } from "./agents.ts";
@@ -169,7 +171,13 @@ import {
   SpecialtyTypes,
 } from "./specialty-types.ts";
 
-export type AdminUIEnv = { Variables: { userEmail: string; isAdmin: boolean } };
+export type AdminUIEnv = {
+  Variables: {
+    userEmail: string;
+    isAdmin: boolean;
+    settingsNav?: SettingsNav;
+  };
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -948,6 +956,31 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
   });
 
   const accountNavEnabled = Boolean(selfServe?.enabled && accountServices);
+
+  const settingsNav = buildSettingsNav({
+    githubEnterprise: Boolean(githubEnterpriseApi),
+    templates: Boolean(templateService),
+    accounts: accountNavEnabled,
+    extraItems: deps.settingsNavItems ?? [],
+  });
+
+  // Expose the viewer-resolved nav to every /admin/* handler registered after
+  // this point, including extension adminUiRoutes (mounted after this app).
+  app.use("/admin/*", async (c, next) => {
+    let nav = settingsNav;
+    if (accountNavEnabled && accountServices) {
+      const token = getCookie(c, SESSION_COOKIE);
+      const user = token ? await getSessionUser(token, sessionSecret) : null;
+      if (user) {
+        const account = await accountServices.accounts
+          .getByMemberEmail(user.email)
+          .catch(() => null);
+        if (!account) nav = withoutAccountItem(settingsNav);
+      }
+    }
+    c.set(SETTINGS_NAV_CONTEXT_KEY, nav);
+    await next();
+  });
 
   // GHE-1.4: the admin-only "Settings" toolbar entry.
   // SGL-2.2: shown to admins and to account members.
@@ -3951,13 +3984,6 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
 
   // ─── Enterprise GitHub apps settings (GHE-1.4) ───────────────────────────
 
-  const settingsNav = buildSettingsNav({
-    githubEnterprise: Boolean(githubEnterpriseApi),
-    templates: Boolean(templateService),
-    accounts: accountNavEnabled,
-    extraItems: deps.settingsNavItems ?? [],
-  });
-
   // SGL-2.2: /admin/settings lands on the first nav item the viewer can see.
   if (githubEnterpriseApi || templateService || accountNavEnabled) {
     app.get("/admin/settings", requireAuth, async (c) => {
@@ -3967,14 +3993,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         const account = await accountServices.accounts
           .getByMemberEmail(c.var.userEmail)
           .catch(() => null);
-        if (!account) {
-          nav = {
-            sections: settingsNav.sections.map((sec) => ({
-              ...sec,
-              items: sec.items.filter((i) => i.path !== SETTINGS_ACCOUNT_PATH),
-            })),
-          };
-        }
+        if (!account) nav = withoutAccountItem(settingsNav);
       }
       const first = firstVisibleSettingsItem(nav, c.var.isAdmin === true);
       if (!first) {
