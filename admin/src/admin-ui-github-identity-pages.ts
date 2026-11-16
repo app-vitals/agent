@@ -7,6 +7,7 @@
  * repo names and levels only (no token or key ever reaches this module).
  */
 
+import type { GheOrgs } from "./admin-ui-github-enterprise-pages.ts";
 import { escapeHtml } from "./admin-ui-styles.ts";
 
 export interface GithubAccessRepo {
@@ -166,4 +167,60 @@ export function renderGithubAccessResult(
 
 export function renderGithubAccessError(message: string): string {
   return `<div class="alert alert-error">${escapeHtml(message)}</div>`;
+}
+
+/** "Install on org" block (GHC-1.2); lazy-loads the org list fragment on page load. */
+export function renderGithubInstallCard(agentId: string): string {
+  const url = `/admin/agents/${escapeHtml(agentId)}/github-orgs`;
+  return `<div id="github-install-card" style="margin-top:20px">
+      <div class="form-label" style="font-weight:600;margin-bottom:6px">Install on org</div>
+      <p style="color:#6b7280;font-size:12px;margin:0 0 12px">Installs this agent's GitHub App on an organization.</p>
+      <div id="github-install-result" data-url="${url}">Loading...</div>
+      <script>
+        (function() {
+          var out = document.getElementById('github-install-result');
+          if (!out) return;
+          fetch(out.getAttribute('data-url'), { credentials: 'same-origin' })
+            .then(function(r) { return r.text(); })
+            .then(function(t) { out.innerHTML = t; })
+            .catch(function() { out.textContent = 'The request failed.'; });
+        })();
+      </script>
+    </div>`;
+}
+
+function installedBadge(v: boolean | null): string {
+  if (v === null) return "&mdash;";
+  return v
+    ? `<span class="badge badge-green">Installed</span>`
+    : `<span class="badge badge-gray">Not installed</span>`;
+}
+
+/** Fragment for the Install on org block: org list with app status and Install buttons. */
+export function renderGithubOrgsFragment(
+  agentId: string,
+  data: GheOrgs,
+): string {
+  if (!data.configured) {
+    return `<div class="alert alert-warning">The installer GitHub App is not configured.</div>`;
+  }
+  const reason = data.agentAppReason
+    ? `<div class="alert alert-error">${escapeHtml(data.agentAppReason)}</div>`
+    : "";
+  if (data.orgs.length === 0) {
+    return `${reason}<p class="empty-state">No installable organizations.</p>`;
+  }
+  const disabled = data.agentAppReason ? " disabled" : "";
+  const rows = data.orgs
+    .map((o) => {
+      const action = o.agentAppInstalled
+        ? ""
+        : `<form method="POST" action="/admin/agents/${escapeHtml(agentId)}/github-orgs/${escapeHtml(encodeURIComponent(o.login))}/install" style="display:inline;margin:0"><button type="submit" class="btn btn-primary" style="font-size:12px;padding:4px 10px"${disabled}>Install</button></form>`;
+      return `<tr><td>${escapeHtml(o.login)}</td><td>${installedBadge(o.lookupAppInstalled)}</td><td>${installedBadge(o.agentAppInstalled)}</td><td style="text-align:right">${action}</td></tr>`;
+    })
+    .join("");
+  return `${reason}<table class="data-table">
+        <thead><tr><th>Organization</th><th>Lookup app</th><th>Agent app</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
 }

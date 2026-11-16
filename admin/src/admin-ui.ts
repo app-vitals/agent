@@ -22,6 +22,7 @@
  * Allowed users are controlled by the adminAllowedEmails allowlist in deps.
  */
 
+import type { GheOrgs } from "./admin-ui-github-enterprise-pages.ts";
 import { join } from "node:path";
 import { isGithubLogin } from "@app-vitals/agent-lib/github-login";
 import { isOrgRepo } from "@app-vitals/agent-lib/org-repo";
@@ -54,6 +55,7 @@ import {
   type GithubAccessPreviewView,
   renderGithubAccessError,
   renderGithubAccessResult,
+  renderGithubOrgsFragment,
 } from "./admin-ui-github-identity-pages.ts";
 import {
   actuallyBlockedWork,
@@ -2058,6 +2060,81 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     );
   });
 
+  // GHC-1.2: Install on org block on the agent's GitHub card. Both routes
+  // call the GHE-1.3 API with the agent implicit (the route's :id).
+  const gheError = async (res: Response | null, fallback: string) => {
+    try {
+      const j = (await res?.json()) as { error?: unknown };
+      if (typeof j.error === "string" && j.error) return j.error;
+    } catch {
+      // keep the fallback
+    }
+    return fallback;
+  };
+
+  app.get("/admin/agents/:id/github-orgs", requireAuth, async (c) => {
+    const agentId = c.req.param("id");
+    if (!c.var.isAdmin || !githubEnterpriseApi) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const res = await callApi(
+      c,
+      githubEnterpriseApi,
+      `/github-enterprise/orgs?agentId=${encodeURIComponent(agentId)}`,
+    );
+    if (!res?.ok) {
+      return html(
+        renderGithubAccessError(
+          await gheError(res, "Could not load the organizations."),
+        ),
+        { status: res && res.status >= 400 ? res.status : 502 },
+      );
+    }
+    return html(
+      renderGithubOrgsFragment(agentId, (await res.json()) as GheOrgs),
+    );
+  });
+
+  app.post(
+    "/admin/agents/:id/github-orgs/:org/install",
+    requireAuth,
+    async (c) => {
+      const agentId = c.req.param("id");
+      if (!c.var.isAdmin || !githubEnterpriseApi) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const res = await callApi(
+        c,
+        githubEnterpriseApi,
+        `/github-enterprise/orgs/${encodeURIComponent(c.req.param("org"))}/install`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ agentId }),
+        },
+      );
+      if (!res?.ok) {
+        return c.redirect(
+          agentSectionPath(agentId, "access", {
+            error: await gheError(res, "Could not install the agent app."),
+          }),
+          302,
+        );
+      }
+      let created = true;
+      try {
+        created =
+          ((await res.json()) as { created?: boolean }).created !== false;
+      } catch {
+        // treat as created
+      }
+      return c.redirect(
+        `${agentSectionPath(agentId, "access")}?success=${created ? "github_app_installed" : "github_app_already_installed"}`,
+        302,
+      );
+    },
+  );
+
   // IRM-1.4: thin proxies over the installation repos list (IRM-1.2) and
   // the repo-removal preview (IRM-1.7).
   // They return HTML fragments for the Installation repos card and the agent's
@@ -2346,7 +2423,11 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             ? "GitHub username saved."
             : successParam === "github_username_cleared"
               ? "GitHub username cleared."
-              : undefined;
+              : successParam === "github_app_installed"
+                ? "Agent app installed."
+                : successParam === "github_app_already_installed"
+                  ? "The agent app was already installed on that organization."
+                  : undefined;
     const warningParam = c.req.query("warning");
     const warning =
       warningParam === "restrict_slack_no_members"
