@@ -51,7 +51,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:18
+        image: postgres:18@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc
         env:
           POSTGRES_USER: compat
           POSTGRES_PASSWORD: compat
