@@ -15,6 +15,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { Browser } from "playwright";
 import { launchBrowser } from "./browser.ts";
 
+// A cold Chromium start on a shared CI runner can exceed bun's 5s default
+// per-test timeout (seen on the first launch in the run), so give each launch
+// test real headroom.
+const LAUNCH_TIMEOUT_MS = 30_000;
+
 describe("launchBrowser", () => {
   let browser: Browser | undefined;
 
@@ -25,28 +30,40 @@ describe("launchBrowser", () => {
     }
   });
 
-  test("launches successfully", async () => {
-    browser = await launchBrowser();
-    expect(browser.isConnected()).toBe(true);
-  });
+  test(
+    "launches successfully",
+    async () => {
+      browser = await launchBrowser();
+      expect(browser.isConnected()).toBe(true);
+    },
+    LAUNCH_TIMEOUT_MS,
+  );
 
-  test("navigates a data: URL and reads back page content", async () => {
-    browser = await launchBrowser();
-    const page = await browser.newPage();
-    await page.goto(
-      "data:text/html,<title>shipwright-browser-test</title><h1>hello</h1>",
-    );
-    expect(await page.title()).toBe("shipwright-browser-test");
-    expect(await page.content()).toContain("hello");
-    await page.close();
-  });
+  test(
+    "navigates a data: URL and reads back page content",
+    async () => {
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      await page.goto(
+        "data:text/html,<title>shipwright-browser-test</title><h1>hello</h1>",
+      );
+      expect(await page.title()).toBe("shipwright-browser-test");
+      expect(await page.content()).toContain("hello");
+      await page.close();
+    },
+    LAUNCH_TIMEOUT_MS,
+  );
 
-  test("navigates about:blank and reports a ready document", async () => {
-    browser = await launchBrowser();
-    const page = await browser.newPage();
-    await page.goto("about:blank");
-    const readyState = await page.evaluate(() => document.readyState);
-    expect(readyState).toBe("complete");
-    await page.close();
-  });
+  test(
+    "navigates about:blank and reports a ready document",
+    async () => {
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      await page.goto("about:blank");
+      const readyState = await page.evaluate(() => document.readyState);
+      expect(readyState).toBe("complete");
+      await page.close();
+    },
+    LAUNCH_TIMEOUT_MS,
+  );
 });
