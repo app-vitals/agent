@@ -564,6 +564,24 @@ describe("installPlugins — remote marketplace owner hint (TMK-1.1)", () => {
     for (const c of removes) expect(c.env).toBeUndefined();
   });
 
+  it("skips update after a failed add, so one root cause logs one warning", async () => {
+    const { calls, exec } = recordEnv((args) => args[2] !== "remove");
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (...a: unknown[]) => {
+      warns.push(a.join(" "));
+    };
+    try {
+      await run(exec, [
+        { name: "priv", source: "example-org/private-plugins", ref: null },
+      ]);
+    } finally {
+      console.warn = orig;
+    }
+    expect(sub(calls, "update")).toHaveLength(0);
+    expect(warns.filter((w) => w.includes("priv"))).toHaveLength(1);
+  });
+
   for (const verb of ["add", "update"]) {
     it(`logs exactly one remediation warning when ${verb} fails, and carries on`, async () => {
       const { calls, exec } = recordEnv(

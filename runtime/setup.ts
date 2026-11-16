@@ -555,7 +555,8 @@ async function reconcileRemoteMarketplace(
 
   if (!registered) {
     const spec = row.ref ? `${row.source}#${row.ref}` : row.source;
-    await runMarketplaceCommand(execFn, cwd, ["add", spec], gh);
+    // A failed add registers nothing, so an update would only fail (and warn) again.
+    if (!(await runMarketplaceCommand(execFn, cwd, ["add", spec], gh))) return;
   }
   await runMarketplaceCommand(execFn, cwd, ["update", row.name], gh);
 
