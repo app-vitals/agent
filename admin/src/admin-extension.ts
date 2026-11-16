@@ -50,6 +50,8 @@
  * (the composition root) is the only file that wires a concrete extension in.
  */
 
+export { getSettingsNav } from "./admin-ui-settings-layout.ts";
+
 import type { PoolLike } from "@app-vitals/agent-lib/pool-observability";
 import type { ErrorCapturingClient } from "@app-vitals/agent-lib/sentry";
 import type { Hono } from "hono";
