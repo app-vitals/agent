@@ -295,6 +295,94 @@ describe("HttpSlackProvisioningClient — authTest", () => {
   });
 });
 
+// ─── rotateConfigToken ──────────────────────────────────────────────────────
+
+describe("HttpSlackProvisioningClient — rotateConfigToken", () => {
+  it("POSTs form-encoded refresh_token to tooling.tokens.rotate and returns rotated tokens", async () => {
+    const { client, lastRequest } = makeClient("rotateConfigToken_success");
+    const result = await client.rotateConfigToken("xoxe-1-test-refresh-token");
+
+    const req = lastRequest();
+    expect(req.method).toBe("POST");
+    expect(req.url).toBe("https://slack.com/api/tooling.tokens.rotate");
+    expect(req.headers.get("content-type")).toBe(
+      "application/x-www-form-urlencoded",
+    );
+    const params = new URLSearchParams(req.body);
+    expect(params.get("refresh_token")).toBe("xoxe-1-test-refresh-token");
+
+    expect(result).toEqual({
+      accessToken: "xoxb-rotated-access-token",
+      refreshToken: "xoxe-1-rotated-refresh-token",
+      teamId: "T0123456789",
+      userId: "U0AALR8M69X",
+      iat: 1234567890,
+      exp: 1234571490,
+    });
+  });
+
+  it("throws SlackConfigTokenError with invalid_refresh_token code when Slack returns that error", async () => {
+    const { client } = makeClient("rotateConfigToken_invalid_refresh_token");
+    try {
+      await client.rotateConfigToken("xoxe-1-test-refresh-token");
+      expect.unreachable("Should have thrown");
+    } catch (err: unknown) {
+      expect(err instanceof Error).toBe(true);
+      const error = err as Error;
+      expect(error.message).not.toContain("xoxe-1-test-refresh-token");
+      if (err && typeof err === "object" && "code" in err) {
+        expect((err as any).code).toBe("invalid_refresh_token");
+      }
+    }
+  });
+
+  it("throws SlackConfigTokenError with token_revoked code when Slack returns that error", async () => {
+    const { client } = makeClient("rotateConfigToken_token_revoked");
+    try {
+      await client.rotateConfigToken("xoxe-1-test-refresh-token");
+      expect.unreachable("Should have thrown");
+    } catch (err: unknown) {
+      expect(err instanceof Error).toBe(true);
+      const error = err as Error;
+      expect(error.message).not.toContain("xoxe-1-test-refresh-token");
+      if (err && typeof err === "object" && "code" in err) {
+        expect((err as any).code).toBe("token_revoked");
+      }
+    }
+  });
+
+  it("throws SlackConfigTokenError with http_error code on HTTP error", async () => {
+    const { client } = makeClient("rotateConfigToken_http_error");
+    try {
+      await client.rotateConfigToken("xoxe-1-test-refresh-token");
+      expect.unreachable("Should have thrown");
+    } catch (err: unknown) {
+      expect(err instanceof Error).toBe(true);
+      const error = err as Error;
+      expect(error.message).toMatch(/Slack tooling\.tokens\.rotate HTTP error: 500/);
+      if (err && typeof err === "object" && "code" in err) {
+        expect((err as any).code).toBe("http_error");
+      }
+    }
+  });
+
+  it("throws SlackConfigTokenError when response is missing required fields", async () => {
+    const { client } = makeClient("rotateConfigToken_missing_fields");
+    try {
+      await client.rotateConfigToken("xoxe-1-test-refresh-token");
+      expect.unreachable("Should have thrown");
+    } catch (err: unknown) {
+      expect(err instanceof Error).toBe(true);
+      const error = err as Error;
+      expect(error.message).toContain("response missing required fields");
+      expect(error.message).not.toContain("xoxe-1-test-refresh-token");
+      if (err && typeof err === "object" && "code" in err) {
+        expect((err as any).code).toBe("missing_response_fields");
+      }
+    }
+  });
+});
+
 // ─── Default construction (no opts) ─────────────────────────────────────────
 
 describe("HttpSlackProvisioningClient — default construction", () => {
