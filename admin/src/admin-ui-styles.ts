@@ -615,6 +615,12 @@ export function baseStyles(): string {
       font-weight: 600;
     }
     .settings-content { flex: 1 1 auto; min-width: 0; }
+    .settings-content .form-input,
+    .settings-content input[type="text"],
+    .settings-content input[type="email"],
+    .settings-content input[type="password"],
+    .settings-content input[type="number"],
+    .settings-content input[type="search"] { max-width: 640px; }
     .settings-content h1 {
       font-size: 24px;
       font-weight: 600;

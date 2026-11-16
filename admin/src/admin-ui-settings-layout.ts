@@ -65,7 +65,7 @@ export function renderSettingsLayout(
       ?.label ?? opts.title;
 
   return `${renderAdminToolbar(opts.userName, opts.toolbarPath ?? opts.active)}
-<div class="vos-page">
+<div class="vos-page vos-page-wide vos-page-settings">
   <div class="settings-layout">
     <nav class="settings-sidebar" aria-label="Settings">${sectionsHtml}</nav>
     <details class="settings-nav-mobile"><summary>${escapeHtml(activeLabel)}</summary>${sectionsHtml}</details>
