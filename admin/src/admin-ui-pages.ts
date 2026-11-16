@@ -14,6 +14,7 @@ import { PROGRESS_LABELS } from "@app-vitals/agent-lib/progress-phases";
 import { getSelfServeSpecialty } from "./account-agent-create.ts";
 import {
   renderGithubAccessCard,
+  renderGithubInstallCard,
   renderGithubUsernameRow,
 } from "./admin-ui-github-identity-pages.ts";
 import {
@@ -1024,6 +1025,7 @@ export function agentSectionPath(
 export const AGENT_POST_SECTIONS: Readonly<Record<string, AgentSection>> = {
   "/github-username": "access",
   "/github-sync/apply-confirmed": "access",
+  "/github-orgs/:org/install": "access",
   "/repos/remove-confirmed": "configuration",
   "/envs": "configuration",
   "/template/detach": "configuration",
@@ -2063,7 +2065,7 @@ export function renderAgentDetailPage(
 
   // One GitHub card: connect actions plus (admin + enterprise GitHub) the
   // Preview access and GitHub sync fragments.
-  const githubCardBody = `${githubConnectActionsHtml}${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity ? renderGithubSyncCard(agent.id, { hasAppId: "GH_APP_ID" in envVars, githubUsername: agent.githubUsername }) : ""}`;
+  const githubCardBody = `${githubConnectActionsHtml}${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity ? renderGithubSyncCard(agent.id, { hasAppId: "GH_APP_ID" in envVars, githubUsername: agent.githubUsername }) : ""}${showGithubIdentity ? renderGithubInstallCard(agent.id) : ""}`;
   const githubSection =
     canManage && githubCardBody.trim() !== ""
       ? `<div class="card">

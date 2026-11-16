@@ -23,6 +23,7 @@ const json = (b: unknown, status = 200) =>
 function setup(opts: {
   configured?: boolean | "installer-only";
   agentsApi?: (path: string, init?: RequestInit) => Response;
+  enterpriseApi?: (path: string, init?: RequestInit) => Response;
 }) {
   const calls: { path: string; init?: RequestInit }[] = [];
   const base = makeMockDeps();
@@ -45,8 +46,12 @@ function setup(opts: {
         githubUsername: "octo",
       }),
     },
-    githubEnterpriseApi: () =>
-      json(
+    githubEnterpriseApi: (path: string, init?: RequestInit) => {
+      if (path !== "/github-enterprise/apps" && opts.enterpriseApi) {
+        calls.push({ path, init });
+        return opts.enterpriseApi(path, init);
+      }
+      return json(
         opts.configured === false
           ? { configured: false, installer: null, lookup: null }
           : opts.configured === "installer-only"
@@ -60,7 +65,8 @@ function setup(opts: {
                 installer: { role: "installer" },
                 lookup: { role: "lookup" },
               },
-      ),
+      );
+    },
     agentsApi: (path: string, init?: RequestInit) => {
       calls.push({ path, init });
       return opts.agentsApi ? opts.agentsApi(path, init) : json({});
@@ -223,5 +229,106 @@ describe("admin UI — GitHub identity (GHE-2.5)", () => {
     });
     expect(res.status).toBe(403);
     expect(calls.length).toBe(0);
+  });
+
+  describe("Install on org (GHC-1.2)", () => {
+    const orgsUrl = `/admin/agents/${AGENT_ID}/github-orgs`;
+    const installUrl = `${orgsUrl}/acme/install`;
+    const opts = (cookie: string, method = "GET") => ({
+      method,
+      headers: { Cookie: `admin_session=${cookie}` },
+    });
+
+    it("fragment route calls the orgs API for the agent and renders", async () => {
+      const { app, calls } = setup({
+        enterpriseApi: () =>
+          json({
+            configured: true,
+            agentAppReason: null,
+            orgs: [
+              {
+                id: 1,
+                login: "acme",
+                lookupAppInstalled: true,
+                agentAppInstalled: false,
+              },
+            ],
+          }),
+      });
+      const res = await app.request(orgsUrl, opts(admin));
+      expect(res.status).toBe(200);
+      expect(calls.at(-1)?.path).toBe(
+        `/github-enterprise/orgs?agentId=${AGENT_ID}`,
+      );
+      expect(await res.text()).toContain(`${orgsUrl}/acme/install`);
+    });
+
+    it("fragment route surfaces an upstream error", async () => {
+      const { app } = setup({
+        enterpriseApi: () => json({ error: "boom" }, 502),
+      });
+      const res = await app.request(orgsUrl, opts(admin));
+      expect(res.status).toBe(502);
+      expect(await res.text()).toContain("boom");
+    });
+
+    it("fragment route is forbidden for a non-admin", async () => {
+      const { app, calls } = setup({});
+      const res = await app.request(orgsUrl, opts(member));
+      expect(res.status).toBe(403);
+      expect(calls.length).toBe(0);
+    });
+
+    it("install: created redirects to the Access tab with a banner", async () => {
+      const { app, calls } = setup({
+        enterpriseApi: () => json({ created: true }),
+      });
+      const res = await app.request(installUrl, opts(admin, "POST"));
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe(
+        `/admin/agents/${AGENT_ID}/access?success=github_app_installed`,
+      );
+      const c = calls.at(-1);
+      expect(c?.path).toBe("/github-enterprise/orgs/acme/install");
+      expect(c?.init?.method).toBe("POST");
+      expect(JSON.parse(String(c?.init?.body))).toEqual({ agentId: AGENT_ID });
+    });
+
+    it("install: already installed", async () => {
+      const { app } = setup({
+        enterpriseApi: () => json({ created: false }),
+      });
+      const res = await app.request(installUrl, opts(admin, "POST"));
+      expect(res.headers.get("location")).toContain(
+        "success=github_app_already_installed",
+      );
+    });
+
+    it("install: upstream error redirects with the message", async () => {
+      const { app } = setup({
+        enterpriseApi: () => json({ error: "no client id" }, 422),
+      });
+      const res = await app.request(installUrl, opts(admin, "POST"));
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toContain(
+        encodeURIComponent("no client id"),
+      );
+    });
+
+    it("install is forbidden for a non-admin and makes no call", async () => {
+      const { app, calls } = setup({});
+      const res = await app.request(installUrl, opts(member, "POST"));
+      expect(res.status).toBe(403);
+      expect(calls.length).toBe(0);
+    });
+
+    it("banners render on the Access tab", async () => {
+      const { app } = setup({});
+      const res = await app.request(
+        `/admin/agents/${AGENT_ID}/access?success=github_app_installed`,
+        opts(admin),
+      );
+      expect(await res.text()).toContain("Agent app installed");
+    });
   });
 });

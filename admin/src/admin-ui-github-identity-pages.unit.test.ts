@@ -9,6 +9,8 @@ import {
   type GithubAccessPreviewView,
   renderGithubAccessCard,
   renderGithubAccessResult,
+  renderGithubInstallCard,
+  renderGithubOrgsFragment,
   renderGithubUsernameRow,
 } from "./admin-ui-github-identity-pages.ts";
 import {
@@ -257,5 +259,74 @@ describe("renderGithubAccessResult", () => {
     );
     expect(html).not.toContain("<b>o</b>");
     expect(html).not.toContain("<i>r</i>");
+  });
+});
+
+describe("Install on org block (GHC-1.2)", () => {
+  const orgs = (over: Record<string, unknown> = {}) => ({
+    configured: true,
+    agentAppSlug: "agent-app",
+    agentAppReason: null,
+    orgs: [
+      {
+        id: 1,
+        login: "acme",
+        lookupAppInstalled: true,
+        agentAppInstalled: false,
+      },
+      {
+        id: 2,
+        login: "<b>x</b>",
+        lookupAppInstalled: false,
+        agentAppInstalled: true,
+      },
+    ],
+    ...over,
+  });
+
+  test("card lazy-loads the fragment and is gated like the sync card", () => {
+    expect(renderGithubInstallCard("agent-123")).toContain(
+      "/admin/agents/agent-123/github-orgs",
+    );
+    expect(page(true, true)).toContain("Install on org");
+    expect(page(true, false)).not.toContain("Install on org");
+    expect(page(false, true)).not.toContain("Install on org");
+  });
+
+  test("lists orgs with status; not installed gets an enabled Install form", () => {
+    const html = renderGithubOrgsFragment("agent-123", orgs());
+    expect(html).toContain("acme");
+    expect(html).toContain(
+      'action="/admin/agents/agent-123/github-orgs/acme/install"',
+    );
+    expect(html).toContain("Installed");
+    expect(html).toContain("Not installed");
+    expect(html).not.toContain("disabled");
+    expect(html).not.toContain('name="agentId"');
+  });
+
+  test("installed org has no Install button; names are escaped", () => {
+    const html = renderGithubOrgsFragment("agent-123", orgs());
+    expect(html).not.toContain("<b>x</b>");
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
+    expect(html.match(/>Install<\/button>/g)?.length).toBe(1);
+  });
+
+  test("agentAppReason is shown and disables Install", () => {
+    const html = renderGithubOrgsFragment(
+      "agent-123",
+      orgs({ agentAppReason: "App <private>" }),
+    );
+    expect(html).toContain("App &lt;private&gt;");
+    expect(html).toContain("disabled");
+  });
+
+  test("unconfigured and empty states", () => {
+    expect(
+      renderGithubOrgsFragment("a", { configured: false, orgs: [] }),
+    ).toContain("not configured");
+    expect(renderGithubOrgsFragment("a", orgs({ orgs: [] }))).toContain(
+      "No installable organizations",
+    );
   });
 });
