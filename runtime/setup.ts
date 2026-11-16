@@ -27,6 +27,7 @@ import {
   resolveSpecialtiesDir,
 } from "@app-vitals/agent-lib/default-specialty";
 import { SPECIALIST_TYPE } from "@app-vitals/agent-lib/specialist-type";
+import { githubOwnerOfSource, githubRepoSlugOfSource } from "./gh-helpers.ts";
 
 // ---------------------------------------------------------------------------
 // Template loading
@@ -333,19 +334,19 @@ export function discoverBakedMarketplaces(conventionRoot: string): string[] {
 type ExecFn = (
   cmd: string,
   args: string[],
-  opts: { cwd: string },
+  opts: { cwd: string; env?: Record<string, string | undefined> },
 ) => Promise<{ stdout: string; exitCode: number }>;
 
 async function defaultExec(
   cmd: string,
   args: string[],
-  opts: { cwd: string },
+  opts: { cwd: string; env?: Record<string, string | undefined> },
 ): Promise<{ stdout: string; exitCode: number }> {
   // env: process.env is required — Bun.spawn otherwise snapshots env at Bun
   // startup and misses runtime mutations (MISE_CACHE_DIR, etc.).
   const proc = Bun.spawn([cmd, ...args], {
     cwd: opts.cwd,
-    env: process.env,
+    env: opts.env ?? process.env,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -469,18 +470,28 @@ function registeredMatchesRow(
   );
 }
 
-/** Runs `claude plugin marketplace <args>`; a non-zero exit warns, never throws. */
+/**
+ * Runs `claude plugin marketplace <args>`; a non-zero exit warns, never throws.
+ * `opts.env` overrides the spawn env; `opts.failureMessage` replaces the
+ * generic warning (still exactly one warning per failed command).
+ */
 async function runMarketplaceCommand(
   execFn: ExecFn,
   cwd: string,
   args: string[],
+  opts: {
+    env?: Record<string, string | undefined>;
+    failureMessage?: (result: { stdout: string; exitCode: number }) => string;
+  } = {},
 ): Promise<boolean> {
   const result = await execFn("claude", ["plugin", "marketplace", ...args], {
     cwd,
+    ...(opts.env ? { env: opts.env } : {}),
   });
   if (result.exitCode !== 0) {
     console.warn(
-      `[agent] claude plugin marketplace ${args.join(" ")} exited ${result.exitCode}: ${result.stdout}`,
+      opts.failureMessage?.(result) ??
+        `[agent] claude plugin marketplace ${args.join(" ")} exited ${result.exitCode}: ${result.stdout}`,
     );
   }
   return result.exitCode === 0;
@@ -529,11 +540,24 @@ async function reconcileRemoteMarketplace(
     }
   }
 
+  // Under GitHub App auth the git credential helper only answers when
+  // SHIPWRIGHT_GH_OWNER is set, so hand it the owner of a GitHub source.
+  const slug = githubRepoSlugOfSource(row.source);
+  const owner = githubOwnerOfSource(row.source);
+  const gh =
+    slug !== null && owner !== null
+      ? {
+          env: { ...process.env, SHIPWRIGHT_GH_OWNER: owner },
+          failureMessage: (r: { stdout: string; exitCode: number }) =>
+            `[agent] remote marketplace ${row.name} (${slug}) could not be cloned or updated (exit ${r.exitCode}): ${r.stdout} — install the GitHub App on ${owner} or add a repo from ${owner} to the agent's repo scope; under PAT auth, check the token can read ${slug}`,
+        }
+      : {};
+
   if (!registered) {
     const spec = row.ref ? `${row.source}#${row.ref}` : row.source;
-    await runMarketplaceCommand(execFn, cwd, ["add", spec]);
+    await runMarketplaceCommand(execFn, cwd, ["add", spec], gh);
   }
-  await runMarketplaceCommand(execFn, cwd, ["update", row.name]);
+  await runMarketplaceCommand(execFn, cwd, ["update", row.name], gh);
 
   // The CLI registers a marketplace under its manifest name, so a mismatch
   // leaves the registry without an entry for the row's name.

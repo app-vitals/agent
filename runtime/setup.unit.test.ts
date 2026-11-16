@@ -453,3 +453,147 @@ describe("installPlugins — ledger reconciliation (PUI-1.1)", () => {
     expect(existsSync(ledgerPath())).toBe(false);
   });
 });
+
+describe("installPlugins — remote marketplace owner hint (TMK-1.1)", () => {
+  let dir: string;
+  let manifest: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "owner-hint-"));
+    manifest = join(dir, "installed_plugins.json");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  type Call = {
+    args: string[];
+    env: Record<string, string | undefined> | undefined;
+  };
+  const recordEnv = (failOn: (args: string[]) => boolean = () => false) => {
+    const calls: Call[] = [];
+    const exec = async (
+      _c: string,
+      args: string[],
+      opts: { cwd: string; env?: Record<string, string | undefined> },
+    ) => {
+      calls.push({ args, env: opts.env });
+      return failOn(args)
+        ? { stdout: "fatal: auth", exitCode: 1 }
+        : { stdout: "", exitCode: 0 };
+    };
+    return { calls, exec };
+  };
+  const run = (
+    exec: ReturnType<typeof recordEnv>["exec"],
+    marketplaces: Array<{ name: string; source: string; ref: string | null }>,
+    extra: string[] = [],
+  ) =>
+    installPlugins(
+      exec,
+      "/tmp/cwd",
+      [],
+      "/tmp/no-such-repo-root",
+      manifest,
+      extra,
+      "/tmp/nonexistent-baked-root",
+      {},
+      marketplaces,
+    );
+  const sub = (calls: Call[], verb: string) =>
+    calls.filter((c) => c.args[2] === verb);
+
+  it("passes SHIPWRIGHT_GH_OWNER for add and update of an owner/repo source", async () => {
+    const { calls, exec } = recordEnv();
+    await run(exec, [
+      { name: "priv", source: "example-org/private-plugins", ref: null },
+    ]);
+    const add = sub(calls, "add");
+    const update = sub(calls, "update");
+    expect(add).toHaveLength(1);
+    expect(update).toHaveLength(1);
+    expect(add[0]?.env?.SHIPWRIGHT_GH_OWNER).toBe("example-org");
+    expect(update[0]?.env?.SHIPWRIGHT_GH_OWNER).toBe("example-org");
+  });
+
+  it("derives the owner from a github https .git URL", async () => {
+    const { calls, exec } = recordEnv();
+    await run(exec, [
+      {
+        name: "priv",
+        source: "https://github.com/example-org/private-plugins.git",
+        ref: null,
+      },
+    ]);
+    expect(sub(calls, "add")[0]?.env?.SHIPWRIGHT_GH_OWNER).toBe("example-org");
+  });
+
+  it("passes no env override for a non-GitHub source", async () => {
+    const { calls, exec } = recordEnv();
+    await run(exec, [
+      { name: "x", source: "https://gitlab.example.test/a/b.git", ref: null },
+    ]);
+    expect(sub(calls, "add")[0]?.env).toBeUndefined();
+    expect(sub(calls, "update")[0]?.env).toBeUndefined();
+  });
+
+  it("passes no env override for remove or baked adds", async () => {
+    // Registered under a different source, so reconcile removes then re-adds.
+    const registry = join(dir, "known_marketplaces.json");
+    mkdirSync(join(dir, "mk", ".claude-plugin"), { recursive: true });
+    writeFileSync(join(dir, "mk", ".claude-plugin", "marketplace.json"), "{}");
+    writeFileSync(
+      registry,
+      JSON.stringify({
+        priv: {
+          source: { source: "github", repo: "example-org/other" },
+          installLocation: join(dir, "mk"),
+        },
+      }),
+    );
+    const { calls, exec } = recordEnv();
+    await run(
+      exec,
+      [{ name: "priv", source: "example-org/private-plugins", ref: null }],
+      ["/opt/shipwright/marketplaces/baked"],
+    );
+    const bakedAdd = calls.find(
+      (c) => c.args[2] === "add" && c.args[3]?.startsWith("/opt/"),
+    );
+    expect(bakedAdd).toBeDefined();
+    expect(bakedAdd?.env).toBeUndefined();
+    for (const c of sub(calls, "remove")) expect(c.env).toBeUndefined();
+  });
+
+  for (const verb of ["add", "update"]) {
+    it(`logs exactly one remediation warning when ${verb} fails, and carries on`, async () => {
+      const { calls, exec } = recordEnv(
+        (args) =>
+          args[2] === verb &&
+          args[3] !== "second" &&
+          args[3] !== "example-org/second",
+      );
+      const warns: string[] = [];
+      const orig = console.warn;
+      console.warn = (...a: unknown[]) => {
+        warns.push(a.join(" "));
+      };
+      try {
+        await run(exec, [
+          { name: "priv", source: "example-org/private-plugins", ref: null },
+          { name: "second", source: "example-org/second", ref: null },
+        ]);
+      } finally {
+        console.warn = orig;
+      }
+      const failing = warns.filter((w) => w.includes("private-plugins"));
+      expect(failing).toHaveLength(1);
+      expect(failing[0]).toContain("priv");
+      expect(failing[0]).toContain("example-org/private-plugins");
+      expect(failing[0]).toContain("GitHub App");
+      expect(failing[0]).toContain("PAT");
+      expect(
+        calls.some(
+          (c) => c.args[2] === "add" && c.args[3] === "example-org/second",
+        ),
+      ).toBe(true);
+    });
+  }
+});

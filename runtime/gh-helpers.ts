@@ -30,6 +30,27 @@ export function ownerOfRepo(repo: string): string {
 }
 
 /**
+ * The `owner/repo` slug of a GitHub marketplace source, or null for any other
+ * host or unparseable source. Accepts `owner/repo` and
+ * `https://github.com/owner/repo` (optional `.git` / trailing slash).
+ */
+export function githubRepoSlugOfSource(source: string): string | null {
+  const slug = source
+    .trim()
+    .replace(/^https:\/\/github\.com\//i, "")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/i, "");
+  if (!/^[\w.-]+\/[\w.-]+$/.test(slug) || slug.startsWith(".")) return null;
+  return slug;
+}
+
+/** The GitHub owner of a marketplace source, or null (see githubRepoSlugOfSource). */
+export function githubOwnerOfSource(source: string): string | null {
+  const slug = githubRepoSlugOfSource(source);
+  return slug === null ? null : ownerOfRepo(slug);
+}
+
+/**
  * Run a gh CLI command and return the parsed JSON output.
  * Throws on non-zero exit.
  */

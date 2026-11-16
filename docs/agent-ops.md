@@ -169,4 +169,10 @@ Each remote marketplace row has `name`, `source` (a GitHub `owner/repo` or https
 
 All marketplace operations are non-fatal: a non-zero exit from `claude` is logged as a warning and reconciliation continues. Operators can enable or remove remote marketplaces at any time via the admin UI or API; changes take effect within one config-sync tick (≤60 s) without a pod restart.
 
+### Remote marketplaces: private repos and the owner hint
+
+Under GitHub App auth the git credential helper only answers when `SHIPWRIGHT_GH_OWNER` is set. For a GitHub source (`owner/repo` or `https://github.com/owner/repo[.git]`), reconciliation runs `claude plugin marketplace add` and `update` with `SHIPWRIGHT_GH_OWNER` set to that owner, so a marketplace in a private repo can be cloned and updated. Other hosts, `remove`, and baked marketplaces run with the plain environment.
+
+If `add` or `update` fails for a GitHub source, the log has one warning naming the marketplace and `owner/repo`. Fix it by installing the GitHub App on the owner or adding a repo from that owner to the agent's repo scope. Under PAT auth, check that the token can read the repo.
+
 Removal is ledger-scoped: a marketplace row that is deleted is removed from the agent (after its plugins are uninstalled) only if the runtime had registered it from the bundle. See [Removal and the ledger](#removal-and-the-ledger).
