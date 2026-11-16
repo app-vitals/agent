@@ -20,6 +20,8 @@ import {
   ghGraphql,
   ghJson,
   ghRun,
+  githubOwnerOfSource,
+  githubRepoSlugOfSource,
   ownerOfRepo,
 } from "./gh-helpers.ts";
 
@@ -249,5 +251,47 @@ describe("ownerOfRepo", () => {
 
   test("throws rather than guessing when there is no org", () => {
     expect(() => ownerOfRepo("widgets")).toThrow("Cannot derive GitHub owner");
+  });
+});
+
+describe("githubOwnerOfSource", () => {
+  test("owner/repo shorthand", () => {
+    expect(githubOwnerOfSource("example-org/private-plugins")).toBe(
+      "example-org",
+    );
+  });
+
+  test("github https URLs, with or without .git or trailing slash", () => {
+    for (const s of [
+      "https://github.com/example-org/private-plugins",
+      "https://github.com/example-org/private-plugins.git",
+      "https://github.com/example-org/private-plugins/",
+      "https://GitHub.com/example-org/private-plugins.git",
+    ]) {
+      expect(githubOwnerOfSource(s)).toBe("example-org");
+    }
+  });
+
+  test("null for other hosts and unparseable sources", () => {
+    for (const s of [
+      "https://gitlab.com/example-org/private-plugins.git",
+      "git@github.com:example-org/private-plugins.git",
+      "https://github.com.evil.test/example-org/private-plugins",
+      "plugins",
+      "",
+      "./local/path",
+      "/abs/path/to/repo",
+    ]) {
+      expect(githubOwnerOfSource(s)).toBeNull();
+    }
+  });
+});
+
+describe("githubRepoSlugOfSource", () => {
+  test("normalises to owner/repo preserving case", () => {
+    expect(
+      githubRepoSlugOfSource("https://github.com/Example-Org/Plugins.git"),
+    ).toBe("Example-Org/Plugins");
+    expect(githubRepoSlugOfSource("https://example.test/a/b")).toBeNull();
   });
 });
