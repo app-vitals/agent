@@ -32,8 +32,6 @@ const NOTICES: Record<string, string> = {
   saved: "Credentials saved. Validate the app to check its permissions.",
   deleted: "App removed.",
   validated: "Validation finished; see the status below.",
-  installed: "Agent app installed.",
-  already: "The agent app was already installed on that organization.",
 };
 
 // Deliberately not imported from the enterprise credential service: that
@@ -96,7 +94,6 @@ export function registerAdminGithubEnterpriseRoutes(
     c: Context<AdminUIEnv>,
     flash: { error?: string; notice?: string; status?: number } = {},
   ): Promise<Response> {
-    const agentId = c.req.query("agentId")?.trim() || undefined;
     const statusRes = await call<GheStatus>(
       c,
       "GET",
@@ -118,8 +115,7 @@ export function registerAdminGithubEnterpriseRoutes(
     let orgs: GheOrgs | undefined;
     let orgsError: string | undefined;
     if (status.installer) {
-      const qs = agentId ? `?agentId=${encodeURIComponent(agentId)}` : "";
-      const r = await call<GheOrgs>(c, "GET", `/github-enterprise/orgs${qs}`);
+      const r = await call<GheOrgs>(c, "GET", "/github-enterprise/orgs");
       if (r.ok) orgs = r.data;
       else orgsError = r.error;
     }
@@ -133,7 +129,6 @@ export function registerAdminGithubEnterpriseRoutes(
         status,
         orgs,
         orgsError,
-        agentId,
         error: flash.error,
         notice,
         warnings: c.req.query("warn")?.split(",").filter(Boolean),
@@ -151,11 +146,8 @@ export function registerAdminGithubEnterpriseRoutes(
       return new FormData();
     }
   }
-  const back = (c: Context<AdminUIEnv>, notice: string, agentId?: string) =>
-    c.redirect(
-      `${BASE}?notice=${notice}${agentId ? `&agentId=${encodeURIComponent(agentId)}` : ""}`,
-      302,
-    );
+  const back = (c: Context<AdminUIEnv>, notice: string) =>
+    c.redirect(`${BASE}?notice=${notice}`, 302);
   const fail = (c: Context<AdminUIEnv>, r: ApiResult<unknown>) =>
     renderPage(c, { error: r.error, status: r.status >= 400 ? r.status : 400 });
 
@@ -211,31 +203,6 @@ export function registerAdminGithubEnterpriseRoutes(
       if (!isRole(role)) return new Response("Not Found", { status: 404 });
       const r = await call(c, "DELETE", `/github-enterprise/apps/${role}`);
       return r.ok ? back(c, "deleted") : fail(c, r);
-    },
-  );
-
-  app.post(
-    `${BASE}/orgs/:org/install`,
-    deps.requireAuth,
-    requireAdmin,
-    async (c) => {
-      const org = c.req.param("org");
-      const agentId = field(await readForm(c), "agentId");
-      if (!agentId) {
-        return renderPage(c, { error: "Agent ID is required.", status: 400 });
-      }
-      const r = await call<{ created: boolean }>(
-        c,
-        "POST",
-        `/github-enterprise/orgs/${encodeURIComponent(org)}/install`,
-        { agentId },
-      );
-      if (!r.ok) return fail(c, r);
-      return back(
-        c,
-        r.data?.created === false ? "already" : "installed",
-        agentId,
-      );
     },
   );
 }

@@ -175,10 +175,9 @@ describe("renderGithubEnterpriseSettingsPage", () => {
     expect(html).toContain("Key not set");
   });
 
-  test("org list renders install actions and lookup state", () => {
+  test("org list shows only org, lookup state and the lookup install link", () => {
     const html = renderGithubEnterpriseSettingsPage({
       ...base,
-      agentId: "agent-1",
       status: {
         configured: true,
         installer: app(),
@@ -190,7 +189,6 @@ describe("renderGithubEnterpriseSettingsPage", () => {
       },
       orgs: {
         configured: true,
-        agentAppSlug: "agent-app",
         orgs: [
           {
             id: 1,
@@ -212,35 +210,12 @@ describe("renderGithubEnterpriseSettingsPage", () => {
     expect(html).toContain(
       "https://github.com/apps/acme-lookup/installations/new",
     );
-    expect(html).toContain(
-      'action="/admin/settings/github-enterprise/orgs/org-a/install"',
-    );
-    expect(html).toContain('value="agent-1"');
-    expect(html).toContain("Install agent app");
     expect(html).toContain("Installed");
-  });
-
-  test("check agent shows the private-App reason, escaped", () => {
-    const html = renderGithubEnterpriseSettingsPage({
-      ...base,
-      agentId: "agent-1",
-      status: { configured: true, installer: app(), lookup: null },
-      orgs: {
-        configured: true,
-        agentAppSlug: "agent-app",
-        agentAppReason: "the agent's App 'agent-app' is private <b>",
-        orgs: [
-          {
-            id: 1,
-            login: "org-a",
-            lookupAppInstalled: null,
-            agentAppInstalled: false,
-          },
-        ],
-      },
-    });
-    expect(html).toContain("is private &lt;b&gt;");
-    expect(html).not.toContain("private <b>");
+    expect(html).not.toContain('name="agentId"');
+    expect(html).not.toContain("Install agent app");
+    expect(html).not.toContain("Agent app");
+    expect(html).not.toContain("Check agent");
+    expect(html).not.toContain("/orgs/org-a/install");
   });
 
   test("org list failure and top-level error/notice are escaped messages", () => {

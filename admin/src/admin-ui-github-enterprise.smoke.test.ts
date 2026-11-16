@@ -338,21 +338,13 @@ describe("form posts", () => {
     );
   });
 
-  it("install without a configured installer surfaces the 409 message", async () => {
+  it("the per-org agent install UI route is gone", async () => {
     const { app } = setup();
     const res = await app.request(
       `${BASE}/orgs/org-a/install`,
       form({ agentId: "agent-1" }),
     );
-    expect(res.status).toBe(409);
-    expect(await res.text()).toContain("the installer App is not configured");
-  });
-
-  it("install with an empty agent id is a readable 400", async () => {
-    const { app } = setup();
-    const res = await app.request(`${BASE}/orgs/org-a/install`, form({}));
-    expect(res.status).toBe(400);
-    expect(await res.text()).toContain("Agent ID is required");
+    expect(res.status).toBe(404);
   });
 
   it("org list failure from GitHub renders a message, not a 500", async () => {

@@ -67,8 +67,6 @@ export interface GithubEnterpriseSettingsPageOpts {
   orgs?: GheOrgs;
   /** Readable message when the org list could not be loaded. */
   orgsError?: string;
-  /** Agent whose App the install actions target (carried via ?agentId=). */
-  agentId?: string;
   error?: string;
   notice?: string;
   /** Warning codes from the last validate (carried via ?warn=); unknown codes are ignored. */
@@ -204,13 +202,7 @@ function installedCell(v: boolean | null): string {
 function orgsCard(opts: GithubEnterpriseSettingsPageOpts): string {
   const { status } = opts;
   if (!status.installer) return "";
-  const agentId = opts.agentId ?? "";
   const lookupSlug = status.lookup?.slug;
-
-  const filter = `<form method="GET" action="${BASE}" style="display:flex;gap:8px;margin:8px 0">
-        <input name="agentId" class="form-input" placeholder="Agent ID (to check its App)" value="${escapeHtml(agentId)}" style="max-width:280px" />
-        <button type="submit" class="btn btn-secondary">Check agent</button>
-      </form>`;
 
   let body: string;
   if (opts.orgsError) {
@@ -219,38 +211,27 @@ function orgsCard(opts: GithubEnterpriseSettingsPageOpts): string {
     const orgs = opts.orgs?.orgs ?? [];
     const rows =
       orgs.length === 0
-        ? `<tr><td colspan="4" class="empty-state">No installable organizations.</td></tr>`
+        ? `<tr><td colspan="3" class="empty-state">No installable organizations.</td></tr>`
         : orgs
             .map((o) => {
-              const login = escapeHtml(o.login);
-              const lookupAction = !lookupSlug
-                ? ""
-                : o.lookupAppInstalled
+              const lookupAction =
+                !lookupSlug || o.lookupAppInstalled
                   ? ""
                   : `<a class="btn btn-secondary" style="font-size:12px;padding:4px 10px" href="https://github.com/apps/${escapeHtml(lookupSlug)}/installations/new" target="_blank" rel="noopener noreferrer">Install lookup app</a>`;
-              const agentAction = `<form method="POST" action="${BASE}/orgs/${encodeURIComponent(o.login)}/install" style="display:inline-flex;gap:4px;margin:0">
-          <input name="agentId" class="form-input" required placeholder="Agent ID" value="${escapeHtml(agentId)}" style="max-width:160px;padding:4px 8px" />
-          <button type="submit" class="btn btn-primary" style="font-size:12px;padding:4px 10px">Install agent app</button>
-        </form>`;
               return `<tr>
-      <td>${login}</td>
+      <td>${escapeHtml(o.login)}</td>
       <td>${installedCell(o.lookupAppInstalled)}</td>
-      <td>${installedCell(o.agentAppInstalled)}</td>
-      <td style="text-align:right">${lookupAction} ${agentAction}</td>
+      <td style="text-align:right">${lookupAction}</td>
     </tr>`;
             })
             .join("\n");
-    const reason = opts.orgs?.agentAppReason
-      ? `<div class="alert alert-error">${escapeHtml(opts.orgs.agentAppReason)}</div>`
-      : "";
-    body = `${reason}<table class="data-table">
-        <thead><tr><th>Organization</th><th>Lookup app</th><th>Agent app</th><th></th></tr></thead>
+    body = `<table class="data-table">
+        <thead><tr><th>Organization</th><th>Lookup app</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
   }
   return `<div class="card">
       <div class="card-title">Organizations</div>
-      ${filter}
       ${body}
     </div>`;
 }
