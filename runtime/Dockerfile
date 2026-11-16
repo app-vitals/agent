@@ -138,7 +138,7 @@ COPY --from=node-source /usr/local/lib/node_modules/npm /usr/local/lib/node_modu
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.2.2
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.292
+ARG CLAUDE_CODE_VERSION=2.1.325
 # The trailing check fails the build if the installed CLI doesn't report exactly
 # the pinned version (e.g. a registry/tag mismatch), so a drifted image can't ship.
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
