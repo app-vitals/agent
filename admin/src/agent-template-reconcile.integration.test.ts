@@ -825,4 +825,67 @@ describeOrSkip("AgentTemplateReconcileService (integration)", () => {
       NotFoundError,
     );
   });
+  it("does not throw P2025 when a stale template cron row vanishes mid-reconcile", async () => {
+    const agentId = await agent();
+    const tid = await template(null, null, [
+      {
+        kind: "cron",
+        key: "digest",
+        payload: { schedule: "0 9 * * *", prompt: "/digest" },
+      },
+    ]);
+    await service.reconcile(agentId);
+    await setItems(tid, []);
+
+    // After the snapshot read, delete the stale row behind reconcile's back.
+    const result = await prisma.$transaction(async (tx) => {
+      const racing = new Proxy(tx, {
+        get(target, prop, receiver) {
+          const value = Reflect.get(target, prop, receiver);
+          if (prop !== "agentCronJob") return value;
+          return new Proxy(value, {
+            get(model, method, r) {
+              const fn = Reflect.get(model, method, r);
+              if (method !== "findMany") return fn;
+              return async (args: { where?: { system?: boolean } }) => {
+                const rows = await fn.call(model, args);
+                if (args.where?.system === false) {
+                  await model.deleteMany({
+                    where: { agentId, name: "digest" },
+                  });
+                }
+                return rows;
+              };
+            },
+          });
+        },
+      });
+      return service.reconcile(agentId, racing as typeof tx);
+    });
+
+    expect(result.status).toBe("reconciled");
+    expect(result.counts.cron.deleted).toBe(0);
+    const { crons } = await snapshot(agentId);
+    expect(crons.map((c) => c.name)).toEqual(["fx-loop"]);
+  });
+
+  it("blocks a concurrent cron delete until reconcile commits, and counts the delete accurately", async () => {
+    const agentId = await agent();
+    const tid = await template(null, null, [
+      {
+        kind: "cron",
+        key: "digest",
+        payload: { schedule: "0 9 * * *", prompt: "/digest" },
+      },
+    ]);
+    await service.reconcile(agentId);
+    await setItems(tid, []);
+
+    const [result, deleted] = await Promise.all([
+      service.reconcile(agentId),
+      prisma.agentCronJob.deleteMany({ where: { agentId, name: "digest" } }),
+    ]);
+    expect(result.status).toBe("reconciled");
+    expect(result.counts.cron.deleted + deleted.count).toBe(1);
+  });
 });

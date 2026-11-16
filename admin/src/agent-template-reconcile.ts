@@ -516,6 +516,11 @@ export class AgentTemplateReconcileService {
     systemDefaults: readonly SpecialtyDefaultCron[],
     result: TemplateReconcileResult,
   ): Promise<void> {
+    // Lock the agent's cron rows before any snapshot read: agent-cron-jobs.ts
+    // writes do not take the Agent row lock, so without this a concurrent
+    // delete could remove a row mid-run and fail the update/delete by id.
+    await tx.$queryRaw`SELECT "id" FROM "AgentCronJob" WHERE "agentId" = ${agentId} FOR UPDATE`;
+
     // System crons: the specialty's defaults, with a template override of the
     // same name applied to the default's fields.
     const systemNames = new Set(systemDefaults.map((c) => c.name));
@@ -635,8 +640,10 @@ export class AgentTemplateReconcileService {
         row.source === "template" &&
         (row.name === null || !wanted.has(row.name))
       ) {
-        await tx.agentCronJob.delete({ where: { id: row.id } });
-        counts.deleted++;
+        const { count } = await tx.agentCronJob.deleteMany({
+          where: { id: row.id },
+        });
+        counts.deleted += count;
       }
     }
   }
