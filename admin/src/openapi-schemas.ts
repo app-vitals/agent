@@ -9,6 +9,7 @@
 import { isGithubLogin } from "@app-vitals/agent-lib/github-login";
 import { isOrgRepo } from "@app-vitals/agent-lib/org-repo";
 import { z } from "@hono/zod-openapi";
+import { AGENT_TEMPLATE_ITEM_KINDS } from "./agent-template-items.ts";
 
 // ─── Common ───────────────────────────────────────────────────────────────────
 
@@ -1566,7 +1567,7 @@ export const PatchAccountBodySchema = z
 // ─── Agent templates (ATP-1.3) ────────────────────────────────────────────────
 
 export const TemplateItemKindSchema = z
-  .enum(["env", "tool", "plugin", "cron", "marketplace"])
+  .enum(AGENT_TEMPLATE_ITEM_KINDS)
   .openapi("TemplateItemKind");
 
 const TemplateItemBaseSchema = z.object({

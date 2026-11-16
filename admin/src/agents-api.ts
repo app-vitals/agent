@@ -61,6 +61,7 @@ import { deleteAgentFully } from "./agent-deletion.ts";
 import type { AgentEnvService } from "./agent-envs.ts";
 import type { AgentGitHubInstallationsService } from "./agent-github-installations.ts";
 import { AgentMarketplaceService } from "./agent-marketplaces.ts";
+import { AGENT_TEMPLATE_ITEM_KINDS } from "./agent-template-items.ts";
 import type { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
 import {
@@ -1091,7 +1092,7 @@ const TemplateReconcileResultSchema = z
     }),
     conflicts: z.array(
       z.object({
-        kind: z.enum(["env", "tool", "plugin", "cron", "marketplace"]),
+        kind: z.enum(AGENT_TEMPLATE_ITEM_KINDS),
         key: z.string(),
         reason: z.enum([
           "cron_name_conflict",
@@ -1110,7 +1111,7 @@ const TemplateDetachResultSchema = z
 
 const ResetTemplateBodySchema = z
   .object({
-    kind: z.enum(["env", "tool", "plugin", "cron", "marketplace"]).optional(),
+    kind: z.enum(AGENT_TEMPLATE_ITEM_KINDS).optional(),
     key: z.string().min(1).optional(),
   })
   .refine((b) => (b.kind === undefined) === (b.key === undefined), {

@@ -11,6 +11,10 @@
 import { renderAdminPage } from "./admin-ui-layout.ts";
 import { escapeHtml } from "./admin-ui-styles.ts";
 import {
+  AGENT_TEMPLATE_ITEM_KINDS,
+  type AgentTemplateItemKind,
+} from "./agent-template-items.ts";
+import {
   buildSettingsNav,
   renderSettingsLayout,
   type SettingsNav,
@@ -26,7 +30,7 @@ export interface TemplateScopeOption {
 }
 
 export interface TemplateItemRow {
-  kind: "env" | "tool" | "plugin" | "cron" | "marketplace";
+  kind: AgentTemplateItemKind;
   key: string;
   payload: Record<string, unknown>;
 }
@@ -166,7 +170,7 @@ export function renderTemplatesPage(o: TemplatesPageOpts): string {
       ${scopePicker(o)}
       ${del}
     </div>
-    ${(["env", "tool", "plugin", "cron", "marketplace"] as const).map((k) => kindCard(o, k)).join("\n")}`,
+    ${AGENT_TEMPLATE_ITEM_KINDS.map((k) => kindCard(o, k)).join("\n")}`,
     }),
   });
 }
