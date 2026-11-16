@@ -166,9 +166,15 @@ interface AgentPluginServiceLike {
 }
 
 interface AgentMarketplaceServiceLike {
-  list(
-    agentId: string,
-  ): Promise<Array<{ name: string; source: string; ref: string | null }>>;
+  list(agentId: string): Promise<
+    Array<{
+      name: string;
+      source: string;
+      ref: string | null;
+      /** TMK-2.1: false marks a tombstone, which the config bundle omits. */
+      enabled?: boolean;
+    }>
+  >;
 }
 
 export interface AgentPhaseMethodologyServiceLike {
@@ -370,11 +376,13 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
           ? { marketplace: "shipwright", plugin: p.name }
           : { plugin: p.name.slice(0, at), marketplace: p.name.slice(at + 1) };
       }),
-      marketplaces: (marketplaceRows ?? []).map((m) => ({
-        name: m.name,
-        source: m.source,
-        ref: m.ref,
-      })),
+      marketplaces: (marketplaceRows ?? [])
+        .filter((m) => m.enabled !== false)
+        .map((m) => ({
+          name: m.name,
+          source: m.source,
+          ref: m.ref,
+        })),
       repos: agent.repos,
       reviewAuthorAllowlist: agent.reviewAuthorAllowlist,
       patchAuthorAllowlist: agent.patchAuthorAllowlist,

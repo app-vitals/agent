@@ -122,7 +122,7 @@ Remote plugin marketplaces that the agent registers before plugin install.
 GET /agents/:id/marketplaces
 ```
 
-Returns `{ marketplaces: AgentMarketplace[] }` where each entry has `id`, `name`, `source`, `ref` (null when unset), `createdAt`, and `updatedAt`.
+Returns `{ marketplaces: AgentMarketplace[] }` where each entry has `id`, `name`, `source`, `ref` (null when unset), optional `rowSource` (`template` | `custom`), optional `enabled` (false marks a tombstone), `createdAt`, and `updatedAt`.
 
 ### Add or update marketplace
 
@@ -130,7 +130,7 @@ Returns `{ marketplaces: AgentMarketplace[] }` where each entry has `id`, `name`
 POST /agents/:id/marketplaces
 ```
 
-Body: `{ name: string, source: string, ref?: string | null }`. Upserts by `name` — an existing marketplace with the same `name` is updated in place. `source` must be a GitHub `owner/repo` or an https git URL (no credentials). `ref` optionally pins a branch, tag or commit sha. Returns `201` with the created or updated marketplace.
+Body: `{ name: string, source: string, ref?: string | null }`. Upserts by `name` — an existing marketplace with the same `name` is updated in place. `source` must be a GitHub `owner/repo` or an https git URL (no credentials). `ref` optionally pins a branch, tag or commit sha. Returns `201` with the created or updated marketplace. The row is written `rowSource: custom, enabled: true`, so editing a template row makes it an override and re-enables a tombstone.
 
 Validation errors (malformed `source`, invalid `ref`, etc.) return `422 {error}`.
 
@@ -140,7 +140,7 @@ Validation errors (malformed `source`, invalid `ref`, etc.) return `422 {error}`
 DELETE /agents/:id/marketplaces/:marketplaceId
 ```
 
-Returns `204`. Errors with `404` when the id does not exist or belongs to a different agent.
+Returns `204`. A `template` row is tombstoned (`enabled: false`, `rowSource: custom`) rather than removed; a `custom` row is deleted. Tombstones stay in the list but are omitted from `GET /agents/:id/config`. Errors with `404` when the id does not exist or belongs to a different agent.
 
 ---
 

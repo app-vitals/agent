@@ -144,7 +144,7 @@ Removing or disabling a plugin, or deleting a remote marketplace, takes effect o
 
 ### Row shape
 
-An `AgentMarketplace` row is `id`, `agentId`, `name`, `source`, `ref` (nullable), `createdAt`, `updatedAt`, unique on `(agentId, name)` and deleted with the agent. `name` is the marketplace name that `AgentPlugin` specs reference after the `@`. The CRUD routes are under `/agents/:id/marketplaces` ([agent-api-resources.md](./agent-api-resources.md#marketplaces)), and the rows reach the runtime as the optional `marketplaces` field of `GET /agents/:id/config`.
+An `AgentMarketplace` row is `id`, `agentId`, `name`, `source`, `ref` (nullable), `rowSource` (`template` | `custom`, default `custom`), `enabled` (default true), `createdAt`, `updatedAt`, unique on `(agentId, name)` and deleted with the agent. `name` is the marketplace name that `AgentPlugin` specs reference after the `@`. The CRUD routes are under `/agents/:id/marketplaces` ([agent-api-resources.md](./agent-api-resources.md#marketplaces)), and the rows reach the runtime as the optional `marketplaces` field of `GET /agents/:id/config`, which carries only enabled rows. Deleting a `template` row tombstones it (`enabled = false`, `rowSource = custom`) so a reconcile does not re-add it; deleting a `custom` row removes it, and re-posting a template row makes it a `custom` override.
 
 ### Plugin versions and `ref`
 

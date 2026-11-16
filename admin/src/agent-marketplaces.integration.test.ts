@@ -79,4 +79,13 @@ describeOrSkip("AgentMarketplace (integration)", () => {
     await prisma.agent.delete({ where: { id: agentId } });
     expect(await prisma.agentMarketplace.count({ where: { agentId } })).toBe(0);
   });
+
+  it("defaults rowSource to custom and enabled to true", async () => {
+    const agentId = await createAgent();
+    const row = await prisma.agentMarketplace.create({
+      data: { agentId, name: "d", source: "o/r" },
+    });
+    expect(row.rowSource).toBe("custom");
+    expect(row.enabled).toBe(true);
+  });
 });

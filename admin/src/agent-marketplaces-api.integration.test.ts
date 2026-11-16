@@ -238,6 +238,118 @@ describeOrSkip("AgentMarketplaceService + routes (integration)", () => {
     });
   });
 
+  describe("row source and tombstones (TMK-2.1)", () => {
+    const seedTemplate = (agentId: string, name = "tpl") =>
+      prisma.agentMarketplace.create({
+        data: {
+          agentId,
+          name,
+          source: "o/r",
+          rowSource: "template",
+          enabled: true,
+        },
+      });
+
+    it("upsert writes custom/enabled and overrides a template row", async () => {
+      const tpl = await seedTemplate(agentA);
+      const res = await adminApp.request(
+        `/agents/${agentA}/marketplaces`,
+        json(tokenA, { name: "tpl", source: "o/other" }),
+      );
+      expect(res.status).toBe(201);
+      const body = (await res.json()).marketplace;
+      expect(body.rowSource).toBe("custom");
+      expect(body.enabled).toBe(true);
+      const row = await prisma.agentMarketplace.findUnique({
+        where: { id: tpl.id },
+      });
+      expect(row?.rowSource).toBe("custom");
+      expect(row?.source).toBe("o/other");
+    });
+
+    it("DELETE tombstones a template row and removes a custom row", async () => {
+      const tpl = await seedTemplate(agentA);
+      const custom = await service.upsert(agentA, {
+        name: "mine",
+        source: "o/m",
+      });
+      for (const id of [tpl.id, custom.id]) {
+        const res = await adminApp.request(
+          `/agents/${agentA}/marketplaces/${id}`,
+          json(tokenA, undefined, "DELETE"),
+        );
+        expect(res.status).toBe(204);
+      }
+      const tomb = await prisma.agentMarketplace.findUnique({
+        where: { id: tpl.id },
+      });
+      expect(tomb?.enabled).toBe(false);
+      expect(tomb?.rowSource).toBe("custom");
+      expect(
+        await prisma.agentMarketplace.findUnique({ where: { id: custom.id } }),
+      ).toBeNull();
+    });
+
+    it("addFromTemplate creates a template row, refreshes it, and leaves custom rows alone", async () => {
+      const created = await service.addFromTemplate(agentA, {
+        name: "tpl",
+        source: "o/r",
+        ref: "v1",
+      });
+      expect(created.rowSource).toBe("template");
+      expect(created.enabled).toBe(true);
+      const refreshed = await service.addFromTemplate(agentA, {
+        name: "tpl",
+        source: "o/r2",
+        ref: null,
+      });
+      expect(refreshed.id).toBe(created.id);
+      expect(refreshed.source).toBe("o/r2");
+      expect(refreshed.rowSource).toBe("template");
+
+      const custom = await service.upsert(agentA, {
+        name: "mine",
+        source: "o/m",
+      });
+      const untouched = await service.addFromTemplate(agentA, {
+        name: "mine",
+        source: "o/x",
+      });
+      expect(untouched.source).toBe("o/m");
+      expect(untouched.rowSource).toBe("custom");
+      expect(untouched.id).toBe(custom.id);
+    });
+
+    it("addFromTemplate validates input like upsert", async () => {
+      await expect(
+        (async () =>
+          service.addFromTemplate(agentA, { name: "m", source: "../etc" }))(),
+      ).rejects.toThrow(UnprocessableEntityError);
+    });
+
+    it("GET lists rowSource/enabled and the config bundle omits tombstones", async () => {
+      const tpl = await seedTemplate(agentA, "gone");
+      await service.upsert(agentA, { name: "kept", source: "o/k" });
+      await adminApp.request(
+        `/agents/${agentA}/marketplaces/${tpl.id}`,
+        json(tokenA, undefined, "DELETE"),
+      );
+      const list = await adminApp.request(
+        `/agents/${agentA}/marketplaces`,
+        get(tokenA),
+      );
+      const rows = (await list.json()).marketplaces;
+      expect(rows.map((r: { enabled: boolean }) => r.enabled).sort()).toEqual([
+        false,
+        true,
+      ]);
+      const cfg = await runtimeApp.request(`/${agentA}/config`, get(tokenA));
+      expect((await cfg.json()).marketplaces).toEqual([
+        { name: "kept", source: "o/k", ref: null },
+      ]);
+    });
+  });
+
   describe("GET /agents/:id/config", () => {
     it("includes marketplaces: [] when none", async () => {
       const res = await runtimeApp.request(`/${agentA}/config`, get(tokenA));

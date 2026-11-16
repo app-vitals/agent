@@ -927,6 +927,11 @@ export const AgentMarketplaceSchema = z
     name: z.string().openapi({ example: "shipwright" }),
     source: z.string().openapi({ example: "app-vitals/shipwright" }),
     ref: z.string().nullable().openapi({ example: "main" }),
+    rowSource: z
+      .enum(["template", "custom"])
+      .optional()
+      .openapi({ example: "custom" }),
+    enabled: z.boolean().optional().openapi({ example: true }),
     createdAt: z
       .string()
       .datetime()
