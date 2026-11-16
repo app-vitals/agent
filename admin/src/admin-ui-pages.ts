@@ -1036,7 +1036,7 @@ export const AGENT_POST_SECTIONS: Readonly<Record<string, AgentSection>> = {
   "/review-author-allowlist/delete": "access",
   "/patch-author-allowlist/add": "access",
   "/patch-author-allowlist/delete": "access",
-  // Shared by the Slack access card (access) and the Agent Policy card
+  // Shared by the Slack card (access) and the Agent Policy card
   // (configuration); see settingsRedirectSection.
   "/settings": "configuration",
   "/crons": "automation",
@@ -1062,7 +1062,7 @@ export const AGENT_POST_SECTIONS: Readonly<Record<string, AgentSection>> = {
 };
 
 /**
- * POST /settings serves two forms: Slack access (access section, carries
+ * POST /settings serves two forms: Slack (access section, carries
  * restrictSlackToMembers) and Agent Policy (configuration section).
  */
 export function settingsRedirectSection(formData: FormData): AgentSection {
@@ -1090,7 +1090,7 @@ export function renderAgentDetailPage(
     /** Section to render (SGL-1.2). Defaults to "general". */
     section?: AgentSection;
     /**
-     * SSP-4.3: render the Members / Slack access / Danger Zone cards. Defaults
+     * SSP-4.3: render the Members / Slack / GitHub / Danger Zone cards. Defaults
      * to isAdmin; the caller passes true for agent-access holders when
      * self-serve is enabled.
      */
@@ -1230,7 +1230,7 @@ export function renderAgentDetailPage(
 
   // "Connect later" actions (UAP-2.3) — each hidden once its AgentEnv key is
   // already set, mirroring the "Sync Manifest" visibility pattern.
-  const connectActionConfigs: ConnectActionConfig[] = [
+  const slackConnectActionConfigs: ConnectActionConfig[] = [
     {
       envKey: "SLACK_APP_TOKEN",
       label: "Connect Slack",
@@ -1245,6 +1245,8 @@ export function renderAgentDetailPage(
         },
       ],
     },
+  ];
+  const githubConnectActionConfigs: ConnectActionConfig[] = [
     {
       envKey: "GH_APP_ID",
       label: "Set up GitHub App",
@@ -1296,17 +1298,25 @@ export function renderAgentDetailPage(
       ],
     },
   ];
-  const connectActions = [
-    ...connectActionConfigs.map((cfg) => renderConnectAction(envVars, cfg)),
-    renderAddAnotherOrgAction(agent.id, envVars),
-  ].filter(Boolean);
-
-  const connectActionsHtml =
-    connectActions.length === 0
+  const connectActionsDiv = (items: string[]): string =>
+    items.length === 0
       ? ""
       : `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-        ${connectActions.join("\n        ")}
+        ${items.join("\n        ")}
       </div>`;
+  const slackConnectActionsHtml = connectActionsDiv(
+    slackConnectActionConfigs
+      .map((cfg) => renderConnectAction(envVars, cfg))
+      .filter(Boolean),
+  );
+  const githubConnectActionsHtml = connectActionsDiv(
+    [
+      ...githubConnectActionConfigs.map((cfg) =>
+        renderConnectAction(envVars, cfg),
+      ),
+      renderAddAnotherOrgAction(agent.id, envVars),
+    ].filter(Boolean),
+  );
 
   // Top-level rows exclude any cron parented under another (e.g. shipwright-loop's
   // dev-task/review/patch/deploy phases) — those render nested beneath their
@@ -1816,10 +1826,10 @@ export function renderAgentDetailPage(
 
   const canManage = opts?.canManage ?? isAdmin;
 
-  const slackAccessSection = canManage
+  const slackSection = canManage
     ? `<div class="card">
-      <div class="card-title">Slack access</div>
-      ${connectActionsHtml}
+      <div class="card-title">Slack</div>
+      ${slackConnectActionsHtml}
       <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/settings">
         <div class="form-group" style="display:flex;align-items:center;gap:6px">
           <input
@@ -2049,7 +2059,18 @@ export function renderAgentDetailPage(
         ${identityRow("Federation rule ID", agent.anthropicFederationRuleId, true)}
         ${showGithubIdentity ? renderGithubUsernameRow(agent.id, agent.githubUsername) : ""}
       </tbody></table>
-    </div>${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity ? renderGithubSyncCard(agent.id, { hasAppId: "GH_APP_ID" in envVars, githubUsername: agent.githubUsername }) : ""}`;
+    </div>`;
+
+  // One GitHub card: connect actions plus (admin + enterprise GitHub) the
+  // Preview access and GitHub sync fragments.
+  const githubCardBody = `${githubConnectActionsHtml}${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity ? renderGithubSyncCard(agent.id, { hasAppId: "GH_APP_ID" in envVars, githubUsername: agent.githubUsername }) : ""}`;
+  const githubSection =
+    canManage && githubCardBody.trim() !== ""
+      ? `<div class="card">
+      <div class="card-title">GitHub</div>
+      ${githubCardBody}
+    </div>`
+      : "";
 
   // Only agents with a GitHub App can make API-signed commits. Checked state
   // is the SHIPWRIGHT_SIGNED_COMMITS env row; when the box is hidden the field
@@ -2084,7 +2105,7 @@ export function renderAgentDetailPage(
             ${agent.autoPostReviews ? "checked" : ""}
           />
           <!-- Hidden "false" fallback so an unchecked box still submits a
-               value (see the Slack access card's checkbox above for why). -->
+               value (see the Slack card's checkbox above for why). -->
           <input type="hidden" name="autoPostReviews" value="false" />
           <label class="form-label" for="autoPostReviews" style="margin-bottom:0">Auto-post reviews</label>
         </div>
@@ -2233,7 +2254,7 @@ export function renderAgentDetailPage(
     ${dangerZoneSection}`,
     automation: cronJobsSection,
     configuration: `${templateCard}${envVarsSection}${reposSection}${(opts?.configurationCardsHtml ?? []).join("")}${agentPolicySection}`,
-    access: `${identitySection}${canManage ? membersSection : ""}${authorAllowlistReviewSection}${authorAllowlistPatchSection}${slackAccessSection}${tokensSection}`,
+    access: `${identitySection}${canManage ? membersSection : ""}${authorAllowlistReviewSection}${authorAllowlistPatchSection}${slackSection}${githubSection}${tokensSection}`,
     extensions: `${toolsSection}${pluginsSection}${marketplacesSection}`,
   };
 

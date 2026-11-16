@@ -1044,6 +1044,21 @@ describe("admin UI — authenticated pages", () => {
       expect(
         html.split(`/admin/agents/${AGENT_ID}/connect-github`).length - 1,
       ).toBeGreaterThanOrEqual(2);
+
+      // Slack and GitHub connect actions live in separate cards.
+      const slackStart = html.indexOf('<div class="card-title">Slack</div>');
+      const githubStart = html.indexOf('<div class="card-title">GitHub</div>');
+      expect(slackStart).toBeGreaterThan(-1);
+      expect(githubStart).toBeGreaterThan(-1);
+      expect(html).not.toContain('<div class="card-title">Slack access</div>');
+      const slackEnd = html.indexOf('<div class="card">', slackStart);
+      const slackCard = html.slice(
+        slackStart,
+        slackEnd === -1 ? html.length : slackEnd,
+      );
+      expect(slackCard).toContain("/connect-slack");
+      expect(slackCard).not.toContain("/connect-github");
+      expect(html.indexOf("/connect-github", githubStart)).toBeGreaterThan(-1);
     });
 
     it("SLACK_APP_TOKEN present: hides Connect Slack but still shows the GitHub actions", async () => {
@@ -1262,7 +1277,7 @@ describe("admin UI — authenticated pages", () => {
       expect(slackBlock).toContain('name="xoxpToken"');
     });
 
-    it("non-admin member viewer does not see the connect-later actions (Slack access card is admin-only)", async () => {
+    it("non-admin member viewer does not see the connect-later actions (Slack and GitHub cards are admin-only)", async () => {
       const MEMBER_EMAIL = "member@example.com";
       const memberCookie = await makeSessionCookie(
         SESSION_SECRET,
@@ -2557,7 +2572,7 @@ describe("admin UI — agent policy fields", () => {
     );
     // Mirrors the Agent Policy card's <form> — it has no
     // restrictSlackToMembers input at all (that field lives in the separate
-    // Slack access card/form).
+    // Slack card/form).
     const body = new URLSearchParams({
       autoPostReviews: "true",
       minConfidence: "80",
@@ -7787,7 +7802,7 @@ describe("admin UI — self-serve agent management (SSP-4.3)", () => {
     [true, true],
     [false, false],
   ] as const) {
-    it(`agent detail for an access holder ${shown ? "renders" : "hides"} Danger Zone / Slack access / Members cards when flag is ${enabled ? "on" : "off"}`, async () => {
+    it(`agent detail for an access holder ${shown ? "renders" : "hides"} Danger Zone / Slack / Members cards when flag is ${enabled ? "on" : "off"}`, async () => {
       const cookie = await holderCookie();
       const app = createAdminUIApp(
         makeMockDeps({
@@ -7804,7 +7819,7 @@ describe("admin UI — self-serve agent management (SSP-4.3)", () => {
       expect(accessRes.status).toBe(200);
       const html = `${await res.text()}${await accessRes.text()}`;
       expect(html.includes("Danger Zone")).toBe(shown);
-      expect(html.includes('<div class="card-title">Slack access</div>')).toBe(
+      expect(html.includes('<div class="card-title">Slack</div>')).toBe(
         shown,
       );
       expect(html.includes(`/admin/agents/${AGENT_ID}/members`)).toBe(shown);

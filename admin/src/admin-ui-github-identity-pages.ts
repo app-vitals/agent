@@ -84,11 +84,11 @@ export function renderGithubUsernameRow(
       </td></tr>`;
 }
 
-/** The "Preview access" card; the button loads the fragment from the UI route. */
+/** The "Preview access" fragment (rendered inside the GitHub card); the button loads the fragment from the UI route. */
 export function renderGithubAccessCard(agentId: string): string {
   const url = `/admin/agents/${escapeHtml(agentId)}/github-access`;
-  return `<div class="card" id="github-access-card">
-      <div class="card-title">Preview access</div>
+  return `<div id="github-access-card" style="margin-top:20px">
+      <div class="form-label" style="font-weight:600;margin-bottom:6px">Preview access</div>
       <p style="color:#6b7280;font-size:12px;margin:0 0 12px">Shows the repos this agent's GitHub user can reach. Read-only; nothing is stored.</p>
       <button type="button" class="btn btn-primary" id="github-access-btn" data-url="${url}">Preview access</button>
       <div id="github-access-result" style="margin-top:12px"></div>
