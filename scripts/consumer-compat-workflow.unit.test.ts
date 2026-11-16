@@ -52,7 +52,9 @@ describe("consumer compat workflow", () => {
     expect(job.env.SHIPWRIGHT_REPO).toContain("app-vitals/shipwright");
     expect(job.env.SHIPWRIGHT_REF).toContain("'main'");
     expect(job.env.DATABASE_URL_SHIPWRIGHT_ADMIN).toContain("localhost:5432");
-    expect(job.services.postgres.image).toBe("postgres:18");
+    expect(job.services.postgres.image).toMatch(
+      /^postgres:18@sha256:[0-9a-f]{64}$/,
+    );
     const run = steps.map((s) => s.run ?? "").join("\n");
     expect(run).toContain("bun install --frozen-lockfile");
     expect(run).toContain(
