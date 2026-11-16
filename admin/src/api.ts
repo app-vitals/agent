@@ -171,22 +171,10 @@ interface AgentMarketplaceServiceLike {
       name: string;
       source: string;
       ref: string | null;
+      /** TMK-2.1: false marks a tombstone, which the config bundle omits. */
       enabled?: boolean;
     }>
   >;
-  /** TMK-2.1: optional (additive); the bundle omits tombstoned rows. */
-  listEnabled?(
-    agentId: string,
-  ): Promise<Array<{ name: string; source: string; ref: string | null }>>;
-}
-
-async function listEnabledMarketplaces(
-  svc: AgentMarketplaceServiceLike | undefined,
-  agentId: string,
-): Promise<Array<{ name: string; source: string; ref: string | null }>> {
-  if (!svc) return [];
-  if (svc.listEnabled) return svc.listEnabled(agentId);
-  return (await svc.list(agentId)).filter((m) => m.enabled !== false);
 }
 
 export interface AgentPhaseMethodologyServiceLike {
@@ -339,7 +327,7 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
       await Promise.all([
         agentEnvService.getConfigBundle(id),
         agentPluginService.listEnabled(id),
-        listEnabledMarketplaces(deps.agentMarketplaceService, id),
+        deps.agentMarketplaceService?.list(id),
         agentPhaseMethodologyService?.list(id),
       ]);
 
@@ -388,11 +376,13 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
           ? { marketplace: "shipwright", plugin: p.name }
           : { plugin: p.name.slice(0, at), marketplace: p.name.slice(at + 1) };
       }),
-      marketplaces: (marketplaceRows ?? []).map((m) => ({
-        name: m.name,
-        source: m.source,
-        ref: m.ref,
-      })),
+      marketplaces: (marketplaceRows ?? [])
+        .filter((m) => m.enabled !== false)
+        .map((m) => ({
+          name: m.name,
+          source: m.source,
+          ref: m.ref,
+        })),
       repos: agent.repos,
       reviewAuthorAllowlist: agent.reviewAuthorAllowlist,
       patchAuthorAllowlist: agent.patchAuthorAllowlist,

@@ -84,14 +84,6 @@ export class AgentMarketplaceService {
     });
   }
 
-  /** List enabled marketplaces (tombstones excluded), ordered by createdAt. */
-  async listEnabled(agentId: string): Promise<AgentMarketplace[]> {
-    return this.prisma.agentMarketplace.findMany({
-      where: { agentId, enabled: true },
-      orderBy: { createdAt: "asc" },
-    });
-  }
-
   /**
    * Add a marketplace for the agent, or re-point the existing one with the
    * same name at a new source/ref. Throws UnprocessableEntityError on invalid
