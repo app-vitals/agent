@@ -145,7 +145,7 @@ describeOrSkip("github-enterprise API (integration)", () => {
     const base = "/admin/settings/github-enterprise/apps/lookup";
     const fields = { appId: "777", slug: "example-lookup" };
     const snapshot = async () => {
-      const row = await prisma.gitHubEnterpriseApp.findUnique({
+      const row = await prisma.gitHubEnterpriseApp.findFirst({
         where: { role: "lookup" },
       });
       return {
@@ -169,7 +169,7 @@ describeOrSkip("github-enterprise API (integration)", () => {
     const res = await ui.request(base, { method: "POST", body: upload });
     expect(res.status).toBe(302);
     expect(await snapshot()).toEqual(pasted);
-    const row = await prisma.gitHubEnterpriseApp.findUnique({
+    const row = await prisma.gitHubEnterpriseApp.findFirst({
       where: { role: "lookup" },
     });
     expect(row?.privateKeyEncrypted).not.toContain(PEM_BODY);
@@ -194,7 +194,7 @@ describeOrSkip("github-enterprise API (integration)", () => {
     expect(text).not.toContain("ghs_cassette");
     expect(JSON.parse(text)).toMatchObject({ ok: true, status: "valid" });
 
-    const row = await prisma.gitHubEnterpriseApp.findUnique({
+    const row = await prisma.gitHubEnterpriseApp.findFirst({
       where: { role: "installer" },
     });
     expect(row?.lastValidationStatus).toBe("valid");
@@ -223,7 +223,7 @@ describeOrSkip("github-enterprise API (integration)", () => {
       },
     );
     expect(await res.json()).toMatchObject({ ok: false, status: "error" });
-    const row = await prisma.gitHubEnterpriseApp.findUnique({
+    const row = await prisma.gitHubEnterpriseApp.findFirst({
       where: { role: "installer" },
     });
     expect(row?.lastValidationStatus).toBe("error");
@@ -304,7 +304,7 @@ describeOrSkip("github-enterprise API (integration)", () => {
     const envService = new AgentEnvService(prisma, identityCrypto);
     await envService.upsert(agent.id, { GH_APP_SLUG: "example-agent-app" });
     await put(build());
-    const row = await prisma.gitHubEnterpriseApp.findUnique({
+    const row = await prisma.gitHubEnterpriseApp.findFirst({
       where: { role: "installer" },
     });
     const needles = [

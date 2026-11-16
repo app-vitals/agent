@@ -1,8 +1,11 @@
 /**
  * admin/src/github-enterprise-apps.ts
  * GitHubEnterpriseAppService — storage for the two optional admin-level GitHub
- * Apps ('installer' and 'lookup'), at most one row per role. No rows means the
- * feature is off.
+ * Apps ('installer' and 'lookup'), at most one row per (accountId, role).
+ * accountId null is the deployment-wide pair; an account row overrides it for
+ * that account (get() falls back to the deployment-wide row). Every method takes
+ * an optional accountId; omitting it behaves as before (deployment-wide row).
+ * No rows means the feature is off.
  *
  * The private key is encrypted on write (AES-256-GCM via TokenCrypto) and is
  * never returned by any read path: reads return metadata plus a `keySet` flag.
@@ -26,6 +29,8 @@ export type GitHubEnterpriseAppRole =
   (typeof GITHUB_ENTERPRISE_APP_ROLES)[number];
 
 export interface GitHubEnterpriseAppMetadata {
+  /** Null/absent for the deployment-wide app. */
+  accountId?: string | null;
   role: string;
   appId: string;
   slug: string;
@@ -40,6 +45,8 @@ export interface GitHubEnterpriseAppMetadata {
 }
 
 export interface SaveGitHubEnterpriseAppInput {
+  /** Omit/null for the deployment-wide app. */
+  accountId?: string | null;
   role: GitHubEnterpriseAppRole;
   appId: string;
   slug: string;
@@ -50,6 +57,7 @@ export interface SaveGitHubEnterpriseAppInput {
 }
 
 interface GitHubEnterpriseAppRow {
+  accountId?: string | null;
   role: string;
   appId: string;
   slug: string;
@@ -86,6 +94,7 @@ export function toGitHubEnterpriseAppMetadata(
   row: GitHubEnterpriseAppRow,
 ): GitHubEnterpriseAppMetadata {
   return {
+    accountId: row.accountId ?? null,
     role: row.role,
     appId: row.appId,
     slug: row.slug,
@@ -115,7 +124,23 @@ export class GitHubEnterpriseAppService {
     private clock: Clock = SystemClock(),
   ) {}
 
-  /** Create or replace the app for a role. Resets validation state. */
+  /** Exact-scope row lookup: no fallback. */
+  private findExact(role: GitHubEnterpriseAppRole, accountId: string | null) {
+    return this.prisma.gitHubEnterpriseApp.findFirst({
+      where: { role, accountId },
+    });
+  }
+
+  /** Account row if present, else the deployment-wide row. */
+  private async resolve(
+    role: GitHubEnterpriseAppRole,
+    accountId: string | null,
+  ) {
+    const own = accountId ? await this.findExact(role, accountId) : null;
+    return own ?? (await this.findExact(role, null));
+  }
+
+  /** Create or replace the app for a (accountId, role). Resets validation state. */
   async save(
     input: SaveGitHubEnterpriseAppInput,
   ): Promise<GitHubEnterpriseAppMetadata> {
@@ -124,6 +149,7 @@ export class GitHubEnterpriseAppService {
     if (!input.privateKey) {
       throw new UnprocessableEntityError("privateKey is required");
     }
+    const accountId = input.accountId ?? null;
     const data = {
       appId: input.appId,
       slug: input.slug,
@@ -135,48 +161,66 @@ export class GitHubEnterpriseAppService {
       lastValidationError: null,
       updatedAt: this.clock.now(),
     };
-    const row = await this.prisma.gitHubEnterpriseApp.upsert({
-      where: { role: input.role },
-      create: { role: input.role, ...data },
-      update: data,
-    });
+    // Not upsert: Prisma cannot target the NULL accountId side of the
+    // composite unique. The partial unique indexes still reject a racing
+    // duplicate insert.
+    const existing = await this.findExact(input.role, accountId);
+    const row = existing
+      ? await this.prisma.gitHubEnterpriseApp.update({
+          where: { id: existing.id },
+          data,
+        })
+      : await this.prisma.gitHubEnterpriseApp.create({
+          data: { role: input.role, accountId, ...data },
+        });
     return toGitHubEnterpriseAppMetadata(row);
   }
 
+  /** The account's row if present, otherwise the deployment-wide row. */
   async get(
     role: GitHubEnterpriseAppRole,
+    accountId?: string | null,
   ): Promise<GitHubEnterpriseAppMetadata | null> {
     assertRole(role);
-    const row = await this.prisma.gitHubEnterpriseApp.findUnique({
-      where: { role },
-    });
+    const row = await this.resolve(role, accountId ?? null);
     return row ? toGitHubEnterpriseAppMetadata(row) : null;
   }
 
-  async list(): Promise<GitHubEnterpriseAppMetadata[]> {
+  /** Rows at exactly this scope (deployment-wide when accountId is omitted). */
+  async list(
+    accountId?: string | null,
+  ): Promise<GitHubEnterpriseAppMetadata[]> {
     const rows = await this.prisma.gitHubEnterpriseApp.findMany({
+      where: { accountId: accountId ?? null },
       orderBy: { role: "asc" },
     });
     return rows.map(toGitHubEnterpriseAppMetadata);
   }
 
-  /** Delete the app for a role. No-ops if absent. */
-  async delete(role: GitHubEnterpriseAppRole): Promise<void> {
+  /** Delete the app at exactly this (accountId, role). No-ops if absent. */
+  async delete(
+    role: GitHubEnterpriseAppRole,
+    accountId?: string | null,
+  ): Promise<void> {
     assertRole(role);
-    await this.prisma.gitHubEnterpriseApp.deleteMany({ where: { role } });
+    await this.prisma.gitHubEnterpriseApp.deleteMany({
+      where: { role, accountId: accountId ?? null },
+    });
   }
 
   /**
-   * Server-side only: decrypt the stored PEM. Strict — any failure throws
+   * Server-side only: decrypt the stored PEM of the row get() would return
+   * (account row, else deployment-wide). Strict — any failure throws
    * PrivateKeyDecryptError (never includes the PEM or ciphertext). Returns
-   * null when the role has no row.
+   * null when no row resolves.
    */
-  async getPrivateKey(role: GitHubEnterpriseAppRole): Promise<string | null> {
+  async getPrivateKey(
+    role: GitHubEnterpriseAppRole,
+    accountId?: string | null,
+  ): Promise<string | null> {
     assertRole(role);
     if (!this.crypto) throw new PrivateKeyEncryptionUnavailableError();
-    const row = await this.prisma.gitHubEnterpriseApp.findUnique({
-      where: { role },
-    });
+    const row = await this.resolve(role, accountId ?? null);
     if (!row) return null;
     try {
       return this.crypto.decrypt(row.privateKeyEncrypted);
@@ -185,14 +229,15 @@ export class GitHubEnterpriseAppService {
     }
   }
 
-  /** Record the outcome of a validation attempt. The error text must not contain key material. */
+  /** Record the outcome of a validation attempt on exactly this (accountId, role). The error text must not contain key material. */
   async recordValidation(
     role: GitHubEnterpriseAppRole,
     result: { status: string; error?: string | null },
+    accountId?: string | null,
   ): Promise<void> {
     assertRole(role);
     await this.prisma.gitHubEnterpriseApp.updateMany({
-      where: { role },
+      where: { role, accountId: accountId ?? null },
       data: {
         lastValidationStatus: result.status,
         lastValidatedAt: this.clock.now(),
