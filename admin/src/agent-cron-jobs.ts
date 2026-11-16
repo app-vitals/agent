@@ -666,11 +666,27 @@ export async function applySystemCronDefaults(
   }
 
   // Orphan pass: delete any system cron whose name is not in the defaults.
-  for (const cron of existingSystemCrons) {
-    if (!cron.name || !systemCronNames.has(cron.name)) {
-      await tx.agentCronJob.delete({ where: { id: cron.id } });
-      deleted++;
-    }
+  // parentCron is onDelete: Cascade, so deleting an orphan parent would
+  // cascade to its children — and a per-row delete of an already-cascaded
+  // child throws. Detach survivors first, then delete the orphan set in one
+  // statement.
+  const orphanIds = existingSystemCrons
+    .filter((cron) => !cron.name || !systemCronNames.has(cron.name))
+    .map((cron) => cron.id);
+
+  if (orphanIds.length > 0) {
+    await tx.agentCronJob.updateMany({
+      where: {
+        agentId,
+        parentCronId: { in: orphanIds },
+        id: { notIn: orphanIds },
+      },
+      data: { parentCronId: null },
+    });
+    const result = await tx.agentCronJob.deleteMany({
+      where: { agentId, id: { in: orphanIds } },
+    });
+    deleted = result.count;
   }
 
   return { created, updated, deleted };

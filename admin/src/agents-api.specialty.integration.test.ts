@@ -158,6 +158,31 @@ describeOrSkip("PATCH /agents/:id specialty (integration)", () => {
         },
       });
     }
+    // Loop crons: a parent and children linked via parentCronId. Deleting the
+    // parent cascades to the children, which the orphan pass must tolerate.
+    const loop = await prisma.agentCronJob.create({
+      data: {
+        agentId: agent.id,
+        name: "shipwright-loop",
+        system: true,
+        schedule: "*/30 * * * *",
+        prompt: "/shipwright:loop",
+        enabled: false,
+      },
+    });
+    for (const name of ["shipwright-loop-dev", "shipwright-loop-review"]) {
+      await prisma.agentCronJob.create({
+        data: {
+          agentId: agent.id,
+          name,
+          system: true,
+          schedule: "0 * * * *",
+          prompt: `/${name}`,
+          enabled: false,
+          parentCronId: loop.id,
+        },
+      });
+    }
     const userCron = await prisma.agentCronJob.create({
       data: {
         agentId: agent.id,
@@ -191,7 +216,9 @@ describeOrSkip("PATCH /agents/:id specialty (integration)", () => {
     });
 
     expect(res.status).toBe(200);
-    expect((await res.json()).specialty).toBe("specialist");
+    const body = await res.json();
+    expect(body.specialty).toBe("specialist");
+    expect(body.warning).toBeUndefined();
     const row = await prisma.agent.findUniqueOrThrow({
       where: { id: agent.id },
     });
