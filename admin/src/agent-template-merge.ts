@@ -74,6 +74,7 @@ export function mergeTemplateLayers(
     tool: new Map(),
     plugin: new Map(),
     cron: new Map(),
+    marketplace: new Map(),
   };
   const ordered = [...layers].sort(
     (a, b) =>

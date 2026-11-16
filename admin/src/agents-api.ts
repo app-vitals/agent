@@ -1091,7 +1091,7 @@ const TemplateReconcileResultSchema = z
     }),
     conflicts: z.array(
       z.object({
-        kind: z.enum(["env", "tool", "plugin", "cron"]),
+        kind: z.enum(["env", "tool", "plugin", "cron", "marketplace"]),
         key: z.string(),
         reason: z.enum([
           "cron_name_conflict",
@@ -1110,7 +1110,7 @@ const TemplateDetachResultSchema = z
 
 const ResetTemplateBodySchema = z
   .object({
-    kind: z.enum(["env", "tool", "plugin", "cron"]).optional(),
+    kind: z.enum(["env", "tool", "plugin", "cron", "marketplace"]).optional(),
     key: z.string().min(1).optional(),
   })
   .refine((b) => (b.kind === undefined) === (b.key === undefined), {

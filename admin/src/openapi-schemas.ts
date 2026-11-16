@@ -1566,7 +1566,7 @@ export const PatchAccountBodySchema = z
 // ─── Agent templates (ATP-1.3) ────────────────────────────────────────────────
 
 export const TemplateItemKindSchema = z
-  .enum(["env", "tool", "plugin", "cron"])
+  .enum(["env", "tool", "plugin", "cron", "marketplace"])
   .openapi("TemplateItemKind");
 
 const TemplateItemBaseSchema = z.object({
@@ -1581,7 +1581,7 @@ const TemplateItemBaseSchema = z.object({
     .optional()
     .openapi({
       description:
-        "Kind-specific fields. env: {value, secret?}; tool: {enabled?}; plugin: {version?, enabled?}; cron: {schedule, prompt, channel?, user?, silent?, enabled?, preCheck?}.",
+        "Kind-specific fields. env: {value, secret?}; tool: {enabled?}; plugin: {version?, enabled?}; cron: {schedule, prompt, channel?, user?, silent?, enabled?, preCheck?}; marketplace: {source, ref?} (key = marketplace name).",
       example: { value: "lin_abc", secret: true },
     }),
 });

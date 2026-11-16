@@ -77,7 +77,7 @@ Anthropic credential guard), `agent-cron-jobs.ts` (includes `applySystemCronDefa
 `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` must not reach federated agents),
 `specialty-types.ts` (`SpecialtyTypes`, resolves a stored specialty to the built-in `specialist` record from `lib/specialist-type.ts`: tools floor, required env; the default type name is resolved by `lib/default-specialty.ts`).
 
-Template system (ATP-2.1): `agent-template-merge.ts` (pure layer merging: specialty defaults, deployment/all, deployment/type, account/all, account/type), `agent-template-reconcile.ts` (`AgentTemplateReconcileService`: per-agent reconcile in one transaction, tracking source/adoption/conflicts across env, tools, plugins, crons), `agent-template-items.ts` (item payload encryption/decryption and validation).
+Template system (ATP-2.1): `agent-template-merge.ts` (pure layer merging: specialty defaults, deployment/all, deployment/type, account/all, account/type), `agent-template-reconcile.ts` (`AgentTemplateReconcileService`: per-agent reconcile in one transaction, tracking source/adoption/conflicts across env, tools, plugins, crons), `agent-template-items.ts` (item payload encryption/decryption and validation). TMK-2.2: the `marketplace` item kind (key = marketplace name, payload `{source, ref?}`, stored unencrypted) is validated by `assertMarketplaceTemplateItem()`, which reuses `validateMarketplaceName/Source/Ref` from `agent-marketplaces.ts`, so `PUT /templates` returns the same 422 messages as `POST /agents/:id/marketplaces`; it merges with the plugin layer precedence. The per-agent reconcile of marketplace items lands in TMK-2.3.
 
 ### Provisioning and deletion
 

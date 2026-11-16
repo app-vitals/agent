@@ -181,3 +181,53 @@ describe("resolveSpecialtyDefaultSet", () => {
     expect(resolveSpecialtyDefaultSet("nope", registry)).toBeUndefined();
   });
 });
+
+describe("mergeTemplateLayers: marketplace items", () => {
+  const mk = (source: string) => ({
+    kind: "marketplace" as const,
+    key: "example-plugins",
+    payload: { source },
+  });
+  const winner = (layers: TemplateLayerInput[]) =>
+    mergeTemplateLayers(layers).marketplace.get("example-plugins");
+
+  it("applies the plugin layer precedence, narrowest layer wins", () => {
+    const layers: TemplateLayerInput[] = [
+      { layer: "account", items: [mk("o/3")] },
+      { layer: "account-specialty", items: [mk("o/4")] },
+      { layer: "deployment", items: [mk("o/1")] },
+      { layer: "specialty-default", items: [mk("o/0")] },
+      { layer: "deployment-specialty", items: [mk("o/2")] },
+    ];
+    expect(winner(layers)).toEqual({
+      kind: "marketplace",
+      key: "example-plugins",
+      payload: { source: "o/4" },
+      layer: "account-specialty",
+    });
+    const without = (...drop: string[]) =>
+      layers.filter((l) => !drop.includes(l.layer));
+    expect(winner(without("account-specialty"))?.payload.source).toBe("o/3");
+    expect(
+      winner(without("account-specialty", "account"))?.payload.source,
+    ).toBe("o/2");
+    expect(
+      winner(without("account-specialty", "account", "deployment-specialty"))
+        ?.payload.source,
+    ).toBe("o/1");
+  });
+
+  it("keeps marketplaces separate from plugins of the same key", () => {
+    const merged = mergeTemplateLayers([
+      {
+        layer: "deployment",
+        items: [
+          mk("o/1"),
+          { kind: "plugin", key: "example-plugins", payload: {} },
+        ],
+      },
+    ]);
+    expect(merged.marketplace.size).toBe(1);
+    expect(merged.plugin.size).toBe(1);
+  });
+});
