@@ -97,7 +97,7 @@ type FakeCronRow = AgentCronJob;
  * In-memory prisma double covering only what reconcileSystemCrons() touches:
  *   agent.findUnique (specialty resolution),
  *   agentCronJob.findMany, and a $transaction exposing
- *   agentCronJob.{create,update,delete}.
+ *   agentCronJob.{create,update,delete,updateMany,deleteMany}.
  */
 function makeFakePrisma(opts: {
   specialty: string;
@@ -190,6 +190,48 @@ function makeFakePrisma(opts: {
       if (!row) throw new Error(`no row ${where.id}`);
       rows.delete(where.id);
       return row;
+    },
+    async updateMany({
+      where,
+      data,
+    }: {
+      where: {
+        agentId?: string;
+        parentCronId?: { in: string[] };
+        id?: { notIn: string[] };
+      };
+      data: Partial<FakeCronRow>;
+    }): Promise<{ count: number }> {
+      let count = 0;
+      for (const [id, row] of rows) {
+        if (where.agentId !== undefined && row.agentId !== where.agentId)
+          continue;
+        if (
+          where.parentCronId &&
+          !where.parentCronId.in.includes(row.parentCronId ?? "")
+        )
+          continue;
+        if (where.id && where.id.notIn.includes(id)) continue;
+        rows.set(id, { ...row, ...data } as FakeCronRow);
+        count++;
+      }
+      return { count };
+    },
+    async deleteMany({
+      where,
+    }: {
+      where: { agentId?: string; id: { in: string[] } };
+    }): Promise<{ count: number }> {
+      let count = 0;
+      for (const id of where.id.in) {
+        const row = rows.get(id);
+        if (!row) continue;
+        if (where.agentId !== undefined && row.agentId !== where.agentId)
+          continue;
+        rows.delete(id);
+        count++;
+      }
+      return { count };
     },
   };
 
