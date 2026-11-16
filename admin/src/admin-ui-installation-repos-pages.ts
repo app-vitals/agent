@@ -121,7 +121,7 @@ export interface GithubSyncCardState {
 }
 
 /**
- * The Sync card shell; it loads its repos body from the UI route on page load.
+ * The GitHub sync fragment (rendered inside the GitHub card); it loads its repos body from the UI route on page load.
  * Without a GH_APP_ID or a bound username the button is replaced by the
  * reason (missing App id first).
  */
@@ -142,8 +142,8 @@ export function renderGithubSyncCard(
   const loader = state.hasAppId
     ? `<div id="github-installation-body">Loading...</div>`
     : "";
-  return `<div class="card" id="github-installation-card" data-base-url="${base}">
-      <div class="card-title">GitHub sync</div>
+  return `<div id="github-installation-card" data-base-url="${base}" style="margin-top:20px">
+      <div class="form-label" style="font-weight:600;margin-bottom:6px">GitHub sync</div>
       <p style="color:#6b7280;font-size:12px;margin:0 0 12px">Brings this agent's App installation and its repos in line with what the bound GitHub user can push to.</p>
       ${action}
       ${loader}

@@ -1176,6 +1176,31 @@ describe("renderAgentDetailPage — connect-later actions", () => {
     expect(html).not.toContain("Connect Slack<");
   });
 
+  test("GitHub card holds the connect-github forms; Slack card holds connect-slack and the restrict form but no GitHub actions", () => {
+    const html = render({});
+    const slackStart = html.indexOf('<div class="card-title">Slack</div>');
+    const githubStart = html.indexOf('<div class="card-title">GitHub</div>');
+    expect(slackStart).toBeGreaterThan(-1);
+    expect(githubStart).toBeGreaterThan(-1);
+    const cardEnd = (from: number) => {
+      const next = html.indexOf('<div class="card">', from);
+      return next === -1 ? html.length : next;
+    };
+    const slackCard = html.slice(slackStart, cardEnd(slackStart));
+    const githubCard = html.slice(githubStart, cardEnd(githubStart));
+    expect(slackCard).toContain("/connect-slack");
+    expect(slackCard).toContain("Restrict Slack to members");
+    expect(slackCard).not.toContain("connect-github");
+    expect(slackCard).not.toContain("Set up GitHub App");
+    expect(githubCard).toContain("Set up GitHub App");
+    expect(githubCard).toContain("Use existing GitHub App");
+    expect(githubCard).toContain("Add GitHub PAT");
+    expect(githubCard).toContain("/connect-github");
+    expect(githubCard).not.toContain("connect-slack");
+    expect(githubCard).not.toContain("Restrict Slack");
+    expect(html).not.toContain('<div class="card-title">Slack access</div>');
+  });
+
   test("Set up GitHub App (auto) action renders githubOrg plus the public-App checkbox", () => {
     const html = render({});
     const forms = html.match(
@@ -2291,7 +2316,7 @@ describe("renderAgentDetailPage — sections", () => {
     expect(html).not.toContain('id="ext-header"');
   });
 
-  test("Access renders identity, members, allowlists, slack access and tokens", () => {
+  test("Access renders identity, members, allowlists, Slack, GitHub and tokens", () => {
     const html = render("access");
     expect(html).toContain("Owner &amp; identities");
     expect(html).toContain("member@example.com");
@@ -2302,7 +2327,9 @@ describe("renderAgentDetailPage — sections", () => {
     expect(html).toContain(
       'action="/admin/agents/agent-123/patch-author-allowlist/add"',
     );
-    expect(html).toContain('<div class="card-title">Slack access</div>');
+    expect(html).toContain('<div class="card-title">Slack</div>');
+    expect(html).toContain('<div class="card-title">GitHub</div>');
+    expect(html).not.toContain('<div class="card-title">Slack access</div>');
     expect(html).toContain("Task Store Tokens");
     expect(html).toContain('action="/admin/agents/agent-123/tokens"');
     expect(html).not.toContain('<div class="card-title">Tools</div>');
@@ -2312,7 +2339,9 @@ describe("renderAgentDetailPage — sections", () => {
   test("Access hides members and Slack access when canManage is false", () => {
     const html = render("access", { canManage: false }, false);
     expect(html).not.toContain('action="/admin/agents/agent-123/members"');
-    expect(html).not.toContain('<div class="card-title">Slack access</div>');
+    expect(html).not.toContain('<div class="card-title">Slack</div>');
+    expect(html).not.toContain('<div class="card-title">GitHub</div>');
+    expect(html).not.toContain("connect-github");
     expect(html).toContain("Task Store Tokens");
   });
 
@@ -4170,14 +4199,14 @@ describe("renderAgentDetailPage — canManage gating (SSP-4.3)", () => {
   test("non-admin without canManage: no Danger Zone / Slack access / Members cards", () => {
     const html = render(false);
     expect(html).not.toContain("Danger Zone");
-    expect(html).not.toContain('<div class="card-title">Slack access</div>');
+    expect(html).not.toContain('<div class="card-title">Slack</div>');
     expect(html).not.toContain("/members");
   });
 
   test("non-admin with canManage: all three cards render", () => {
     const html = render(false, { canManage: true });
     expect(html).toContain("Danger Zone");
-    expect(html).toContain('<div class="card-title">Slack access</div>');
+    expect(html).toContain('<div class="card-title">Slack</div>');
     expect(html).toContain(`/admin/agents/${AGENT.id}/members`);
   });
 
