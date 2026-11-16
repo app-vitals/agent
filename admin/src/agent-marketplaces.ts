@@ -20,6 +20,7 @@ import type {
   PrismaClient,
 } from "../prisma/client/client.ts";
 import { NotFoundError, UnprocessableEntityError } from "./errors.ts";
+import type { PrismaTransactionClient } from "./prisma-tx.ts";
 
 export type { AgentMarketplace };
 
@@ -83,6 +84,14 @@ export class AgentMarketplaceService {
     });
   }
 
+  /** List enabled marketplaces (tombstones excluded), ordered by createdAt. */
+  async listEnabled(agentId: string): Promise<AgentMarketplace[]> {
+    return this.prisma.agentMarketplace.findMany({
+      where: { agentId, enabled: true },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
   /**
    * Add a marketplace for the agent, or re-point the existing one with the
    * same name at a new source/ref. Throws UnprocessableEntityError on invalid
@@ -99,8 +108,49 @@ export class AgentMarketplaceService {
     validateMarketplaceRef(ref);
     return this.prisma.agentMarketplace.upsert({
       where: { agentId_name: { agentId, name } },
-      create: { agentId, name, source, ref },
-      update: { source, ref },
+      create: {
+        agentId,
+        name,
+        source,
+        ref,
+        rowSource: "custom",
+        enabled: true,
+      },
+      update: { source, ref, rowSource: "custom", enabled: true },
+    });
+  }
+
+  /**
+   * Internal reconcile write path (TMK-2.1); never exposed over HTTP.
+   * Creates a template-owned marketplace, or refreshes one that is still
+   * template-owned. A custom row (user edit or tombstone) is returned
+   * untouched. Validates input as upsert() does.
+   */
+  async addFromTemplate(
+    agentId: string,
+    input: { name: string; source: string; ref?: string | null },
+    client: PrismaTransactionClient = this.prisma,
+  ): Promise<AgentMarketplace> {
+    const { name, source } = input;
+    const ref = input.ref ?? null;
+    validateMarketplaceName(name);
+    validateMarketplaceSource(source);
+    validateMarketplaceRef(ref);
+    const existing = await client.agentMarketplace.findUnique({
+      where: { agentId_name: { agentId, name } },
+    });
+    if (existing?.rowSource === "custom") return existing;
+    return client.agentMarketplace.upsert({
+      where: { agentId_name: { agentId, name } },
+      create: {
+        agentId,
+        name,
+        source,
+        ref,
+        rowSource: "template",
+        enabled: true,
+      },
+      update: { source, ref, rowSource: "template", enabled: true },
     });
   }
 
@@ -114,6 +164,14 @@ export class AgentMarketplaceService {
     });
     if (!existing || existing.agentId !== agentId) {
       throw new NotFoundError(`marketplace ${marketplaceId} not found`);
+    }
+    if (existing.rowSource === "template") {
+      // Tombstone so a later reconcile does not re-add the row.
+      await this.prisma.agentMarketplace.update({
+        where: { id: marketplaceId },
+        data: { enabled: false, rowSource: "custom" },
+      });
+      return;
     }
     await this.prisma.agentMarketplace.delete({ where: { id: marketplaceId } });
   }

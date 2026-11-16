@@ -3741,11 +3741,14 @@ function serializeMarketplace(row: {
   name: string;
   source: string;
   ref: string | null;
+  rowSource?: string;
+  enabled?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }): z.infer<typeof AgentMarketplaceSchema> {
   return {
     ...row,
+    rowSource: row.rowSource === "template" ? "template" : "custom",
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

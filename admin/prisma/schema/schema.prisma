@@ -681,6 +681,8 @@ model AgentMarketplace {
   name      String
   source    String
   ref       String?
+  rowSource String   @default("custom") // TMK-2.1: 'template' | 'custom'; named rowSource because source is the git URL
+  enabled   Boolean  @default(true) // TMK-2.1: false = tombstone of a deleted template row; hidden from the config bundle
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

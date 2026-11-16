@@ -166,9 +166,27 @@ interface AgentPluginServiceLike {
 }
 
 interface AgentMarketplaceServiceLike {
-  list(
+  list(agentId: string): Promise<
+    Array<{
+      name: string;
+      source: string;
+      ref: string | null;
+      enabled?: boolean;
+    }>
+  >;
+  /** TMK-2.1: optional (additive); the bundle omits tombstoned rows. */
+  listEnabled?(
     agentId: string,
   ): Promise<Array<{ name: string; source: string; ref: string | null }>>;
+}
+
+async function listEnabledMarketplaces(
+  svc: AgentMarketplaceServiceLike | undefined,
+  agentId: string,
+): Promise<Array<{ name: string; source: string; ref: string | null }>> {
+  if (!svc) return [];
+  if (svc.listEnabled) return svc.listEnabled(agentId);
+  return (await svc.list(agentId)).filter((m) => m.enabled !== false);
 }
 
 export interface AgentPhaseMethodologyServiceLike {
@@ -321,7 +339,7 @@ export function createAgentRuntimeApp(deps: AgentRuntimeDeps): OpenAPIHono {
       await Promise.all([
         agentEnvService.getConfigBundle(id),
         agentPluginService.listEnabled(id),
-        deps.agentMarketplaceService?.list(id),
+        listEnabledMarketplaces(deps.agentMarketplaceService, id),
         agentPhaseMethodologyService?.list(id),
       ]);
 

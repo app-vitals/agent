@@ -5468,6 +5468,13 @@ export interface components {
             /** @example main */
             ref: string | null;
             /**
+             * @example custom
+             * @enum {string}
+             */
+            rowSource?: "template" | "custom";
+            /** @example true */
+            enabled?: boolean;
+            /**
              * Format: date-time
              * @example 2026-01-01T00:00:00.000Z
              */
