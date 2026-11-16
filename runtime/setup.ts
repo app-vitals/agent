@@ -545,7 +545,7 @@ async function reconcileRemoteMarketplace(
   const slug = githubRepoSlugOfSource(row.source);
   const owner = githubOwnerOfSource(row.source);
   const gh =
-    slug !== null && owner !== null
+    owner !== null
       ? {
           env: { ...process.env, SHIPWRIGHT_GH_OWNER: owner },
           failureMessage: (r: { stdout: string; exitCode: number }) =>

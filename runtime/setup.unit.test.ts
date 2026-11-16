@@ -559,7 +559,9 @@ describe("installPlugins — remote marketplace owner hint (TMK-1.1)", () => {
     );
     expect(bakedAdd).toBeDefined();
     expect(bakedAdd?.env).toBeUndefined();
-    for (const c of sub(calls, "remove")) expect(c.env).toBeUndefined();
+    const removes = sub(calls, "remove");
+    expect(removes.length).toBeGreaterThan(0);
+    for (const c of removes) expect(c.env).toBeUndefined();
   });
 
   for (const verb of ["add", "update"]) {
@@ -583,7 +585,7 @@ describe("installPlugins — remote marketplace owner hint (TMK-1.1)", () => {
       } finally {
         console.warn = orig;
       }
-      const failing = warns.filter((w) => w.includes("private-plugins"));
+      const failing = warns.filter((w) => w.includes("priv"));
       expect(failing).toHaveLength(1);
       expect(failing[0]).toContain("priv");
       expect(failing[0]).toContain("example-org/private-plugins");
