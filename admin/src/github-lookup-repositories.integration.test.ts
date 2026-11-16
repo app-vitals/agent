@@ -53,6 +53,14 @@ function replay(repos: Handler) {
         expires_at: "2026-11-09T13:00:00Z",
       });
     }
+    if (u.pathname === "/app/installations") {
+      return Response.json(
+        Object.entries(INSTALLATIONS).map(([login, id]) => ({
+          id,
+          account: { login, type: "Organization" },
+        })),
+      );
+    }
     if (u.pathname === "/installation/repositories") {
       const bearer = String(new Headers(init?.headers).get("authorization"));
       return repos(u, Number(bearer.replace(/\D/g, "")));
@@ -174,5 +182,80 @@ describe("githubLookup.listRepositories", () => {
       },
     });
     await expect(svc.listRepositories()).rejects.toThrow("limited");
+  });
+
+  describe("without an installer", () => {
+    const lookupApp = { appId: "555", enterpriseSlug: null };
+    const stored = (installer: unknown) =>
+      ({
+        get: async (kind: string) =>
+          kind === "lookup" ? lookupApp : installer,
+        getPrivateKey: async (kind: string) =>
+          kind === "lookup" || installer ? privateKey : null,
+      }) as unknown as GitHubEnterpriseAppService;
+
+    it("lists repos from every org the lookup App is installed on", async () => {
+      const svc = createGithubLookupService({
+        appService: stored(null),
+        fetchFn: replay((_u, id) =>
+          Response.json({
+            repositories:
+              id === 1 ? [repo("acme", "api", false, 10)] : [repo("beta", "web", false, 20)],
+          }),
+        ),
+        now: () => NOW,
+      });
+      expect(await svc.listRepositories()).toEqual({
+        configured: true,
+        repos: [
+          { fullName: "acme/api", archived: false },
+          { fullName: "beta/web", archived: false },
+        ],
+      });
+    });
+
+    it("lists only the selected repos of a selected-scope installation", async () => {
+      const svc = createGithubLookupService({
+        appService: stored(null),
+        fetchFn: replay((_u, id) =>
+          Response.json({
+            repositories: id === 1 ? [repo("acme", "only-this")] : [],
+          }),
+        ),
+        now: () => NOW,
+      });
+      expect((await svc.listRepositories()).repos).toEqual([
+        { fullName: "acme/only-this", archived: false },
+      ]);
+    });
+
+    it("rejects on a GitHub failure instead of returning an empty list", async () => {
+      const svc = createGithubLookupService({
+        appService: stored(null),
+        fetchFn: (async () =>
+          Response.json({ message: "boom" }, { status: 500 })) as unknown as typeof fetch,
+        now: () => NOW,
+      });
+      await expect(svc.listRepositories()).rejects.toBeInstanceOf(GithubEnterpriseError);
+    });
+
+    it("an installer with a slug but no key stays unconfigured", async () => {
+      const svc = createGithubLookupService({
+        appService: {
+          get: async (kind: string) =>
+            kind === "lookup" ? lookupApp : { appId: "1", enterpriseSlug: "ent" },
+          getPrivateKey: async (kind: string) =>
+            kind === "lookup" ? privateKey : null,
+        } as unknown as GitHubEnterpriseAppService,
+      });
+      expect(await svc.listRepositories()).toEqual({ configured: false, repos: [] });
+    });
+
+    it("with an installer configured the org list still comes from it", async () => {
+      const svc = service(["acme"], replay(() => Response.json({ repositories: [repo("acme", "api")] })));
+      expect((await svc.listRepositories()).repos).toEqual([
+        { fullName: "acme/api", archived: false },
+      ]);
+    });
   });
 });

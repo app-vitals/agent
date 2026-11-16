@@ -498,7 +498,7 @@ export function createGithubLookupService(
   > & {
     /** Test seam: replaces the clients built from the stored Apps. */
     clients?: {
-      installer: LookupInstallerPort;
+      installer?: LookupInstallerPort;
       lookup: LookupRepositoriesPort;
     };
   },
@@ -511,27 +511,32 @@ export function createGithubLookupService(
           deps.appService.get("installer"),
           deps.appService.get("lookup"),
         ]);
-        if (!installer || !lookup || !installer.enterpriseSlug) {
-          return { configured: false, repos: [] };
-        }
-        const [installerKey, lookupKey] = await Promise.all([
-          deps.appService.getPrivateKey("installer"),
-          deps.appService.getPrivateKey("lookup"),
-        ]);
-        if (!installerKey || !lookupKey)
-          return { configured: false, repos: [] };
+        if (!lookup) return { configured: false, repos: [] };
+        const lookupKey = await deps.appService.getPrivateKey("lookup");
+        if (!lookupKey) return { configured: false, repos: [] };
         const common = {
           apiBase: deps.apiBase,
           fetchFn: deps.fetchFn,
           now: deps.now,
         };
+        // An installer with an enterprise slug supplies the org list; without
+        // one the lookup App lists the orgs it is installed on.
+        const installerKey = installer?.enterpriseSlug
+          ? await deps.appService.getPrivateKey("installer")
+          : null;
+        if (installer?.enterpriseSlug && !installerKey) {
+          return { configured: false, repos: [] };
+        }
         clients = {
-          installer: new GithubEnterpriseClient({
-            appId: installer.appId,
-            enterprise: installer.enterpriseSlug,
-            privateKey: installerKey,
-            ...common,
-          }),
+          installer:
+            installer?.enterpriseSlug && installerKey
+              ? new GithubEnterpriseClient({
+                  appId: installer.appId,
+                  enterprise: installer.enterpriseSlug,
+                  privateKey: installerKey,
+                  ...common,
+                })
+              : undefined,
           lookup: new GithubLookupClient({
             appId: lookup.appId,
             privateKey: lookupKey,
