@@ -1,6 +1,6 @@
 // Shipwright — Admin Service Schema
 // Owns: Agent, AgentEnv, AgentCronJob, AgentTool, AgentToken, AgentPlugin,
-// AgentMarketplace, AgentTemplate, AgentTemplateItem,
+// AgentMarketplace, AgentTemplate, AgentTemplateItem, SlackConfigToken,
 // plus the coding-owned models in coding.prisma (AgentWorkQueueSnapshot,
 // AgentPhaseMethodology, SessionFollow, SessionAlertState).
 // Agent is a first-class model (standalone, not embedded in a User model).
@@ -293,6 +293,7 @@ model Account {
   invites   AccountInvite[]
   templates AgentTemplate[]
   githubEnterpriseApps GitHubEnterpriseApp[]
+  slackConfigTokens SlackConfigToken[]
 }
 
 // ─── Agent Templates ──────────────────────────────────────────────────────────
@@ -341,6 +342,37 @@ model AgentTemplateItem {
   updatedAt  DateTime      @updatedAt
 
   @@unique([templateId, kind, key])
+}
+
+// ─── Slack Config Token ───────────────────────────────────────────────────────
+// Slack app-configuration token pair (refresh + short-lived access token) used
+// to manage Slack apps. accountId null = deployment-wide default; an account
+// row overrides the default for that account. Tokens are AES-256-GCM encrypted
+// at the service layer (admin/src/slack-config-token.ts) and never read back.
+//
+// UNIQUENESS: at most one row per scope, with NULL treated as a value. Prisma
+// cannot express partial unique indexes, so they are hand-written in
+// 20261115000000_add_slack_config_token/migration.sql:
+//   SlackConfigToken_accountId_key   (accountId set)
+//   SlackConfigToken_global_key      (accountId NULL)
+// Prisma's schema diff does not see them, so keep them when editing this
+// model and re-create them by hand if the table is ever rebuilt.
+
+model SlackConfigToken {
+  id                     String    @id @default(cuid())
+  accountId              String?
+  account                Account?  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  refreshTokenEncrypted  String
+  accessTokenEncrypted   String?
+  accessTokenExpiresAt   DateTime?
+  slackTeamId            String?
+  slackUserId            String?
+  lastRotatedAt          DateTime?
+  lastError              String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([accountId])
 }
 
 model AccountMember {
