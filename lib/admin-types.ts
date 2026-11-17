@@ -3607,7 +3607,10 @@ export interface paths {
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Account whose App pair to read/write. Omit for the deployment-wide pair. */
+                    accountId?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -3665,7 +3668,10 @@ export interface paths {
          */
         put: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Account whose App pair to read/write. Omit for the deployment-wide pair. */
+                    accountId?: string;
+                };
                 header?: never;
                 path: {
                     role: "installer" | "lookup";
@@ -3732,7 +3738,10 @@ export interface paths {
          */
         delete: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Account whose App pair to read/write. Omit for the deployment-wide pair. */
+                    accountId?: string;
+                };
                 header?: never;
                 path: {
                     role: "installer" | "lookup";
@@ -3788,7 +3797,10 @@ export interface paths {
          */
         post: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Account whose App pair to read/write. Omit for the deployment-wide pair. */
+                    accountId?: string;
+                };
                 header?: never;
                 path: {
                     role: "installer" | "lookup";
@@ -3855,6 +3867,8 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
+                    /** @description Account whose App pair to read/write. Omit for the deployment-wide pair. */
+                    accountId?: string;
                     agentId?: string;
                 };
                 header?: never;
@@ -3969,7 +3983,10 @@ export interface paths {
          */
         post: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Account whose App pair to read/write. Omit for the deployment-wide pair. */
+                    accountId?: string;
+                };
                 header?: never;
                 path: {
                     org: string;
@@ -5988,6 +6005,8 @@ export interface components {
             lookup: components["schemas"]["GithubEnterpriseApp"];
         };
         GithubEnterpriseApp: {
+            /** @description Null for the deployment-wide App. */
+            accountId?: string | null;
             /** @example installer */
             role: string;
             /** @example 12345 */

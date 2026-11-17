@@ -382,7 +382,7 @@ export class GithubSyncService {
     if (!username) {
       return skippedPlan(accessSkipReason(username, null) as string);
     }
-    const preview = await this.deps.access(username);
+    const preview = await this.deps.access(username, agent.accountId);
     if (preview.status === "unconfigured") {
       return skippedPlan("GitHub Apps are not configured");
     }

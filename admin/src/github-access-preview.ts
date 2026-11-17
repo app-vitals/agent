@@ -16,4 +16,6 @@ export type GithubAccessPreview =
 
 export type GithubAccessPreviewFn = (
   username: string,
+  /** The agent's account: its App pair, else the deployment-wide pair. */
+  accountId?: string | null,
 ) => Promise<GithubAccessPreview>;

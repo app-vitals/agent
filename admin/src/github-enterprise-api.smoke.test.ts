@@ -388,11 +388,17 @@ describe("POST validate", () => {
       "/github-enterprise/apps/installer/validate",
       { method: "POST", headers: ADMIN },
     );
-    const body = (await res.json()) as { ok: boolean; status: string; error: string };
+    const body = (await res.json()) as {
+      ok: boolean;
+      status: string;
+      error: string;
+    };
     expect(body).toMatchObject({ ok: false, status: "error" });
     expect(body.error).toContain("not installed on enterprise acme");
     expect(body.error).toContain("slug");
-    expect(h.appService.rows.get("installer")?.lastValidationError).toBe(body.error);
+    expect(h.appService.rows.get("installer")?.lastValidationError).toBe(
+      body.error,
+    );
   });
 
   it("installer: a 404 on the token mint keeps the generic reason", async () => {
@@ -415,28 +421,48 @@ describe("POST validate", () => {
       "/github-enterprise/apps/installer/validate",
       { method: "POST", headers: ADMIN },
     );
-    const body = (await res.json()) as { ok: boolean; status: string; warnings: string[] };
+    const body = (await res.json()) as {
+      ok: boolean;
+      status: string;
+      warnings: string[];
+    };
     expect(body).toMatchObject({ ok: true, status: "valid" });
     expect(body.warnings).toHaveLength(1);
-    expect(body.warnings[0]).toContain("enterprise_organization_installation_repositories");
+    expect(body.warnings[0]).toContain(
+      "enterprise_organization_installation_repositories",
+    );
   });
 
   it("installer: read-only repositories permission also warns; write does not", async () => {
-    const ro = build({ routes: { [MINT]: "access_token_repositories_read_only" } });
-    await seed(ro);
-    const r1 = await ro.app.request("/github-enterprise/apps/installer/validate", {
-      method: "POST",
-      headers: ADMIN,
+    const ro = build({
+      routes: { [MINT]: "access_token_repositories_read_only" },
     });
-    expect(((await r1.json()) as { warnings: string[] }).warnings).toHaveLength(1);
+    await seed(ro);
+    const r1 = await ro.app.request(
+      "/github-enterprise/apps/installer/validate",
+      {
+        method: "POST",
+        headers: ADMIN,
+      },
+    );
+    expect(((await r1.json()) as { warnings: string[] }).warnings).toHaveLength(
+      1,
+    );
 
     const full = build({ routes: { [MINT]: "access_token_all_permissions" } });
     await seed(full);
-    const r2 = await full.app.request("/github-enterprise/apps/installer/validate", {
-      method: "POST",
-      headers: ADMIN,
+    const r2 = await full.app.request(
+      "/github-enterprise/apps/installer/validate",
+      {
+        method: "POST",
+        headers: ADMIN,
+      },
+    );
+    expect(await r2.json()).toMatchObject({
+      ok: true,
+      status: "valid",
+      warnings: [],
     });
-    expect(await r2.json()).toMatchObject({ ok: true, status: "valid", warnings: [] });
   });
 
   it("lookup: warns (still valid) without Organization Members read; none with it", async () => {
@@ -460,29 +486,51 @@ describe("POST validate", () => {
 
     const h2 = build({ routes: { "GET /app": "app_get_all_permissions" } });
     await seedLookup(h2);
-    const res2 = await h2.app.request("/github-enterprise/apps/lookup/validate", {
-      method: "POST",
-      headers: ADMIN,
+    const res2 = await h2.app.request(
+      "/github-enterprise/apps/lookup/validate",
+      {
+        method: "POST",
+        headers: ADMIN,
+      },
+    );
+    expect(await res2.json()).toMatchObject({
+      ok: true,
+      status: "valid",
+      warnings: [],
     });
-    expect(await res2.json()).toMatchObject({ ok: true, status: "valid", warnings: [] });
   });
 
   it("warnings never flip validity: a missing required permission stays invalid, an error has none", async () => {
-    const h = build({ routes: { [MINT]: "access_token_no_installer_permission" } });
-    await seed(h);
-    const res = await h.app.request("/github-enterprise/apps/installer/validate", {
-      method: "POST",
-      headers: ADMIN,
+    const h = build({
+      routes: { [MINT]: "access_token_no_installer_permission" },
     });
-    expect(await res.json()).toMatchObject({ ok: false, status: "missing_permission" });
+    await seed(h);
+    const res = await h.app.request(
+      "/github-enterprise/apps/installer/validate",
+      {
+        method: "POST",
+        headers: ADMIN,
+      },
+    );
+    expect(await res.json()).toMatchObject({
+      ok: false,
+      status: "missing_permission",
+    });
 
     const e = build({ routes: { [ENT]: "enterprise_installation_403" } });
     await seed(e);
-    const r = await e.app.request("/github-enterprise/apps/installer/validate", {
-      method: "POST",
-      headers: ADMIN,
+    const r = await e.app.request(
+      "/github-enterprise/apps/installer/validate",
+      {
+        method: "POST",
+        headers: ADMIN,
+      },
+    );
+    expect(await r.json()).toMatchObject({
+      ok: false,
+      status: "error",
+      warnings: [],
     });
-    expect(await r.json()).toMatchObject({ ok: false, status: "error", warnings: [] });
   });
 
   it("lookup: checks metadata read via GET /app", async () => {
@@ -770,5 +818,99 @@ describe("POST install", () => {
     });
     await seed(h);
     expect((await post(h, { agentId: "agent-1" })).status).toBe(429);
+  });
+});
+
+describe("account-scoped routes", () => {
+  /** Records the accountId every appService method receives. */
+  function spied() {
+    const h = build();
+    const seen: Record<string, unknown[]> = {};
+    for (const m of [
+      "list",
+      "get",
+      "save",
+      "delete",
+      "getPrivateKey",
+    ] as const) {
+      const orig = (h.appService as never as Record<string, Function>)[m];
+      (h.appService as never as Record<string, unknown>)[m] = async (
+        ...args: unknown[]
+      ) => {
+        const acct =
+          m === "save"
+            ? (args[0] as { accountId?: string }).accountId
+            : args[m === "list" ? 0 : 1];
+        (seen[m] ??= []).push(acct);
+        return orig.apply(h.appService, args);
+      };
+    }
+    return { ...h, seen };
+  }
+
+  it("GET /apps, PUT, DELETE and validate pass the accountId query param", async () => {
+    const h = spied();
+    await h.app.request("/github-enterprise/apps?accountId=acct-1", {
+      headers: ADMIN,
+    });
+    expect(h.seen.list).toEqual(["acct-1"]);
+
+    const put = await h.app.request(
+      "/github-enterprise/apps/installer?accountId=acct-1",
+      {
+        method: "PUT",
+        headers: JSON_ADMIN,
+        body: JSON.stringify(installerBody),
+      },
+    );
+    expect(put.status).toBe(200);
+    expect(h.seen.save).toEqual(["acct-1"]);
+
+    const del = await h.app.request(
+      "/github-enterprise/apps/installer?accountId=acct-1",
+      { method: "DELETE", headers: ADMIN },
+    );
+    expect(del.status).toBe(204);
+    expect(h.seen.delete).toEqual(["acct-1"]);
+
+    await h.app.request(
+      "/github-enterprise/apps/installer/validate?accountId=acct-1",
+      { method: "POST", headers: ADMIN },
+    );
+    expect(h.seen.get?.[0]).toBe("acct-1");
+  });
+
+  it("omitting accountId targets the deployment-wide pair", async () => {
+    const h = spied();
+    await h.app.request("/github-enterprise/apps", { headers: ADMIN });
+    await h.app.request("/github-enterprise/orgs", { headers: ADMIN });
+    expect(h.seen.list).toEqual([undefined]);
+    expect(h.seen.get).toEqual([undefined]);
+  });
+
+  it("orgs and install read the account's installer App", async () => {
+    const h = spied();
+    await h.app.request("/github-enterprise/orgs?accountId=acct-1", {
+      headers: ADMIN,
+    });
+    expect(h.seen.get).toEqual(["acct-1"]);
+    const res = await h.app.request(
+      "/github-enterprise/orgs/org-1/install?accountId=acct-1",
+      {
+        method: "POST",
+        headers: JSON_ADMIN,
+        body: JSON.stringify({ agentId: "agent-1" }),
+      },
+    );
+    expect(res.status).toBe(409);
+    expect(h.seen.get).toEqual(["acct-1", "acct-1"]);
+  });
+
+  it("stays admin-only with an account param", async () => {
+    const h = spied();
+    const res = await h.app.request("/github-enterprise/apps?accountId=a", {
+      headers: { Authorization: "Bearer tok-read" },
+    });
+    expect(res.status).toBe(403);
   });
 });

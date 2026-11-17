@@ -3403,7 +3403,10 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     }
     if (!deps.githubAccessPreview)
       return c.json({ status: "unconfigured" as const }, 200);
-    const preview = await deps.githubAccessPreview(agent.githubUsername);
+    const preview = await deps.githubAccessPreview(
+      agent.githubUsername,
+      agent.accountId,
+    );
     return c.json(preview, 200);
   });
 
