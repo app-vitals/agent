@@ -100,6 +100,10 @@ import {
   type SettingsNav,
   withoutAccountItem,
 } from "./admin-ui-settings-layout.ts";
+import {
+  type AdminSlackConfigTokenRouteDeps,
+  registerAdminSlackConfigTokenRoutes,
+} from "./admin-ui-slack-config-token.ts";
 import { registerAdminTemplatesRoutes } from "./admin-ui-templates.ts";
 import type { AgentCronJobService } from "./agent-cron-jobs.ts";
 import type { DeleteAgentFullyDeps } from "./agent-deletion.ts";
@@ -485,6 +489,14 @@ export interface AdminUIDeps {
   templateService?: Pick<
     AgentTemplateService,
     "list" | "replace" | "putItem" | "deleteItem" | "delete"
+  >;
+  /**
+   * SCT-3.1: Settings > Slack config token. Optional; absent → no
+   * /admin/settings/slack-config-token routes and no nav entry.
+   */
+  slackConfigToken?: Pick<
+    AdminSlackConfigTokenRouteDeps,
+    "tokens" | "rotateClient" | "encryptionConfigured"
   >;
   githubEnterpriseApi?: (
     path: string,
@@ -925,6 +937,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     accountServices,
     githubEnterpriseApi,
     templateService,
+    slackConfigToken,
     templateReconcile,
     agentsApi,
     specialtyRegistry = new SpecialtyTypes(),
@@ -974,6 +987,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
   const settingsNav = buildSettingsNav({
     githubEnterprise: Boolean(githubEnterpriseApi),
     templates: Boolean(templateService),
+    slackConfigToken: Boolean(slackConfigToken),
     accounts: accountNavEnabled,
     extraItems: deps.settingsNavItems ?? [],
   });
@@ -998,7 +1012,12 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
 
   // GHE-1.4: the admin-only "Settings" toolbar entry.
   // SGL-2.2: shown to admins and to account members.
-  if (githubEnterpriseApi || templateService || accountNavEnabled) {
+  if (
+    githubEnterpriseApi ||
+    templateService ||
+    slackConfigToken ||
+    accountNavEnabled
+  ) {
     app.use("/admin/*", async (c, next) => {
       const token = getCookie(c, SESSION_COOKIE);
       const user = token ? await getSessionUser(token, sessionSecret) : null;
@@ -4107,7 +4126,12 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
   // ─── Enterprise GitHub apps settings (GHE-1.4) ───────────────────────────
 
   // SGL-2.2: /admin/settings lands on the first nav item the viewer can see.
-  if (githubEnterpriseApi || templateService || accountNavEnabled) {
+  if (
+    githubEnterpriseApi ||
+    templateService ||
+    slackConfigToken ||
+    accountNavEnabled
+  ) {
     app.get("/admin/settings", requireAuth, async (c) => {
       // Admins without an account would 404 on the Account item; skip it.
       let nav = settingsNav;
@@ -4147,6 +4171,24 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       callerScopeResolver,
       ...(accountServices ? { accounts: accountServices.accounts } : {}),
       specialtyRegistry,
+      html,
+    });
+  }
+
+  // ─── Slack config token settings (SCT-3.1) ───────────────────────────────
+
+  if (slackConfigToken) {
+    registerAdminSlackConfigTokenRoutes(app, {
+      requireAuth,
+      ...slackConfigToken,
+      settingsNav,
+      callerScopeResolver,
+      ...(accountServices
+        ? {
+            accounts: accountServices.accounts,
+            members: accountServices.members,
+          }
+        : {}),
       html,
     });
   }

@@ -314,6 +314,12 @@ export async function startAdmin(
     slackClient,
   );
   const githubAppClient = new HttpGithubAppProvisioningClient();
+  const slackConfigTokenService = new SlackConfigTokenService(
+    prisma,
+    makeStrictTokenCrypto(),
+    undefined,
+    slackClient,
+  );
 
   // Chat-service client for deleteAgentFully() cleanup, shared by both delete
   // entry points (DELETE /agents/:id and the admin-ui danger zone) —
@@ -662,6 +668,11 @@ export async function startAdmin(
     specialtyRegistry,
     specialtyDefaults,
     templateService,
+    slackConfigToken: {
+      tokens: slackConfigTokenService,
+      rotateClient: slackClient,
+      encryptionConfigured: () => makeStrictTokenCrypto() !== null,
+    },
     templateReconcile: templateReconcileService,
     serviceIntegrations,
     chatService: deletionChatService,
