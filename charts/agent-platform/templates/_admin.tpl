@@ -7,6 +7,7 @@ agent-platform.validate.anthropicFederation is included unconditionally so the
 federation guards fire on every manifest render, even with admin disabled.
 */}}
 {{- include "agent-platform.validate.anthropicFederation" . }}
+{{- include "agent-platform.validate.templateSeed" . }}
 {{- if .Values.admin.enabled }}
 apiVersion: apps/v1
 kind: Deployment
@@ -504,6 +505,14 @@ spec:
             # ── Agent repo-access check feature flag
             - name: SHIPWRIGHT_AGENT_REPO_ACCESS_CHECK_ENABLED
               value: "enabled"
+            {{- end }}
+            {{- end }}
+            {{- with .Values.admin.templateSeed }}
+            {{- if or (hasKey . "marketplaces") (hasKey . "plugins") }}
+            # ── Deployment-wide template seed (JSON). An explicit empty list
+            # still renders so operators can clear the seeded items.
+            - name: SHIPWRIGHT_TEMPLATE_SEED
+              value: {{ . | toJson | quote }}
             {{- end }}
             {{- end }}
             {{- with .Values.admin.extraEnv }}

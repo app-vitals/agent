@@ -20,6 +20,7 @@ agent-platform.certManagerIssuer. Each check `fail`s; the first failing one wins
      subcharts in one release).
   7. agent-platform.validate.claudePolicy.
   8. agent-platform.validate.anthropicFederation.
+  9. agent-platform.validate.templateSeed.
 */}}
 {{- define "agent-platform.validate" -}}
 {{- $ingress := .Values.networking.ingress -}}
@@ -50,4 +51,45 @@ agent-platform.certManagerIssuer. Each check `fail`s; the first failing one wins
 {{- end -}}
 {{- include "agent-platform.validate.claudePolicy" . -}}
 {{- include "agent-platform.validate.anthropicFederation" . -}}
+{{- end -}}
+
+{{/*
+agent-platform.validate.templateSeed — the admin.templateSeed guards (check 9
+above): every marketplaces entry needs a non-empty string name and source, and
+every plugins entry must be a string. Errors name the entry (index and name) so
+a bad seed fails at render rather than silently at admin boot. Included
+unconditionally from agent-platform.admin.deployment.
+*/}}
+{{- define "agent-platform.validate.templateSeed" -}}
+{{- $seed := .Values.admin.templateSeed | default dict -}}
+{{- if hasKey $seed "marketplaces" -}}
+{{- if not (kindIs "slice" $seed.marketplaces) -}}
+{{- fail "admin.templateSeed.marketplaces must be a list of {name, source, ref?} entries." -}}
+{{- end -}}
+{{- range $i, $m := $seed.marketplaces -}}
+{{- if not (kindIs "map" $m) -}}
+{{- fail (printf "admin.templateSeed.marketplaces[%d] must be an object {name, source, ref?}." $i) -}}
+{{- end -}}
+{{- $label := printf "admin.templateSeed.marketplaces[%d]" $i -}}
+{{- if and (kindIs "string" $m.name) $m.name -}}
+{{- $label = printf "admin.templateSeed.marketplaces[%d] (%s)" $i $m.name -}}
+{{- end -}}
+{{- range $field := list "name" "source" -}}
+{{- $v := get $m $field -}}
+{{- if or (not (kindIs "string" $v)) (eq (trim $v) "") -}}
+{{- fail (printf "%s requires a non-empty string %s." $label $field) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $seed "plugins" -}}
+{{- if not (kindIs "slice" $seed.plugins) -}}
+{{- fail "admin.templateSeed.plugins must be a list of plugin spec strings." -}}
+{{- end -}}
+{{- range $i, $p := $seed.plugins -}}
+{{- if not (kindIs "string" $p) -}}
+{{- fail (printf "admin.templateSeed.plugins[%d] must be a string (e.g. some-plugin@example-plugins), got %s." $i (kindOf $p)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
