@@ -126,6 +126,27 @@ describe("release workflow", () => {
     expect(runText("publish-image")).toContain("docker manifest inspect");
   });
 
+  test("the agent image is built with the plugin version stamped to the release version", () => {
+    const steps = stepsOf("publish-image");
+    const names = steps.map((s) => s.name ?? s.uses);
+    const stamp = steps.find(
+      (s) => s.name === "Stamp the agent-platform plugin version",
+    );
+    expect(stamp?.run).toBe('bun scripts/stamp-plugin-version.ts "$VERSION"');
+    expect(stamp?.if).toContain("matrix.image == 'agent'");
+    expect(stamp?.if).toContain("exists != 'true'");
+    expect(wf.jobs["publish-image"].env.VERSION).toBe(
+      "${{ needs.resolve.outputs.version }}",
+    );
+    const i = names.indexOf("Stamp the agent-platform plugin version");
+    expect(i).toBeGreaterThan(names.indexOf("Check whether the image tag already exists"));
+    expect(i).toBeLessThan(names.indexOf("Build image"));
+    // bun must be installed before the stamp step runs.
+    const bun = names.findIndex((n) => String(n).includes("setup-bun"));
+    expect(bun).toBeGreaterThan(-1);
+    expect(bun).toBeLessThan(i);
+  });
+
   test("image guards run before the push step", () => {
     const names = stepsOf("publish-image").map((s) => s.name ?? s.uses);
     const idx = (n: string) => names.indexOf(n);
