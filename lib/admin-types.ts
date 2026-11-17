@@ -4851,6 +4851,12 @@ export interface components {
                     adopted: number;
                     deleted: number;
                 };
+                marketplace?: {
+                    created: number;
+                    updated: number;
+                    adopted: number;
+                    deleted: number;
+                };
             };
             systemCrons: {
                 created: number;
@@ -4862,7 +4868,7 @@ export interface components {
                 kind: "env" | "tool" | "plugin" | "cron" | "marketplace";
                 key: string;
                 /** @enum {string} */
-                reason: "cron_name_conflict" | "invalid_cron_schedule" | "denylisted_env_key";
+                reason: "cron_name_conflict" | "invalid_cron_schedule" | "denylisted_env_key" | "marketplace_conflict";
             }[];
             toolsEmptyGuarded: boolean;
         };

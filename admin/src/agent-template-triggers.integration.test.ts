@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { PrismaClient } from "../prisma/client/client.ts";
 import { AgentCronJobService } from "./agent-cron-jobs.ts";
 import { AgentEnvService } from "./agent-envs.ts";
+import { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import { AgentMemberService } from "./agent-members.ts";
 import { AgentPluginService } from "./agent-plugins.ts";
 import { NoopAgentProvisioner } from "./agent-provisioner.ts";
@@ -23,6 +24,7 @@ import {
   createAdminApp,
   parseAdminApiKeys,
 } from "./agents-api.ts";
+import { createAgentRuntimeApp } from "./api.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
 import type { SpecialtyType } from "./specialty-types.ts";
 import { makeStrictTokenCrypto } from "./token-crypto.ts";
@@ -58,6 +60,7 @@ describeOrSkip("agent template triggers (integration)", () => {
     await prisma.agentTemplate.deleteMany();
     await prisma.agentCronJob.deleteMany();
     await prisma.agentTool.deleteMany();
+    await prisma.agentMarketplace.deleteMany();
     await prisma.agentPlugin.deleteMany();
     await prisma.agentEnv.deleteMany();
     await prisma.agentToken.deleteMany();
@@ -363,6 +366,93 @@ describeOrSkip("agent template triggers (integration)", () => {
           .templateDetached,
       ).toBe(true);
       expect(await envOf(id, "MINE")).toEqual({ value: "1", source: "custom" });
+    });
+  });
+
+  describe("template marketplaces in the config bundle", () => {
+    it("fans a marketplace plus its plugin out to agents in scope and into GET /agents/:id/config", async () => {
+      const agent = await mkAgent("a");
+      const other = await mkAgent("detached", { templateDetached: true });
+      const tokens = new AgentTokenService(prisma);
+      const { rawToken } = await tokens.create(agent.id);
+      const runtimeApp = createAgentRuntimeApp({
+        agentEnvService: { getConfigBundle: async () => null },
+        agentCronJobService: { list: async () => [] },
+        agentService: new AgentService(prisma),
+        agentPluginService: new AgentPluginService(prisma),
+        agentMarketplaceService: new AgentMarketplaceService(prisma),
+        sessionSecret: "test-admin-session-secret-32-bytes!",
+        adminApiKeys: parseAdminApiKeys("root:tok-admin:*"),
+        agentTokenService: tokens,
+      } as never);
+      const config = async () => {
+        const res = await runtimeApp.request(`/${agent.id}/config`, {
+          headers: { Authorization: `Bearer ${rawToken}` },
+        });
+        expect(res.status).toBe(200);
+        return (await res.json()) as {
+          marketplaces: { name: string; source: string; ref: string | null }[];
+          plugins: { plugin: string; marketplace: string }[];
+        };
+      };
+
+      await templates.replace({ kind: "admin" }, {}, [
+        {
+          kind: "marketplace",
+          key: "example-mk",
+          payload: { source: "example-org/plugins", ref: "v1" },
+        },
+        { kind: "plugin", key: "tool@example-mk" },
+      ]);
+      let cfg = await config();
+      expect(cfg.marketplaces).toEqual([
+        { name: "example-mk", source: "example-org/plugins", ref: "v1" },
+      ]);
+      expect(cfg.plugins).toContainEqual({
+        plugin: "tool",
+        marketplace: "example-mk",
+      });
+      expect(
+        await prisma.agentMarketplace.count({ where: { agentId: other.id } }),
+      ).toBe(0);
+
+      // Editing the template fans out again.
+      await templates.replace({ kind: "admin" }, {}, [
+        {
+          kind: "marketplace",
+          key: "example-mk",
+          payload: { source: "example-org/plugins", ref: "v2" },
+        },
+        { kind: "plugin", key: "tool@example-mk" },
+      ]);
+      cfg = await config();
+      expect(cfg.marketplaces[0]?.ref).toBe("v2");
+
+      // A tombstoned row stays out of the bundle and is not re-added by the
+      // next fan-out.
+      const marketplaces = new AgentMarketplaceService(prisma);
+      const row = await prisma.agentMarketplace.findUniqueOrThrow({
+        where: { agentId_name: { agentId: agent.id, name: "example-mk" } },
+      });
+      await marketplaces.remove(agent.id, row.id);
+      await templates.replace({ kind: "admin" }, {}, [
+        {
+          kind: "marketplace",
+          key: "example-mk",
+          payload: { source: "example-org/plugins", ref: "v3" },
+        },
+        { kind: "plugin", key: "tool@example-mk" },
+      ]);
+      cfg = await config();
+      expect(cfg.marketplaces).toEqual([]);
+      const tomb = await prisma.agentMarketplace.findUniqueOrThrow({
+        where: { id: row.id },
+      });
+      expect(tomb).toMatchObject({
+        enabled: false,
+        rowSource: "custom",
+        ref: "v2",
+      });
     });
   });
 });
