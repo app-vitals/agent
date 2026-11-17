@@ -80,6 +80,10 @@ agent:
       coding: {repository: ghcr.io/app-vitals/agent-coding, tag: v2}
 ```
 
+They read the consumer's `.Values` (`admin`, `auth`, `agent`, `postgresql`,
+`externalDatabase`, `cloudSqlProxy`, `chat`, `networking`, `selfServe`, ...), so
+the consumer's values file must define those keys.
+
 ### Template seed
 
 `admin.templateSeed` declares default marketplaces and plugins for every agent.
@@ -98,10 +102,6 @@ admin:
     plugins:
       - some-plugin@example-plugins
 ```
-
-They read the consumer's `.Values` (`admin`, `auth`, `agent`, `postgresql`,
-`externalDatabase`, `cloudSqlProxy`, `chat`, `networking`, `selfServe`, ...), so
-the consumer's values file must define those keys.
 
 ## Workload templates
 
