@@ -104,6 +104,8 @@ export const SETTINGS_GHE_PATH = "/admin/settings/github-enterprise";
 export const SETTINGS_ACCOUNT_PATH = "/admin/account";
 export const SETTINGS_ACCOUNTS_PATH = "/admin/accounts";
 export const SETTINGS_TEMPLATES_PATH = "/admin/settings/templates";
+export const SETTINGS_SLACK_CONFIG_TOKEN_PATH =
+  "/admin/settings/slack-config-token";
 
 export interface BuildSettingsNavOptions {
   /** Include the GitHub Enterprise item (its routes are registered). */
@@ -112,6 +114,8 @@ export interface BuildSettingsNavOptions {
   accounts?: boolean;
   /** Include the Templates item (its routes are registered). */
   templates?: boolean;
+  /** Include the Slack config token item (its routes are registered). */
+  slackConfigToken?: boolean;
   /** Extension-contributed items (SGL-2.1). */
   extraItems?: readonly SettingsNavContribution[];
 }
@@ -130,6 +134,13 @@ export function buildSettingsNav(
       label: "GitHub Enterprise",
       path: SETTINGS_GHE_PATH,
       adminOnly: true,
+    });
+  }
+  if (opts.slackConfigToken) {
+    // Not adminOnly, like Templates: account owners manage their own row.
+    platform.push({
+      label: "Slack config token",
+      path: SETTINGS_SLACK_CONFIG_TOKEN_PATH,
     });
   }
   if (opts.templates) {

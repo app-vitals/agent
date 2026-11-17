@@ -124,6 +124,7 @@ import { isPushEnabled } from "./push-sender.ts";
 import { PushService } from "./push-service.ts";
 import { parseRepoAccessConfig } from "./repo-access-config.ts";
 import { parseSelfServeConfig } from "./self-serve-config.ts";
+import { SlackConfigTokenService } from "./slack-config-token.ts";
 import { HttpSlackProvisioningClient } from "./slack-provisioning-client.ts";
 import { SpecialtyTypes } from "./specialty-types.ts";
 import { runStartupPolicyReconcile } from "./startup-policy-reconcile.ts";
@@ -304,6 +305,12 @@ export async function startAdmin(
     : undefined;
   const slackClient = new HttpSlackProvisioningClient();
   const githubAppClient = new HttpGithubAppProvisioningClient();
+  const slackConfigTokenService = new SlackConfigTokenService(
+    prisma,
+    makeStrictTokenCrypto(),
+    undefined,
+    slackClient,
+  );
 
   // Chat-service client for deleteAgentFully() cleanup, shared by both delete
   // entry points (DELETE /agents/:id and the admin-ui danger zone) —
@@ -651,6 +658,11 @@ export async function startAdmin(
     specialtyRegistry,
     specialtyDefaults,
     templateService,
+    slackConfigToken: {
+      tokens: slackConfigTokenService,
+      rotateClient: slackClient,
+      encryptionConfigured: () => makeStrictTokenCrypto() !== null,
+    },
     templateReconcile: templateReconcileService,
     serviceIntegrations,
     chatService: deletionChatService,
