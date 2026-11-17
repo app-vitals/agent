@@ -21,6 +21,11 @@ import type { AdminUISlackClient } from "./admin-ui.ts";
 import type { AgentCronJobService } from "./agent-cron-jobs.ts";
 import type { AgentEnvService } from "./agent-envs.ts";
 import type { AgentService } from "./agents.ts";
+import {
+  hasStoredSlackConfigToken,
+  type SlackConfigTokenResolver,
+  withSlackConfigToken,
+} from "./slack-config-token.ts";
 import { buildAgentManifest } from "./slack-provisioning-client.ts";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -115,6 +120,12 @@ interface SlackProvisioningServiceDeps {
   appBaseUrl: string;
   /** Env var keys that must be stored as secrets — mirrors SECRET_ENV_VARS. */
   secretEnvVars: Set<string>;
+  /**
+   * Optional stored Slack config token resolver (SCT-4.1). When present, a
+   * token minted from the agent's account row (else the default row) is used
+   * whenever no xoxpToken was pasted. Absent keeps the paste-only behavior.
+   */
+  slackConfigTokens?: SlackConfigTokenResolver;
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -142,11 +153,23 @@ export class SlackProvisioningService {
    */
   async createAppManifest(
     agentName: string,
-    xoxpToken: string,
+    xoxpToken: string | undefined,
     redirectUri: string,
+    /**
+     * Account whose stored Slack config token applies when `xoxpToken` is
+     * absent (its own row, else the deployment-wide default). Ignored when a
+     * token was pasted.
+     */
+    accountId?: string | null,
   ): Promise<SlackAppManifestResult> {
     const manifest = buildAgentManifest(agentName, redirectUri);
-    return this.deps.slackClient.createAppManifest(xoxpToken, manifest);
+    // A pasted token wins (no retry); a stored one is minted per call, with one
+    // forced rotate + retry if Slack reports token_revoked / invalid_auth.
+    return withSlackConfigToken(
+      this.deps.slackConfigTokens,
+      { pasted: xoxpToken, accountId },
+      (token) => this.deps.slackClient.createAppManifest(token, manifest),
+    );
   }
 
   /**
@@ -213,24 +236,35 @@ export class SlackProvisioningService {
     redirectUri: string,
     ghConnectError?: string,
   ): Promise<StartConnectResult> {
-    if (!xoxpToken?.startsWith("xoxe.xoxp-")) {
-      return {
-        ok: false,
-        error: "Slack app configuration token must start with xoxe.xoxp-",
-      };
-    }
+    const prefixError = {
+      ok: false,
+      error: "Slack app configuration token must start with xoxe.xoxp-",
+    } as const;
+    // A pasted token must be well-formed; the prefix check never applies to a
+    // minted token. Without a resolver this is the original up-front check.
+    const pasted = xoxpToken?.trim() || undefined;
+    if (pasted && !pasted.startsWith("xoxe.xoxp-")) return prefixError;
+    if (!pasted && !this.deps.slackConfigTokens) return prefixError;
 
     const agent = await this.deps.agentService.getDetail(agentId);
     if (!agent) {
       return { ok: false, error: "Agent not found." };
+    }
+    const accountId = agent.accountId ?? null;
+    if (
+      !pasted &&
+      !(await hasStoredSlackConfigToken(this.deps.slackConfigTokens, accountId))
+    ) {
+      return prefixError;
     }
 
     let slackResult: SlackAppManifestResult;
     try {
       slackResult = await this.createAppManifest(
         agent.name,
-        xoxpToken,
+        pasted,
         redirectUri,
+        accountId,
       );
     } catch (err) {
       const msg =

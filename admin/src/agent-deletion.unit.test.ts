@@ -28,6 +28,7 @@ interface AgentRow {
   anthropicFederationRuleId?: string | null;
   anthropicServiceAccountId?: string | null;
   k8sServiceAccountName?: string | null;
+  accountId?: string | null;
 }
 
 /** Minimal in-memory Prisma double tracking whether the Agent row exists. */
@@ -47,6 +48,7 @@ class FakePrisma {
         anthropicFederationRuleId: true;
         anthropicServiceAccountId: true;
         k8sServiceAccountName: true;
+        accountId: true;
       };
     }) => {
       if (this.deleted || !this.row) return null;
@@ -56,6 +58,7 @@ class FakePrisma {
         anthropicFederationRuleId: this.row.anthropicFederationRuleId ?? null,
         anthropicServiceAccountId: this.row.anthropicServiceAccountId ?? null,
         k8sServiceAccountName: this.row.k8sServiceAccountName ?? null,
+        accountId: this.row.accountId ?? null,
       };
     },
     delete: async (_args: { where: { id: string } }): Promise<unknown> => {
@@ -97,6 +100,8 @@ function makeDeps(opts: {
   }>;
   /** Give the provisioner a removeAnthropicIdentity (absent by default). */
   withIdentityRemoval?: boolean;
+  /** Stored Slack config token resolver (absent by default). */
+  slackConfigTokens?: DeleteAgentFullyDeps["slackConfigTokens"];
 }): { deps: DeleteAgentFullyDeps; log: CallLog } {
   const log: CallLog = {
     deprovision: [],
@@ -160,6 +165,9 @@ function makeDeps(opts: {
     },
     // Identity decrypt: env values in these tests are stored "plaintext".
     decrypt: (value) => value,
+    ...(opts.slackConfigTokens
+      ? { slackConfigTokens: opts.slackConfigTokens }
+      : {}),
   };
 
   return { deps, log };
@@ -344,6 +352,139 @@ describe("deleteAgentFully — Slack app without a token", () => {
     expect(prisma.deleted).toBe(false);
     expect(result.failed).toEqual([
       { step: "slack-app", error: "slack rejected" },
+    ]);
+  });
+});
+
+// ─── Stored Slack config token (SCT-4.1) ─────────────────────────────────────
+
+/** Fake resolver: `rows` are the scopes with a stored token. */
+function fakeStored(rows: Array<string | null>, rejectFirst = false) {
+  const minted: Array<{ scope: string | null; token: string }> = [];
+  let rotations = 0;
+  const resolver = {
+    get: async (accountId: string | null) =>
+      rows.includes(accountId) ? { accountId } : null,
+    resolveForAccount: async (accountId: string) =>
+      rows.includes(accountId)
+        ? { accountId }
+        : rows.includes(null)
+          ? { accountId: null }
+          : null,
+    withSlackConfigAccessToken: async <T>(
+      scope: string | null,
+      fn: (t: string) => Promise<T>,
+    ) => {
+      const first = `minted-${scope ?? "default"}-${++rotations}`;
+      minted.push({ scope, token: first });
+      try {
+        return await fn(first);
+      } catch (err) {
+        if (!rejectFirst) throw err;
+        const second = `minted-${scope ?? "default"}-${++rotations}`;
+        minted.push({ scope, token: second });
+        return fn(second);
+      }
+    },
+  } as unknown as DeleteAgentFullyDeps["slackConfigTokens"];
+  return { resolver, minted };
+}
+
+describe("deleteAgentFully — stored Slack config token", () => {
+  const withApp = (accountId: string | null) =>
+    new FakePrisma({ ...AGENT, accountId }, [
+      { key: "SLACK_APP_ID", value: "A777", secret: true },
+    ]);
+
+  it("deletes the Slack app with a minted token when none is pasted", async () => {
+    const { resolver, minted } = fakeStored([null]);
+    const { deps, log } = makeDeps({
+      prisma: withApp("acct-1"),
+      slackConfigTokens: resolver,
+    });
+    const result = await deleteAgentFully(AGENT.id, deps);
+    expect(result.agentDeleted).toBe(true);
+    expect(result.completed).toContain("slack-app");
+    expect(result.manualStepsRequired.map((s) => s.key)).not.toContain(
+      "SLACK_APP_ID",
+    );
+    expect(log.slackDeleted).toEqual([
+      { token: "minted-default-1", appId: "A777" },
+    ]);
+    expect(minted).toHaveLength(1);
+  });
+
+  it("uses the account row over the default row", async () => {
+    const { resolver, minted } = fakeStored([null, "acct-1"]);
+    const { deps, log } = makeDeps({
+      prisma: withApp("acct-1"),
+      slackConfigTokens: resolver,
+    });
+    await deleteAgentFully(AGENT.id, deps);
+    expect(minted[0]?.scope).toBe("acct-1");
+    expect(log.slackDeleted[0]?.token).toBe("minted-acct-1-1");
+  });
+
+  it("a pasted token wins over the stored one", async () => {
+    const { resolver, minted } = fakeStored([null]);
+    const { deps, log } = makeDeps({
+      prisma: withApp(null),
+      slackConfigTokens: resolver,
+    });
+    await deleteAgentFully(AGENT.id, deps, { xoxpToken: "xoxp-paste" });
+    expect(log.slackDeleted).toEqual([{ token: "xoxp-paste", appId: "A777" }]);
+    expect(minted).toEqual([]);
+  });
+
+  it("keeps the manual step when neither a pasted nor a stored token exists", async () => {
+    const { resolver } = fakeStored([]);
+    const { deps, log } = makeDeps({
+      prisma: withApp("acct-1"),
+      slackConfigTokens: resolver,
+    });
+    const result = await deleteAgentFully(AGENT.id, deps);
+    expect(log.slackDeleted).toEqual([]);
+    expect(result.manualStepsRequired.map((s) => s.key)).toContain(
+      "SLACK_APP_ID",
+    );
+  });
+
+  it("retries once with a rotated token when Slack reports token_revoked", async () => {
+    const { resolver } = fakeStored([null], true);
+    const prisma = withApp(null);
+    const { deps, log } = makeDeps({ prisma, slackConfigTokens: resolver });
+    let calls = 0;
+    deps.slack = {
+      deleteApp: async (token, appId) => {
+        log.slackDeleted.push({ token, appId });
+        if (++calls === 1)
+          throw new Error("Slack apps.manifest.delete failed: token_revoked");
+      },
+    };
+    const result = await deleteAgentFully(AGENT.id, deps);
+    expect(result.agentDeleted).toBe(true);
+    expect(log.slackDeleted.map((c) => c.token)).toEqual([
+      "minted-default-1",
+      "minted-default-2",
+    ]);
+  });
+
+  it("records slack-app failed when minting the token fails", async () => {
+    const resolver = {
+      get: async () => ({ accountId: null }),
+      resolveForAccount: async () => ({ accountId: null }),
+      withSlackConfigAccessToken: async () => {
+        throw new Error("rotation failed");
+      },
+    } as unknown as DeleteAgentFullyDeps["slackConfigTokens"];
+    const { deps } = makeDeps({
+      prisma: withApp(null),
+      slackConfigTokens: resolver,
+    });
+    const result = await deleteAgentFully(AGENT.id, deps);
+    expect(result.agentDeleted).toBe(false);
+    expect(result.failed).toEqual([
+      { step: "slack-app", error: "rotation failed" },
     ]);
   });
 });

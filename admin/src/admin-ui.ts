@@ -161,6 +161,11 @@ import {
   DEFAULT_SELF_SERVE_CONTACT_EMAIL,
   type SelfServeConfig,
 } from "./self-serve-config.ts";
+import {
+  hasStoredSlackConfigToken,
+  type SlackConfigTokenResolver,
+  withSlackConfigToken,
+} from "./slack-config-token.ts";
 import type { AppManifest } from "./slack-provisioning-client.ts";
 import {
   AGENT_BOT_SCOPES,
@@ -449,6 +454,13 @@ export interface AdminUIDeps {
   oktaIssuer?: string;
   adminAllowedEmails: string[];
   slackClient: AdminUISlackClient;
+  /**
+   * Optional stored Slack config token resolver (SCT-4.1; additive). When set,
+   * the create / connect-slack / sync-manifest / delete flows mint an access
+   * token from the agent's account row (else the default row) whenever no
+   * xoxpToken was pasted. Absent keeps the paste-only behavior.
+   */
+  slackConfigTokens?: SlackConfigTokenResolver;
   /**
    * GitHub App manifest-flow provisioning client, used by the auto-provision
    * sub-flow under ghAuthMode=app: GET /admin/provision/github-app/complete
@@ -1035,6 +1047,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     sessionSecret,
     appBaseUrl,
     secretEnvVars: new Set(SECRET_ENV_VARS),
+    ...(deps.slackConfigTokens
+      ? { slackConfigTokens: deps.slackConfigTokens }
+      : {}),
   });
 
   // Extracted GitHub App manifest-flow/PAT provisioning orchestration
@@ -1644,6 +1659,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         error,
         canProvision: provisioner.canProvision,
         anthropicFederationEnabled: deps.anthropicFederationEnabled,
+        slackConfigTokenStored: await hasStoredSlackConfigToken(
+          deps.slackConfigTokens,
+          accountId,
+        ),
         ...(selfServeOpts ? { selfServe: selfServeOpts } : {}),
         ...(templateService
           ? {
@@ -2533,6 +2552,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           queueActivityLinks: deps.queueActivityLinks,
           marketplaces,
           githubEnterpriseConfigured: enterpriseConfigured,
+          slackConfigTokenStored: await hasStoredSlackConfigToken(
+            deps.slackConfigTokens,
+            agent.accountId ?? null,
+          ),
           ...(installationRepos ? { installationRepos } : {}),
           ...(agentsApi
             ? { template: { detached: agent.templateDetached === true } }
@@ -3445,6 +3468,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             queueActivityLinks: deps.queueActivityLinks,
             marketplaces,
             githubEnterpriseConfigured: await githubEnterpriseConfigured(c),
+            slackConfigTokenStored: await hasStoredSlackConfigToken(
+              deps.slackConfigTokens,
+              agent.accountId ?? null,
+            ),
             ...(agentsApi
               ? { template: { detached: agent.templateDetached === true } }
               : {}),
@@ -3505,7 +3532,17 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       );
     }
 
-    if (!xoxpToken?.startsWith("xoxe.xoxp-")) {
+    // A pasted token wins and must be well-formed; with none pasted, a stored
+    // Slack config token (account row, else default) is minted instead.
+    xoxpToken = xoxpToken?.trim() || undefined;
+    if (
+      xoxpToken
+        ? !xoxpToken.startsWith("xoxe.xoxp-")
+        : !(await hasStoredSlackConfigToken(
+            deps.slackConfigTokens,
+            agent.accountId ?? null,
+          ))
+    ) {
       return c.redirect(
         agentSectionPath(agentId, "general", {
           error: "Slack app configuration token must start with xoxe.xoxp-",
@@ -3528,7 +3565,11 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     try {
       const redirectUri = `${appBaseUrl}/admin/agents/${agentId}/connect-slack/callback`;
       const manifest = buildAgentManifest(agent.name, redirectUri);
-      await slackClient.updateAppManifest(xoxpToken, appId, manifest);
+      await withSlackConfigToken(
+        deps.slackConfigTokens,
+        { pasted: xoxpToken, accountId: agent.accountId ?? null },
+        (token) => slackClient.updateAppManifest(token, appId, manifest),
+      );
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Unknown error syncing manifest.";
@@ -4968,6 +5009,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         chatService,
         slack,
         decrypt,
+        ...(deps.slackConfigTokens
+          ? { slackConfigTokens: deps.slackConfigTokens }
+          : {}),
       });
       if (!result.agentDeleted) {
         // Cleanup is incomplete — keep the operator on the agent's own page

@@ -530,6 +530,8 @@ export function renderNewLocalAgentPage(
     canProvision?: boolean;
     /** WIF-2.1: hide the Claude credential fields (federation supplies auth). */
     anthropicFederationEnabled?: boolean;
+    /** SCT-4.1: a stored Slack config token resolves; the xoxpToken field is optional. */
+    slackConfigTokenStored?: boolean;
     /**
      * Set for self-serve account users (SSP-4.2): shows the account's
      * remaining agent quota and the prerequisites, and pins the type to
@@ -814,7 +816,11 @@ export function renderNewLocalAgentPage(
                 placeholder="xoxe.xoxp-..."
               />
               <p style="font-size:12px;color:#6b7280;margin-top:4px">
-                This token is used once to create the Slack app manifest. It is not stored. After
+                ${
+                  opts?.slackConfigTokenStored
+                    ? "Optional: a stored Slack config token is configured in Settings and is used when this is left blank. A token pasted here is used instead. "
+                    : ""
+                }A pasted token is used once to create the Slack app manifest. It is not stored. After
                 creating the agent you'll be redirected to authorize the Slack app.
               </p>
             </div>
@@ -927,6 +933,8 @@ interface ConnectActionConfig {
     type: "text" | "password" | "file" | "checkbox";
     placeholder?: string;
     mono?: boolean;
+    /** Render without the `required` attribute. */
+    optional?: boolean;
     /** Checkbox only: visible label text; `value` is submitted when checked. */
     label?: string;
     value?: string;
@@ -957,7 +965,7 @@ function renderConnectAction(
                 type="${input.type}"
                 class="form-input${input.mono ? " mono" : ""}"
                 ${input.placeholder ? `placeholder="${escapeHtml(input.placeholder)}"` : ""}
-                required
+                ${input.optional ? "" : "required"}
                 style="font-size:12px"
               />`,
     )
@@ -1134,6 +1142,12 @@ export function renderAgentDetailPage(
      */
     githubEnterpriseConfigured?: boolean;
     /**
+     * SCT-4.1: a stored Slack config token resolves for this agent's account
+     * (its own row, else the deployment default). The xoxpToken fields become
+     * optional and say so.
+     */
+    slackConfigTokenStored?: boolean;
+    /**
      * IRM-1.4: every repo (owner/repo) on the agent App's installation, when it
      * could be listed. Absent means unknown: no coverage warning is shown.
      */
@@ -1232,18 +1246,24 @@ export function renderAgentDetailPage(
 
   // "Connect later" actions (UAP-2.3) — each hidden once its AgentEnv key is
   // already set, mirroring the "Sync Manifest" visibility pattern.
+  const slackStored = opts?.slackConfigTokenStored === true;
   const slackConnectActionConfigs: ConnectActionConfig[] = [
     {
       envKey: "SLACK_APP_TOKEN",
       label: "Connect Slack",
-      description: `Connects this agent to a Slack app. Requires a Slack app configuration token (<span class="mono">xoxe.xoxp-</span>).`,
+      description: slackStored
+        ? `Connects this agent to a Slack app. Optional: a stored Slack config token is used unless you paste a Slack app configuration token (<span class="mono">xoxe.xoxp-</span>).`
+        : `Connects this agent to a Slack app. Requires a Slack app configuration token (<span class="mono">xoxe.xoxp-</span>).`,
       action: `/admin/agents/${escapeHtml(agent.id)}/connect-slack`,
       inputs: [
         {
           name: "xoxpToken",
           type: "password",
-          placeholder: "xoxe.xoxp-...",
+          placeholder: slackStored
+            ? "xoxe.xoxp-... (optional)"
+            : "xoxe.xoxp-...",
           mono: true,
+          optional: slackStored,
         },
       ],
     },
@@ -2228,14 +2248,18 @@ export function renderAgentDetailPage(
         <details>
           <summary class="btn btn-secondary" style="cursor:pointer;font-size:12px;list-style:none">Sync Manifest</summary>
           <div style="position:absolute;right:24px;margin-top:6px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:12px;box-shadow:0 4px 12px rgba(0,0,0,0.08);z-index:10;min-width:320px">
-            <p style="font-size:12px;color:#6b7280;margin:0 0 10px">Syncs the current manifest to the provisioned Slack app. Requires a Slack app configuration token (<span class="mono">xoxe.xoxp-</span>).</p>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 10px">Syncs the current manifest to the provisioned Slack app. ${
+              slackStored
+                ? 'Optional: a stored Slack config token is used unless you paste a Slack app configuration token (<span class="mono">xoxe.xoxp-</span>).'
+                : 'Requires a Slack app configuration token (<span class="mono">xoxe.xoxp-</span>).'
+            }</p>
             <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/sync-manifest" style="display:flex;flex-direction:column;gap:8px">
               <input
                 name="xoxpToken"
                 type="password"
                 class="form-input mono"
                 placeholder="xoxe.xoxp-..."
-                required
+                ${slackStored ? "" : "required"}
                 style="font-size:12px"
               />
               <button type="submit" class="btn btn-primary" style="font-size:12px;align-self:flex-start">Confirm Sync</button>

@@ -304,6 +304,15 @@ export async function startAdmin(
     ? new HttpOktaAuthClient({ issuer: oktaIssuer })
     : undefined;
   const slackClient = new HttpSlackProvisioningClient();
+  // Stored Slack config token (SCT-4.1): strict crypto (null without
+  // SHIPWRIGHT_ENCRYPTION_KEY) and the same HTTP client as the rotate client.
+  // Shared by agent create / connect-slack / sync-manifest / delete.
+  const slackConfigTokens = new SlackConfigTokenService(
+    prisma,
+    makeStrictTokenCrypto(),
+    undefined,
+    slackClient,
+  );
   const githubAppClient = new HttpGithubAppProvisioningClient();
   const slackConfigTokenService = new SlackConfigTokenService(
     prisma,
@@ -539,6 +548,7 @@ export async function startAdmin(
     chatService: deletionChatService,
     slack: slackClient,
     decrypt: crypto.decrypt,
+    slackConfigTokens,
     agentTemplateReconcileService: templateReconcileService,
     sessionSecret,
     adminApiKeys,
@@ -668,6 +678,7 @@ export async function startAdmin(
     chatService: deletionChatService,
     slack: slackClient,
     decrypt: crypto.decrypt,
+    slackConfigTokens,
     sessionSecret,
     googleClientId,
     googleClientSecret,
