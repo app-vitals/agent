@@ -472,7 +472,9 @@ describe("agent Marketplaces card (TMK-3.1)", () => {
   }
 
   const rowHtml = (html: string, name: string) =>
-    html.slice(html.indexOf(`>${name}`)).split("</tr>")[0] ?? "";
+    html
+      .slice(html.lastIndexOf("<tr", html.indexOf(`>${name}`)))
+      .split("</tr>")[0] ?? "";
 
   it("badges template and custom rows", async () => {
     const html = await card();
@@ -483,8 +485,12 @@ describe("agent Marketplaces card (TMK-3.1)", () => {
   it("marks tombstoned rows disabled", async () => {
     const html = await card();
     const dead = rowHtml(html, "dead-mp");
-    expect(dead).toContain("disabled");
-    expect(rowHtml(html, "tpl-mp")).not.toContain("badge-gray");
+    expect(dead).toContain('data-disabled="true"');
+    expect(dead).toContain(">disabled</span>");
+    expect(dead).not.toContain("marketplaces/delete");
+    const live = rowHtml(html, "tpl-mp");
+    expect(live).not.toContain("data-disabled");
+    expect(live).toContain("marketplaces/delete");
   });
 
   it("still renders baked rows as from image", async () => {
