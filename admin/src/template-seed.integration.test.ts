@@ -9,6 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { AGENT_PLATFORM_PLUGIN } from "@app-vitals/agent-lib/default-plugins";
 import type { PrismaClient } from "../prisma/client/client.ts";
 import { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import { AgentPluginService } from "./agent-plugins.ts";
@@ -114,10 +115,12 @@ describeOrSkip("template seed (integration)", () => {
       select: { kind: true, key: true, managedBy: true, payload: true },
     });
 
+  // Reconcile always adds the default platform plugin; these tests only check
+  // seeded rows, so it is excluded here.
   const pluginNames = async (agentId: string) =>
     (
       await prisma.agentPlugin.findMany({
-        where: { agentId },
+        where: { agentId, name: { not: AGENT_PLATFORM_PLUGIN } },
         orderBy: { name: "asc" },
       })
     ).map((p) => ({ name: p.name, source: p.source }));
