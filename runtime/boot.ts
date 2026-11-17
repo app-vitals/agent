@@ -97,6 +97,7 @@ import {
   threadKey,
 } from "./sessions.ts";
 import { ensureAgentHome, installPlugins, runMiseStartup } from "./setup.ts";
+import { SCRIPTS_BIN } from "./scripts-bin.ts";
 import { setupGitHubAuth } from "./setup-github-auth.ts";
 import { HttpShipwrightRuntimeClient } from "./shipwright-runtime-client.ts";
 import { createSlackApp, hasSlackCredentials } from "./slack.ts";
@@ -445,20 +446,13 @@ export async function startAgent(
   // already runs setupGitHubAuth() once at boot in its own (separate)
   // process, and this process's first syncConfig() tick (awaited below,
   // before Step 5) is this process's own "boot" for GitHub App auth.
-  const GITHUB_AUTH_SCRIPTS_BIN = join(
-    import.meta.dir,
-    "..",
-    "..",
-    "scripts",
-    "bin",
-  );
   const githubAuthStartDeps = {
     env: process.env as Record<string, string | undefined>,
     isActive: githubAuthActiveRef.isActive,
     markActive: () => githubAuthActiveRef.setActive(true),
     setupGitHubAuth: () =>
       setupGitHubAuth(
-        buildGitHubAuthDeps(agentHome, GITHUB_AUTH_SCRIPTS_BIN, {
+        buildGitHubAuthDeps(agentHome, SCRIPTS_BIN, {
           withInstallations: true,
           installationsReporter: githubInstallationsReporter,
         }),
