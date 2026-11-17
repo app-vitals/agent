@@ -159,6 +159,27 @@ A `marketplace` template item (key = marketplace name, payload `{source, ref?}`)
 
 Reset-to-template for kind `marketplace` drops the agent's custom rows and tombstones for template-defined names, then re-creates them from the template. Detached agents and unknown specialties are untouched. The reconcile result gains an optional `counts.marketplace` (`created`, `updated`, `adopted`, `deleted`).
 
+### Seeding the deployment-wide template from Helm values
+
+Operators can declare default marketplaces and plugins for every agent in the chart's `admin.templateSeed` values. The chart renders them as the `SHIPWRIGHT_TEMPLATE_SEED` JSON env var on the admin Deployment ([configuration-agent.md](configuration-agent.md)):
+
+```json
+{"marketplaces":[{"name":"example-plugins","source":"example-org/plugins","ref":"v1.2.0"}],
+ "plugins":["some-plugin@example-plugins"]}
+```
+
+On every boot, after migrations and once it is serving, the admin (`admin/src/template-seed.ts`) validates the seed with the same rules as the `/templates` API and applies it to the deployment-wide, all-specialties template through `AgentTemplateService.applyManagedItems()`:
+
+- Each entry becomes a template item with `managedBy = "helm"`, created or updated in place. The template is created when absent.
+- A listed kind (`marketplaces` or `plugins` present, even as `[]`) is replaced: seeded items of that kind that are no longer listed are deleted, so an empty list clears them. A kind whose key is absent keeps its seeded items.
+- Hand-added items (`managedBy` null) are never touched. If one already holds a seeded key, that entry is skipped and logged as `skipped(hand-added)`.
+- An unset or blank `SHIPWRIGHT_TEMPLATE_SEED` does nothing; previously seeded items stay until a smaller seed is listed.
+- Invalid JSON, an unknown key (only `marketplaces` and `plugins` can be seeded), or an entry that fails validation logs one `[template-seed]` error naming the entry (for example `marketplaces[1] (evil)`) and writes nothing. The admin still boots and serves `/health`.
+- The write is one transaction under a constant `pg_advisory_xact_lock`, so admin replicas booting together finish with one copy of each item.
+- The template fan-out then reconciles every attached agent, on every boot, so a fan-out cut short by a restart is completed next time. Removing a seeded item removes its `template`-sourced agent rows.
+
+Seeded items are not read-only. The template editor shows them with a "from Helm values" badge and they can be edited or removed in the UI or API, but the next admin boot overwrites the edit (or re-adds the item). To change them permanently, change the Helm values. The `/templates` API returns `managedBy: "helm"` on seeded items.
+
 ### Plugin versions and `ref`
 
 The Claude CLI cannot pin a plugin version: `plugin install` takes `plugin[@marketplace]` and `plugin update` moves to the latest. `AgentPlugin.version` is therefore advisory and the runtime does not honor it. To hold plugins at a known state, pin the marketplace instead by setting `ref` (a branch, tag or commit) on its row; changing `ref` makes the runtime remove and re-add the marketplace.

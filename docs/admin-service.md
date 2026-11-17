@@ -34,6 +34,7 @@ All paths are under `admin/src/`. Most modules have sibling `*.unit.test.ts`,
 | `server.ts` | Package entry (`exports["."]`): re-exports app factories, services, error classes and clients. It does not start a server. |
 | `self-serve-config.ts` | Parses `SHIPWRIGHT_SELF_SERVE_*` into `{enabled, defaultMaxAgents, contactEmail}`. |
 | `agent-ask-config.ts` | Parses `SHIPWRIGHT_AGENT_ASK_ENABLED` and the `SHIPWRIGHT_AGENT_ASK_ALLOWLIST` `from>to` pairs into `{enabled, allowlist}`; a malformed pair throws. |
+| `template-seed.ts` | TMK-3.2: parses and validates `SHIPWRIGHT_TEMPLATE_SEED` (`parseTemplateSeed`) and, once per boot after `Bun.serve`, applies it to the deployment-wide template as `managedBy="helm"` items through `AgentTemplateService.applyManagedItems()` (`runTemplateSeed`, never throws). |
 | `startup-policy-reconcile.ts` | One-shot, never-throwing policy-only reconcile of managed agents after `Bun.serve`. Also reconciles configured pod labels. Also exports `managedReconcileTargets`, shared with `POST /agents/reconcile`. |
 | `prisma-client.ts`, `prisma-tx.ts`, `clock.ts`, `errors.ts` | Prisma 7 driver-adapter client (pool observability hook), optional-transaction param type, injectable `Clock`, typed `ApiError` subclasses. |
 | `crypto.ts`, `token-crypto.ts` | AES-256-GCM (`iv:ciphertext:authTag`, hex). `makeTokenCrypto()` reads `SHIPWRIGHT_ENCRYPTION_KEY`; unset means identity functions (plaintext). `makeStrictTokenCrypto()` is a strict variant that requires the key and throws on any decryption failure (no plain-text fallback), used for credentials that must never be stored unencrypted. |
@@ -175,9 +176,11 @@ coding modules (also `bun run check:boundary` at the repo root).
 `startAdmin()` runs: Sentry init, `prisma migrate deploy` (skipped with a log if
 `DATABASE_URL_SHIPWRIGHT_ADMIN` is unset), Prisma client, services,
 `collectServiceIntegrations`, provisioner, extension resolution, routes, sweepers,
-extension background passes, `Bun.serve`, graceful shutdown, then the startup
-policy reconcile (fire and forget). The order is pinned by
-`admin-boot.boot-order.unit.test.ts`.
+extension background passes, `Bun.serve`, graceful shutdown, then the template
+seed (`SHIPWRIGHT_TEMPLATE_SEED` applied to the deployment-wide template, see
+[agent-ops.md](agent-ops.md#seeding-the-deployment-wide-template-from-helm-values))
+and the startup policy reconcile, both fire and forget and never throwing. The
+order is pinned by `admin-boot.boot-order.unit.test.ts`.
 
 Route mount order matters because both the runtime and admin apps live under
 `/agents`:
