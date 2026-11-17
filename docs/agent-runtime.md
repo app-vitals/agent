@@ -68,6 +68,8 @@ kubelet probes stay green during setup.
    `reconcileTemplate` applies the agent's merged template (ATP-2.2, via
    `shipwright-runtime-client.ts`) from the admin API; this runs first so any
    template-derived crons and tools are in place before system-cron reconciliation.
+   Template `marketplace` items are merged but not yet applied to the agent; their
+   per-agent reconcile lands in TMK-2.3 (see [admin-service.md](./admin-service.md)).
    A failure (an admin without the route, or a transient error) is non-fatal and
    never blocks boot.
 6. Cron sync loop (60 s; `reconcileCronTasks()` in `cron-sync.ts` unschedules removed jobs

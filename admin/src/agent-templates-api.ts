@@ -102,7 +102,7 @@ const putTemplateRoute = createRoute({
   tags: ["templates"],
   summary: "Create or replace an agent template",
   description:
-    'Creates the template for the (accountId, specialty) scope, or replaces the items of the existing one (201 / 200). Account callers may only write their own account (403 otherwise); only platform admins write deployment-wide templates. 422 for an unknown specialty, a denylisted env key (per-agent credentials: Slack tokens, GH_TOKEN, Anthropic credentials, task-store URL/token), an invalid item payload, a cron item without a name key, or a duplicate (kind, key). Env values are encrypted at rest; a secret env item sent as `"***"` keeps its stored value.',
+    'Creates the template for the (accountId, specialty) scope, or replaces the items of the existing one (201 / 200). Account callers may only write their own account (403 otherwise); only platform admins write deployment-wide templates. 422 for an unknown specialty, a denylisted env key (per-agent credentials: Slack tokens, GH_TOKEN, Anthropic credentials, task-store URL/token), an invalid item payload, a cron item without a name key, a marketplace item with an invalid name, source or ref (same messages as POST /agents/:id/marketplaces), or a duplicate (kind, key). Env values are encrypted at rest; a secret env item sent as `"***"` keeps its stored value.',
   request: {
     body: {
       content: { "application/json": { schema: PutTemplateBodySchema } },

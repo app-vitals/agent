@@ -190,6 +190,15 @@ export function registerAdminTemplatesRoutes(
             enabled: flag(form, "enabled"),
           },
         };
+      case "marketplace":
+        return {
+          kind,
+          key,
+          payload: {
+            source: field(form, "source"),
+            ref: orNull(field(form, "ref")),
+          },
+        };
       case "cron":
         return {
           kind,

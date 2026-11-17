@@ -5,6 +5,8 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  AGENT_TEMPLATE_ITEM_KINDS,
+  assertMarketplaceTemplateItem,
   assertTemplateEnvKeyAllowed,
   openTemplateItemPayload,
   sealTemplateItemPayload,
@@ -66,5 +68,56 @@ describe("assertTemplateEnvKeyAllowed", () => {
 
   it("allows ordinary keys", () => {
     expect(() => assertTemplateEnvKeyAllowed("LINEAR_API_KEY")).not.toThrow();
+  });
+});
+
+describe("marketplace template items", () => {
+  it("lists marketplace as an item kind and stores it unencrypted", () => {
+    expect(AGENT_TEMPLATE_ITEM_KINDS).toContain("marketplace");
+    const payload = { source: "example-org/plugins", ref: "v1" };
+    expect(sealTemplateItemPayload("marketplace", payload, crypto)).toBe(
+      payload,
+    );
+    expect(openTemplateItemPayload("marketplace", payload, crypto)).toBe(
+      payload,
+    );
+  });
+
+  it("accepts a valid name, source and ref (ref optional or null)", () => {
+    expect(() =>
+      assertMarketplaceTemplateItem("example-plugins", {
+        source: "example-org/plugins",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertMarketplaceTemplateItem("m.1_x", {
+        source: "https://git.example.com/org/repo.git",
+        ref: null,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertMarketplaceTemplateItem("m", { source: "o/r", ref: "main" }),
+    ).not.toThrow();
+  });
+
+  it("returns the per-agent API's 422 messages", () => {
+    expect(() =>
+      assertMarketplaceTemplateItem("m", {
+        source: "https://user:pw@example.com/o/r",
+      }),
+    ).toThrow(
+      "source must be a GitHub 'owner/repo' or an https git URL without credentials",
+    );
+    expect(() =>
+      assertMarketplaceTemplateItem("m", { source: "not a repo" }),
+    ).toThrow(UnprocessableEntityError);
+    expect(() =>
+      assertMarketplaceTemplateItem("-bad name", { source: "o/r" }),
+    ).toThrow(
+      "name must start with a letter or digit and contain only letters, digits, '.', '_' and '-'",
+    );
+    expect(() =>
+      assertMarketplaceTemplateItem("m", { source: "o/r", ref: "a..b" }),
+    ).toThrow("ref must be a plain branch, tag or sha");
   });
 });

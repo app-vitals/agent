@@ -84,7 +84,13 @@ export interface TemplateReconcileResult {
   /** "detached" / "unknown_specialty": nothing was written. */
   status: "reconciled" | "detached" | "unknown_specialty";
   /** Template-tracked rows (system crons are counted in `systemCrons`). */
-  counts: Record<AgentTemplateItemKind, TemplateReconcileCounts>;
+  counts: Record<
+    Exclude<AgentTemplateItemKind, "marketplace">,
+    TemplateReconcileCounts
+  > & {
+    /** TMK-2.3: present once the marketplace reconcile lands (additive). */
+    marketplace?: TemplateReconcileCounts;
+  };
   systemCrons: { created: number; updated: number; deleted: number };
   /** Template items deliberately not applied. */
   conflicts: TemplateReconcileConflict[];

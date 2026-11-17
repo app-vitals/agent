@@ -12,6 +12,11 @@
 
 import type { Prisma } from "../prisma/client/client.ts";
 import { ANTHROPIC_CREDENTIAL_KEYS } from "./anthropic-credential-guard.ts";
+import {
+  validateMarketplaceName,
+  validateMarketplaceRef,
+  validateMarketplaceSource,
+} from "./agent-marketplaces.ts";
 import { UnprocessableEntityError } from "./errors.ts";
 import type { TokenCrypto } from "./token-crypto.ts";
 
@@ -20,6 +25,7 @@ export const AGENT_TEMPLATE_ITEM_KINDS = [
   "tool",
   "plugin",
   "cron",
+  "marketplace",
 ] as const;
 export type AgentTemplateItemKind = (typeof AGENT_TEMPLATE_ITEM_KINDS)[number];
 
@@ -53,6 +59,20 @@ export function openTemplateItemPayload(
 ): TemplateItemPayload {
   if (kind !== "env" || typeof payload.value !== "string") return payload;
   return { ...payload, value: crypto.decrypt(payload.value) };
+}
+
+/**
+ * Throws UnprocessableEntityError (422) unless a marketplace item's key (the
+ * marketplace name) and payload ({source, ref?}) pass the same validators as
+ * POST /agents/:id/marketplaces.
+ */
+export function assertMarketplaceTemplateItem(
+  key: string,
+  payload: { source: string; ref?: string | null },
+): void {
+  validateMarketplaceName(key);
+  validateMarketplaceSource(payload.source);
+  validateMarketplaceRef(payload.ref);
 }
 
 /**

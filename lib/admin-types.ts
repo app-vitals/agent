@@ -4152,7 +4152,7 @@ export interface paths {
         };
         /**
          * Create or replace an agent template
-         * @description Creates the template for the (accountId, specialty) scope, or replaces the items of the existing one (201 / 200). Account callers may only write their own account (403 otherwise); only platform admins write deployment-wide templates. 422 for an unknown specialty, a denylisted env key (per-agent credentials: Slack tokens, GH_TOKEN, Anthropic credentials, task-store URL/token), an invalid item payload, a cron item without a name key, or a duplicate (kind, key). Env values are encrypted at rest; a secret env item sent as `"***"` keeps its stored value.
+         * @description Creates the template for the (accountId, specialty) scope, or replaces the items of the existing one (201 / 200). Account callers may only write their own account (403 otherwise); only platform admins write deployment-wide templates. 422 for an unknown specialty, a denylisted env key (per-agent credentials: Slack tokens, GH_TOKEN, Anthropic credentials, task-store URL/token), an invalid item payload, a cron item without a name key, a marketplace item with an invalid name, source or ref (same messages as POST /agents/:id/marketplaces), or a duplicate (kind, key). Env values are encrypted at rest; a secret env item sent as `"***"` keeps its stored value.
          */
         put: {
             parameters: {
@@ -4859,7 +4859,7 @@ export interface components {
             };
             conflicts: {
                 /** @enum {string} */
-                kind: "env" | "tool" | "plugin" | "cron";
+                kind: "env" | "tool" | "plugin" | "cron" | "marketplace";
                 key: string;
                 /** @enum {string} */
                 reason: "cron_name_conflict" | "invalid_cron_schedule" | "denylisted_env_key";
@@ -4871,7 +4871,7 @@ export interface components {
         };
         ResetTemplateBody: {
             /** @enum {string} */
-            kind?: "env" | "tool" | "plugin" | "cron";
+            kind?: "env" | "tool" | "plugin" | "cron" | "marketplace";
             key?: string;
         };
         ReconcileCronResult: {
@@ -6102,7 +6102,7 @@ export interface components {
             updatedAt: string;
         };
         /** @enum {string} */
-        TemplateItemKind: "env" | "tool" | "plugin" | "cron";
+        TemplateItemKind: "env" | "tool" | "plugin" | "cron" | "marketplace";
         PutTemplateBody: {
             /** @description Owning account; null or omitted = deployment-wide (platform admins only). Account callers may omit it or send their own account. */
             accountId?: string | null;
@@ -6118,7 +6118,7 @@ export interface components {
              */
             key: string;
             /**
-             * @description Kind-specific fields. env: {value, secret?}; tool: {enabled?}; plugin: {version?, enabled?}; cron: {schedule, prompt, channel?, user?, silent?, enabled?, preCheck?}.
+             * @description Kind-specific fields. env: {value, secret?}; tool: {enabled?}; plugin: {version?, enabled?}; cron: {schedule, prompt, channel?, user?, silent?, enabled?, preCheck?}; marketplace: {source, ref?} (key = marketplace name).
              * @example {
              *       "value": "lin_abc",
              *       "secret": true

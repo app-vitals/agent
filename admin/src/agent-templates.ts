@@ -21,6 +21,7 @@ import { z } from "zod";
 import type { PrismaClient } from "../prisma/client/client.ts";
 import {
   AGENT_TEMPLATE_ITEM_KINDS,
+  assertMarketplaceTemplateItem,
   type AgentTemplateItemKind,
   assertTemplateEnvKeyAllowed,
   openTemplateItemPayload,
@@ -92,6 +93,10 @@ const PAYLOAD_SCHEMAS = {
     enabled: z.boolean().optional(),
     preCheck: z.string().nullable().optional(),
   }),
+  marketplace: z.object({
+    source: z.string(),
+    ref: z.string().nullable().optional(),
+  }),
 } satisfies Record<AgentTemplateItemKind, z.ZodType>;
 
 /** Validates one item and returns its normalized (still plaintext) payload. */
@@ -127,6 +132,12 @@ export function normalizeTemplateItem(
       .join(", ");
     throw new UnprocessableEntityError(
       `invalid ${item.kind} item ${key}: ${detail}`,
+    );
+  }
+  if (item.kind === "marketplace") {
+    assertMarketplaceTemplateItem(
+      key,
+      parsed.data as { source: string; ref?: string | null },
     );
   }
   return { kind: item.kind, key, payload: parsed.data };

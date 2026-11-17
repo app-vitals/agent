@@ -175,6 +175,86 @@ describeOrSkip("/templates (integration)", () => {
     });
   });
 
+  describe("marketplace items", () => {
+    const mkt = (key: string, payload: Record<string, unknown>) => ({
+      kind: "marketplace",
+      key,
+      payload,
+    });
+
+    it("round-trips a marketplace item unchanged", async () => {
+      const item = mkt("example-plugins", { source: "example-org/plugins" });
+      const put = await call("PUT", "/templates", admin, { items: [item] });
+      expect([200, 201]).toContain(put.status);
+      const list = (await (await call("GET", "/templates", admin)).json()) as {
+        templates: {
+          items: { kind: string; key: string; payload: unknown }[];
+        }[];
+      };
+      const got = list.templates[0]?.items.find(
+        (i) => i.kind === "marketplace",
+      );
+      expect(got).toMatchObject(item);
+      const { id } = (await put.json()) as { id: string };
+      const row = await prisma.agentTemplateItem.findFirstOrThrow({
+        where: { templateId: id, kind: "marketplace" },
+      });
+      expect(row.payload).toEqual({ source: "example-org/plugins" });
+    });
+
+    it("supports item upsert and delete", async () => {
+      const put = await call("PUT", "/templates", admin, { items: [] });
+      const { id } = (await put.json()) as { id: string };
+      const up = await call(
+        "PUT",
+        `/templates/${id}/items`,
+        admin,
+        mkt("m1", { source: "o/r", ref: "v1" }),
+      );
+      expect(up.status).toBe(200);
+      const del = await call(
+        "DELETE",
+        `/templates/${id}/items?kind=marketplace&key=m1`,
+        admin,
+      );
+      expect(del.status).toBeLessThan(300);
+      expect(await prisma.agentTemplateItem.count()).toBe(0);
+    });
+
+    it.each([
+      ["credentials in source", "m", { source: "https://u:p@example.com/o/r" }],
+      ["malformed owner/repo", "m", { source: "not a repo" }],
+      ["invalid name", "-bad name", { source: "o/r" }],
+      ["invalid ref", "m", { source: "o/r", ref: "a..b" }],
+    ])("422 for %s", async (_label, key, payload) => {
+      const res = await call("PUT", "/templates", admin, {
+        items: [mkt(key, payload)],
+      });
+      expect(res.status).toBe(422);
+      expect(await prisma.agentTemplate.count()).toBe(0);
+    });
+
+    it("422 for a duplicate marketplace key in one body", async () => {
+      const item = mkt("m", { source: "o/r" });
+      const res = await call("PUT", "/templates", admin, {
+        items: [item, item],
+      });
+      expect(res.status).toBe(422);
+    });
+
+    it("403 for an account caller writing another account or the deployment template", async () => {
+      const b = await cookie("b@example.com");
+      const items = [mkt("m", { source: "o/r" })];
+      expect(
+        (await call("PUT", "/templates", b, { accountId: accountA, items }))
+          .status,
+      ).toBe(403);
+      expect(
+        (await call("PUT", "/templates", b, { accountId: null, items })).status,
+      ).toBe(403);
+    });
+  });
+
   describe("crypto and masking", () => {
     it("encrypts env values at rest and masks secrets on GET", async () => {
       const put = await call("PUT", "/templates", admin, {

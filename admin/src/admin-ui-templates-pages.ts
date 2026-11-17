@@ -11,6 +11,10 @@
 import { renderAdminPage } from "./admin-ui-layout.ts";
 import { escapeHtml } from "./admin-ui-styles.ts";
 import {
+  AGENT_TEMPLATE_ITEM_KINDS,
+  type AgentTemplateItemKind,
+} from "./agent-template-items.ts";
+import {
   buildSettingsNav,
   renderSettingsLayout,
   type SettingsNav,
@@ -26,7 +30,7 @@ export interface TemplateScopeOption {
 }
 
 export interface TemplateItemRow {
-  kind: "env" | "tool" | "plugin" | "cron";
+  kind: AgentTemplateItemKind;
   key: string;
   payload: Record<string, unknown>;
 }
@@ -90,6 +94,9 @@ function itemFields(
     case "plugin":
       return `<label>Version <input name="version" class="form-input" value="${escapeHtml(str(p.version))}" placeholder="latest" /></label>
         <label><input type="checkbox" name="enabled" value="1"${checked(p.enabled)} /> Enabled</label>`;
+    case "marketplace":
+      return `<label>Source <input name="source" class="form-input" value="${escapeHtml(str(p.source))}" placeholder="owner/repo" /></label>
+        <label>Ref <input name="ref" class="form-input" value="${escapeHtml(str(p.ref))}" placeholder="default branch" /></label>`;
     case "cron":
       return `<label>Schedule <input name="schedule" class="form-input" value="${escapeHtml(str(p.schedule))}" placeholder="0 9 * * 1-5" /></label>
         <label>Prompt <textarea name="prompt" class="form-input" rows="2">${escapeHtml(str(p.prompt))}</textarea></label>
@@ -106,6 +113,7 @@ const KIND_COPY = {
   tool: { title: "Tools", key: "Tool pattern", ph: "Bash(git *)" },
   plugin: { title: "Plugins", key: "Plugin", ph: "shipwright@shipwright" },
   cron: { title: "Crons", key: "Name", ph: "daily-digest" },
+  marketplace: { title: "Marketplaces", key: "Name", ph: "example-plugins" },
 } as const;
 
 function kindCard(o: TemplatesPageOpts, kind: TemplateItemRow["kind"]): string {
@@ -158,11 +166,11 @@ export function renderTemplatesPage(o: TemplatesPageOpts): string {
       isAdmin: o.isAdmin ?? false,
       body: `${error}${notice}
     <div class="card">
-      <p class="help-text">Default env vars, tools, plugins and crons for new agents in a scope. Secret values are masked after saving; leave <code>***</code> to keep the stored value.</p>
+      <p class="help-text">Default env vars, tools, plugins, crons and plugin marketplaces for new agents in a scope. Secret values are masked after saving; leave <code>***</code> to keep the stored value.</p>
       ${scopePicker(o)}
       ${del}
     </div>
-    ${(["env", "tool", "plugin", "cron"] as const).map((k) => kindCard(o, k)).join("\n")}`,
+    ${AGENT_TEMPLATE_ITEM_KINDS.map((k) => kindCard(o, k)).join("\n")}`,
     }),
   });
 }

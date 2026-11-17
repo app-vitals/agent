@@ -9,6 +9,7 @@
 import { isGithubLogin } from "@app-vitals/agent-lib/github-login";
 import { isOrgRepo } from "@app-vitals/agent-lib/org-repo";
 import { z } from "@hono/zod-openapi";
+import { AGENT_TEMPLATE_ITEM_KINDS } from "./agent-template-items.ts";
 
 // ─── Common ───────────────────────────────────────────────────────────────────
 
@@ -1566,7 +1567,7 @@ export const PatchAccountBodySchema = z
 // ─── Agent templates (ATP-1.3) ────────────────────────────────────────────────
 
 export const TemplateItemKindSchema = z
-  .enum(["env", "tool", "plugin", "cron"])
+  .enum(AGENT_TEMPLATE_ITEM_KINDS)
   .openapi("TemplateItemKind");
 
 const TemplateItemBaseSchema = z.object({
@@ -1581,7 +1582,7 @@ const TemplateItemBaseSchema = z.object({
     .optional()
     .openapi({
       description:
-        "Kind-specific fields. env: {value, secret?}; tool: {enabled?}; plugin: {version?, enabled?}; cron: {schedule, prompt, channel?, user?, silent?, enabled?, preCheck?}.",
+        "Kind-specific fields. env: {value, secret?}; tool: {enabled?}; plugin: {version?, enabled?}; cron: {schedule, prompt, channel?, user?, silent?, enabled?, preCheck?}; marketplace: {source, ref?} (key = marketplace name).",
       example: { value: "lin_abc", secret: true },
     }),
 });
