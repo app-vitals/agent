@@ -3,7 +3,52 @@
  * Shared Shipwright toolbar — used by both the metrics dashboard and the admin UI.
  */
 
+/**
+ * Who is viewing the toolbar. `admin` = admins and owners; `member` = any other
+ * signed-in user; `public` = the unauthenticated read-only proof host.
+ */
+export type ToolbarAudience = "admin" | "member" | "public";
+
+export type ToolbarNavItemId =
+  | "agents"
+  | "tasks"
+  | "sessions"
+  | "prs"
+  | "chat"
+  | "queue-activity"
+  | "settings"
+  | "metrics"
+  | "public-tasks";
+
+export interface ToolbarNavItem {
+  id: ToolbarNavItemId;
+  label: string;
+  /** Audiences that see this item. */
+  audiences: readonly ToolbarAudience[];
+}
+
+const SIGNED_IN: readonly ToolbarAudience[] = ["admin", "member"];
+
+/** Nav manifest, in render order: which audiences see each item. */
+export const TOOLBAR_NAV_ITEMS: readonly ToolbarNavItem[] = [
+  { id: "agents", label: "Agents", audiences: SIGNED_IN },
+  { id: "tasks", label: "Tasks", audiences: SIGNED_IN },
+  { id: "sessions", label: "Sessions", audiences: SIGNED_IN },
+  { id: "prs", label: "PRs", audiences: SIGNED_IN },
+  { id: "chat", label: "Chat", audiences: SIGNED_IN },
+  { id: "queue-activity", label: "Queue & Activity", audiences: SIGNED_IN },
+  { id: "settings", label: "Settings", audiences: ["admin"] },
+  { id: "metrics", label: "Metrics", audiences: ["admin", "member", "public"] },
+  { id: "public-tasks", label: "Tasks", audiences: ["public"] },
+];
+
 export interface ShipwrightToolbarOptions {
+  /**
+   * Who is viewing. Nav visibility derives from {@link TOOLBAR_NAV_ITEMS}.
+   * `public` renders the read-only variant (same as `readOnly`). When omitted,
+   * the legacy `readOnly` / `showSettings` flags decide.
+   */
+  audience?: ToolbarAudience;
   userName: string;
   /** Current request path, used to highlight the active nav link. */
   activePath: string;
@@ -24,7 +69,8 @@ export interface ShipwrightToolbarOptions {
   tasksUrl?: string;
   /**
    * Render the "Settings" nav entry (links to /admin/settings; shown to
-   * admins and account members). Defaults to false.
+   * admins and account members). Defaults to false. Legacy: prefer
+   * `audience`; when both are set, Settings shows if either allows it.
    */
   showSettings?: boolean;
 }
@@ -204,10 +250,19 @@ export function renderShipwrightToolbar(
   // belongs to the new tab instead.
   const isQueueActivity = activePath.includes("/queue-activity");
 
+  const audience = opts.audience;
+  const visible = (id: ToolbarNavItemId): boolean => {
+    if (id === "settings" && opts.showSettings) return true; // legacy flag
+    const item = TOOLBAR_NAV_ITEMS.find((i) => i.id === id);
+    // No audience: legacy rendering (everything except Settings, which is flag-gated).
+    if (!audience) return id !== "settings" && id !== "public-tasks";
+    return item?.audiences.includes(audience) ?? false;
+  };
+
   // Public proof surface: only the read-only Metrics + Tasks views are routed and
   // reachable, so omit every /admin/* link and the sign-out form (they 404 on the
   // public host). The wordmark points at the dashboard instead of /admin/agents.
-  if (opts.readOnly) {
+  if (opts.readOnly || audience === "public") {
     const tasksUrl = opts.tasksUrl ?? "/public/tasks";
     return `<input type="checkbox" id="vos-nav-toggle" class="vos-nav-toggle" aria-hidden="true">
   <nav class="vos-toolbar" aria-label="Site navigation">
@@ -221,17 +276,42 @@ export function renderShipwrightToolbar(
   <script>(function(){var t=document.getElementById('vos-nav-toggle');if(t)t.addEventListener('change',function(){var l=document.querySelector('label[for="vos-nav-toggle"]');if(l)l.setAttribute('aria-expanded',t.checked?'true':'false');});})();</script>`;
   }
 
+  const hrefs: Record<string, string> = {
+    agents: `/admin/agents`,
+    tasks: `/admin/tasks`,
+    sessions: `/admin/sessions`,
+    prs: `/admin/prs`,
+    chat: `/admin/chat`,
+    "queue-activity": `/admin/queue-activity`,
+    settings: `/admin/settings`,
+  };
+  const links = TOOLBAR_NAV_ITEMS.filter(
+    (i) => i.id !== "public-tasks" && visible(i.id),
+  )
+    .map((i) => {
+      if (i.id === "metrics") {
+        return `<a href="${metricsUrl}" class="vos-nav-link${active(metricsUrl)}">${i.label}</a>`;
+      }
+      const path = hrefs[i.id] as string;
+      const on =
+        i.id === "agents"
+          ? isQueueActivity
+            ? ""
+            : active(path)
+          : i.id === "queue-activity"
+            ? isQueueActivity
+              ? " active"
+              : ""
+            : active(path);
+      return `<a href="${adminBase}${path}" class="vos-nav-link${on}">${escapeHtml(i.label)}</a>`;
+    })
+    .join("\n      ");
+
   return `<input type="checkbox" id="vos-nav-toggle" class="vos-nav-toggle" aria-hidden="true">
   <nav class="vos-toolbar" aria-label="Site navigation">
     <a href="${adminBase}/admin/agents" class="vos-wordmark">Shipwright</a>
     <div id="vos-nav-content" class="vos-nav">
-      <a href="${adminBase}/admin/agents" class="vos-nav-link${isQueueActivity ? "" : active("/admin/agents")}">Agents</a>
-      <a href="${adminBase}/admin/tasks" class="vos-nav-link${active("/admin/tasks")}">Tasks</a>
-      <a href="${adminBase}/admin/sessions" class="vos-nav-link${active("/admin/sessions")}">Sessions</a>
-      <a href="${adminBase}/admin/prs" class="vos-nav-link${active("/admin/prs")}">PRs</a>
-      <a href="${adminBase}/admin/chat" class="vos-nav-link${active("/admin/chat")}">Chat</a>
-      <a href="${adminBase}/admin/queue-activity" class="vos-nav-link${isQueueActivity ? " active" : ""}">Queue &amp; Activity</a>
-      ${opts.showSettings ? `<a href="${adminBase}/admin/settings" class="vos-nav-link${active("/admin/settings")}">Settings</a>\n      ` : ""}<a href="${metricsUrl}" class="vos-nav-link${active(metricsUrl)}">Metrics</a>
+      ${links}
     </div>
     <div class="vos-user">
       <span class="vos-username">${escapeHtml(userName)}</span>
