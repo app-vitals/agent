@@ -74,3 +74,33 @@ describe("renderTemplatesPage settings shell (SGL-2.2)", () => {
     );
   });
 });
+
+describe("renderTemplatesPage marketplace kind (TMK-3.1)", () => {
+  const html = renderTemplatesPage({
+    ...base,
+    templateExists: true,
+    items: [
+      {
+        kind: "marketplace",
+        key: "acme-plugins",
+        payload: { source: "acme/<plugins>", ref: "v1" },
+      },
+    ],
+  });
+
+  it("renders a Marketplaces card with an add form for name, source and ref", () => {
+    expect(html).toContain('id="template-marketplace"');
+    expect(html).toContain("Add marketplace");
+    expect(html).toContain('name="source"');
+    expect(html).toContain('name="ref"');
+  });
+
+  it("lists an existing item with escaped values and a remove button", () => {
+    expect(html).toContain('data-kind="marketplace" data-key="acme-plugins"');
+    expect(html).toContain('value="acme/&lt;plugins&gt;"');
+    expect(html).toContain('value="v1"');
+    expect(html).toContain(
+      'formaction="/admin/settings/templates/items/delete"',
+    );
+  });
+});
