@@ -392,7 +392,7 @@ describeOrSkip("agent template triggers (integration)", () => {
         expect(res.status).toBe(200);
         return (await res.json()) as {
           marketplaces: { name: string; source: string; ref: string | null }[];
-          plugins: { name: string }[];
+          plugins: { plugin: string; marketplace: string }[];
         };
       };
 
@@ -408,7 +408,10 @@ describeOrSkip("agent template triggers (integration)", () => {
       expect(cfg.marketplaces).toEqual([
         { name: "example-mk", source: "example-org/plugins", ref: "v1" },
       ]);
-      expect(cfg.plugins.map((p) => p.name)).toContain("tool@example-mk");
+      expect(cfg.plugins).toContainEqual({
+        plugin: "tool",
+        marketplace: "example-mk",
+      });
       expect(
         await prisma.agentMarketplace.count({ where: { agentId: other.id } }),
       ).toBe(0);
@@ -424,6 +427,32 @@ describeOrSkip("agent template triggers (integration)", () => {
       ]);
       cfg = await config();
       expect(cfg.marketplaces[0]?.ref).toBe("v2");
+
+      // A tombstoned row stays out of the bundle and is not re-added by the
+      // next fan-out.
+      const marketplaces = new AgentMarketplaceService(prisma);
+      const row = await prisma.agentMarketplace.findUniqueOrThrow({
+        where: { agentId_name: { agentId: agent.id, name: "example-mk" } },
+      });
+      await marketplaces.remove(agent.id, row.id);
+      await templates.replace({ kind: "admin" }, {}, [
+        {
+          kind: "marketplace",
+          key: "example-mk",
+          payload: { source: "example-org/plugins", ref: "v3" },
+        },
+        { kind: "plugin", key: "tool@example-mk" },
+      ]);
+      cfg = await config();
+      expect(cfg.marketplaces).toEqual([]);
+      const tomb = await prisma.agentMarketplace.findUniqueOrThrow({
+        where: { id: row.id },
+      });
+      expect(tomb).toMatchObject({
+        enabled: false,
+        rowSource: "custom",
+        ref: "v2",
+      });
     });
   });
 });
