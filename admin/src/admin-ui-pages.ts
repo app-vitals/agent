@@ -212,6 +212,10 @@ export interface MarketplaceItem {
   name: string;
   source: string;
   ref: string | null;
+  /** TMK-3.1: `template` or `custom` (AgentMarketplace.rowSource). */
+  rowSource?: string;
+  /** TMK-3.1: false = tombstone of a deleted template row. */
+  enabled?: boolean;
   createdAt: Date;
 }
 
@@ -1544,20 +1548,28 @@ export function renderAgentDetailPage(
   const marketplaces = opts?.marketplaces ?? [];
   const bakedMarketplaces = agent.bakedMarketplaces ?? [];
   const marketplaceRows = marketplaces
-    .map(
-      (m) => `<tr>
-      <td class="mono">${escapeHtml(m.name)}</td>
+    .map((m) => {
+      const tombstone = m.enabled === false;
+      return `<tr${tombstone ? ' data-disabled="true" style="opacity:.6"' : ""}>
+      <td class="mono">${escapeHtml(m.name)}${sourceBadge(m.rowSource)}</td>
       <td class="mono">${escapeHtml(m.source)}</td>
       <td class="mono">${m.ref ? escapeHtml(m.ref) : "default"}</td>
-      <td><span class="badge badge-green">remote</span></td>
-      <td>
+      <td>${
+        tombstone
+          ? `<span class="badge badge-gray" title="Removed from this agent; the template no longer re-adds it">disabled</span>`
+          : `<span class="badge badge-green">remote</span>`
+      }</td>
+      <td>${
+        tombstone
+          ? ""
+          : `
         <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/marketplaces/delete" style="display:inline">
           <input type="hidden" name="marketplaceId" value="${escapeHtml(m.id)}" />
           <button type="submit" class="btn btn-danger" style="font-size:11px;padding:3px 8px">Remove</button>
-        </form>
-      </td>
-    </tr>`,
-    )
+        </form>`
+      }</td>
+    </tr>`;
+    })
     .join("\n");
   const bakedMarketplaceRows = bakedMarketplaces
     .map(
@@ -2009,7 +2021,10 @@ export function renderAgentDetailPage(
     </div>`;
 
   const pluginMarketplaceNames = [
-    ...new Set([...marketplaces.map((m) => m.name), ...bakedMarketplaces]),
+    ...new Set([
+      ...marketplaces.filter((m) => m.enabled !== false).map((m) => m.name),
+      ...bakedMarketplaces,
+    ]),
   ];
   const pluginsSection = `<div class="card">
       <div class="card-title">Plugins</div>
