@@ -388,7 +388,7 @@ The Slack App Configuration refresh token used for manifest API calls (create/sy
 
 **Token management:** Set at `/admin/settings/slack-config-token` through the admin UI. Platform admins manage the deployment-wide default and any account's row; account owners manage only their own account's row. Only the refresh token (starts with `xoxe-1-`) is accepted; it is validated by rotating it once and the rotated pair is stored encrypted. Requires `SHIPWRIGHT_ENCRYPTION_KEY` to be configured.
 
-**API impact:** When `xoxpToken` is omitted from agent-creation, app-sync or app-delete requests (or supplied as null/empty), the system resolves a stored token: first the agent's account row, then the deployment-wide default. If neither exists and no pasted token is provided, the operation fails. A pasted token always takes precedence over a stored token (fallback/override model).
+**API impact:** When `xoxpToken` is omitted from agent-creation, app-sync or app-delete requests (or supplied as null/empty), the system resolves a stored token: first the agent's account row, then the deployment-wide default. If neither exists, create/sync cannot call Slack, and delete skips the Slack app with a manual-steps checklist entry. A pasted token always takes precedence over a stored token (fallback/override model).
 
 **More information:** See [Stored Slack App Configuration Token](./configuration-agent.md#stored-slack-app-configuration-token) in the configuration guide for token rotation semantics, encryption, and retry behavior.
 

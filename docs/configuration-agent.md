@@ -215,7 +215,9 @@ TTS defaults to the self-hosted Piper binary baked into the agent image (no netw
 
 **Live resolution and precedence.** Voice settings are read from live `process.env` at synthesis/transcription time (`buildVoiceConfig()` in `runtime/voice.ts`, mirroring `buildSlackAppConfig()`), not from the boot-time `config.voice` snapshot (which is kept only for Piper voice validation at startup). A per-agent `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` set via `PATCH /agents/{id}/envs` therefore takes effect on that agent within one config-sync tick (≤ 60 s) with no pod restart, while other agents keep Piper. Per-agent env wins over fleet-wide env (`admin.extraEnv`) because config-sync overwrites the process value; removing the per-agent key restores the fleet value, or Piper if there is none, on the next tick. Each `[speak:]` synthesis logs the chosen backend (`[voice] TTS backend: elevenlabs|piper`) without printing keys.
 
-## Stored Slack App Configuration Token
+On Kubernetes these env vars are a deploy-time option of the Helm chart rather than something you set by hand. Setting `agent.voice.enabled=true` and `agent.voice.provider` (`whisper` | `groq`) makes the chart inject the matching env into provisioned agent pods. With `provider=whisper` it renders a self-hosted Whisper ASR pod and sets `WHISPER_SERVICE_URL` to its in-cluster Service. With `provider=groq` it flows `GROQ_API_KEY` from a chart-managed voice Secret. ElevenLabs TTS is opt-in and applies to both providers when set.
+
+### Stored Slack App Configuration Token
 
 The Slack App Configuration refresh token (used for `app_configurations:write` manifest API calls) can optionally be stored encrypted in the admin database per deployment or per account. When stored, the admin service mints a fresh 12-hour access token on demand, caches it encrypted, and serializes rotation with a row lock to prevent double-rotate lockout.
 
@@ -225,11 +227,9 @@ The Slack App Configuration refresh token (used for `app_configurations:write` m
 
 **Rotation and fallback:** Each token has a row lock (`SELECT ... FOR UPDATE`) held across the Slack `tooling.tokens.rotate` call. If the access token has more than 10 minutes left, it is reused; otherwise the service rotates using the stored refresh token. Rotating revokes the access token that was issued with the refresh token used, so only one concurrent caller may rotate at a time. The lock and cache re-check prevent a second rotate from breaking a first caller's token. Old refresh tokens are not single-use and work for at least minutes (lifetime unknown); always persist the newest. On `token_revoked` or `invalid_auth` from a manifest call, one forced rotate is triggered automatically, then the call is retried; if that also fails, an error surfaces.
 
-**Stored token vs. pasted token:** When creating/syncing/deleting a Slack app, a pasted `xoxe-1-...` token (sent as `xoxpToken` in the request) **wins**; it is used as-is with no retry. When no pasted token is supplied, the resolution falls back to the agent's account row, then the deployment-wide default row. If neither exists, the call fails. This preserves backward compatibility: existing flows with pasted tokens continue to work and take precedence.
+**Stored token vs. pasted token:** When creating/syncing/deleting a Slack app, a pasted `xoxe.xoxp-...` user token (sent as `xoxpToken` in the request) **wins**; it is used as-is with no retry. When no pasted token is supplied, the resolution falls back to the agent's account row, then the deployment-wide default row. If neither exists, create/sync cannot call Slack, and agent deletion skips the Slack app and adds a manual-steps checklist entry instead of failing. This preserves backward compatibility: existing flows with pasted tokens continue to work and take precedence.
 
 **Unchanged:** The app-level token (`xapp-...`) is still pasted manually after the OAuth callback; there is no API to mint it. The bot OAuth install step is unchanged.
-
-On Kubernetes these env vars are a deploy-time option of the Helm chart rather than something you set by hand. Setting `agent.voice.enabled=true` and `agent.voice.provider` (`whisper` | `groq`) makes the chart inject the matching env into provisioned agent pods. With `provider=whisper` it renders a self-hosted Whisper ASR pod and sets `WHISPER_SERVICE_URL` to its in-cluster Service. With `provider=groq` it flows `GROQ_API_KEY` from a chart-managed voice Secret. ElevenLabs TTS is opt-in and applies to both providers when set.
 
 ### Dev-only
 
