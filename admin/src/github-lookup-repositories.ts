@@ -2,7 +2,8 @@
  * admin/src/github-lookup-repositories.ts
  * The lookup-App repository lister exposed to extensions as
  * AdminPlatformServices.githubLookup: every repository the lookup App can see,
- * across the organizations the installer App can reach.
+ * across the organizations the installer App can reach, or, with no
+ * installer configured, the organizations the lookup App is installed on.
  *
  * A GitHub failure rejects; it is never reported as an empty list. An org
  * without the lookup App installed (not_found) is skipped. The stored-App
@@ -35,14 +36,19 @@ export interface LookupInstallerPort {
 /** The lookup-side client surface the lister needs. */
 export interface LookupRepositoriesPort {
   listInstallationRepositories(org: string): Promise<LookupRepository[]>;
+  /** Required only when no installer is configured (the App lists its own orgs). */
+  listInstallations?(): Promise<{ login: string }[]>;
 }
 
 export async function listLookupRepositories(
-  installer: LookupInstallerPort,
+  installer: LookupInstallerPort | undefined,
   lookup: LookupRepositoriesPort,
 ): Promise<GithubLookupRepository[]> {
   const repos = new Map<string, GithubLookupRepository>();
-  for (const { login } of await installer.listInstallableOrganizations()) {
+  const orgs = installer
+    ? await installer.listInstallableOrganizations()
+    : await listOwnInstallations(lookup);
+  for (const { login } of orgs) {
     let rows: LookupRepository[];
     try {
       rows = await lookup.listInstallationRepositories(login);
@@ -57,4 +63,13 @@ export async function listLookupRepositories(
     }
   }
   return [...repos.values()];
+}
+
+async function listOwnInstallations(
+  lookup: LookupRepositoriesPort,
+): Promise<{ login: string }[]> {
+  if (!lookup.listInstallations) {
+    throw new Error("lookup client cannot list its own installations");
+  }
+  return lookup.listInstallations();
 }

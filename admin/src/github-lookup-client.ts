@@ -81,6 +81,12 @@ export interface LookupToken {
   repositorySelection?: "all" | "selected";
 }
 
+export interface LookupInstallation {
+  id: number;
+  /** The account (organization) login the App is installed on. */
+  login: string;
+}
+
 export interface GithubLookupClientOptions {
   appId: string;
   privateKey: string;
@@ -163,6 +169,49 @@ export class GithubLookupClient {
     }
     this.cached.set(key, token);
     return token;
+  }
+
+  /**
+   * List the organizations the lookup App is installed on (GET
+   * /app/installations, App JWT, paginated). User-account installations are
+   * dropped: the per-org read path only works for organizations.
+   */
+  async listInstallations(): Promise<LookupInstallation[]> {
+    const jwt = signGithubAppJwt({
+      appId: this.appId,
+      privateKey: this.privateKey,
+      now: this.now(),
+    });
+    const all: LookupInstallation[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const res = await this.request<RawInstallation[]>(
+        "GET",
+        `/app/installations?per_page=${PER_PAGE}&page=${page}`,
+        jwt,
+        "GitHub App installations",
+      );
+      const rows = res.data;
+      if (!Array.isArray(rows)) {
+        throw new GithubEnterpriseError(
+          "unexpected",
+          "GitHub App installations: response is not an installation list",
+        );
+      }
+      for (const r of rows) {
+        if (
+          typeof r.id === "number" &&
+          r.account?.type === "Organization" &&
+          typeof r.account.login === "string"
+        ) {
+          all.push({ id: r.id, login: r.account.login });
+        }
+      }
+      const link = res.headers.get("link");
+      const hasNext =
+        link !== null ? /rel="next"/.test(link) : rows.length >= PER_PAGE;
+      if (!hasNext) break;
+    }
+    return all;
   }
 
   /** List every repository the lookup App can see on `org` (paginated). */
@@ -300,6 +349,11 @@ export class GithubLookupClient {
     }
     return { status: resp.status, headers: resp.headers, data: data as T };
   }
+}
+
+interface RawInstallation {
+  id?: number;
+  account?: { login?: string; type?: string } | null;
 }
 
 interface RawRepository {

@@ -91,3 +91,62 @@ describe("GithubLookupClient errors", () => {
     throw new Error("expected rejection");
   });
 });
+
+describe("GithubLookupClient.listInstallations", () => {
+  const { privateKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const inst = (id: number, login: string, type = "Organization") => ({
+    id,
+    account: { login, type },
+  });
+
+  it("paginates with the App JWT and keeps only organization installs", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => inst(i, `org${i}`));
+    const seen: string[] = [];
+    const client = new GithubLookupClient({
+      appId: "555",
+      privateKey,
+      fetchFn: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const u = new URL(input.toString());
+        expect(u.pathname).toBe("/app/installations");
+        expect(
+          String(new Headers(init?.headers).get("authorization")),
+        ).toStartWith("Bearer ey");
+        seen.push(u.searchParams.get("page") ?? "");
+        return u.searchParams.get("page") === "1"
+          ? Response.json(page1, {
+              headers: { link: '<https://x/?page=2>; rel="next"' },
+            })
+          : Response.json([inst(900, "last"), inst(901, "someone", "User")]);
+      }) as unknown as typeof fetch,
+    });
+    const out = await client.listInstallations();
+    expect(seen).toEqual(["1", "2"]);
+    expect(out).toHaveLength(101);
+    expect(out.at(-1)).toEqual({ id: 900, login: "last" });
+  });
+
+  it("rejects on a GitHub error", async () => {
+    const client = new GithubLookupClient({
+      appId: "555",
+      privateKey,
+      fetchFn: (async () =>
+        Response.json({ message: "boom" }, { status: 500 })) as unknown as typeof fetch,
+    });
+    await expect(client.listInstallations()).rejects.toBeInstanceOf(
+      GithubEnterpriseError,
+    );
+  });
+
+  it("rejects a non-list response", async () => {
+    const client = new GithubLookupClient({
+      appId: "555",
+      privateKey,
+      fetchFn: (async () => Response.json({})) as unknown as typeof fetch,
+    });
+    await expect(client.listInstallations()).rejects.toThrow("not an installation list");
+  });
+});
