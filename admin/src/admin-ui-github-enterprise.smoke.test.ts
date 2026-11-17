@@ -9,8 +9,8 @@ import { describe, expect, it } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
-import { type AdminUIEnv, createAdminUIApp } from "./admin-ui.ts";
 import { makeMockDeps, makeSessionCookie } from "./admin-ui.fixtures.ts";
+import { type AdminUIEnv, createAdminUIApp } from "./admin-ui.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
 import { parseAdminApiKeys } from "./api-auth.ts";
 import { createGithubEnterpriseApp } from "./github-enterprise-api.ts";
@@ -29,20 +29,28 @@ const { privateKey: PEM } = generateKeyPairSync("rsa", {
 function fakeAppService() {
   const rows = new Map<string, GitHubEnterpriseAppMetadata & { pem: string }>();
   const now = new Date("2026-11-09T12:00:00Z");
+  const key = (role: string, accountId?: string | null) =>
+    `${accountId ?? ""}/${role}`;
   const strip = ({
     pem: _p,
     ...m
   }: GitHubEnterpriseAppMetadata & { pem: string }) => m;
+  // Account row wins, else the deployment-wide row.
+  const resolve = (role: string, accountId?: string | null) =>
+    rows.get(key(role, accountId)) ?? rows.get(key(role));
   return {
-    async list() {
-      return [...rows.values()].map(strip);
+    async list(accountId?: string | null) {
+      return [...rows.values()]
+        .filter((r) => (r.accountId ?? null) === (accountId ?? null))
+        .map(strip);
     },
-    async get(role: GitHubEnterpriseAppRole) {
-      const r = rows.get(role);
+    async get(role: GitHubEnterpriseAppRole, accountId?: string | null) {
+      const r = resolve(role, accountId);
       return r ? strip(r) : null;
     },
     async save(input: SaveGitHubEnterpriseAppInput) {
       const row = {
+        accountId: input.accountId ?? null,
         role: input.role,
         appId: input.appId,
         slug: input.slug,
@@ -55,20 +63,24 @@ function fakeAppService() {
         updatedAt: now,
         pem: input.privateKey,
       } as GitHubEnterpriseAppMetadata & { pem: string };
-      rows.set(input.role, row);
+      rows.set(key(input.role, input.accountId), row);
       return strip(row);
     },
-    async delete(role: GitHubEnterpriseAppRole) {
-      rows.delete(role);
+    async delete(role: GitHubEnterpriseAppRole, accountId?: string | null) {
+      rows.delete(key(role, accountId));
     },
-    async getPrivateKey(role: GitHubEnterpriseAppRole) {
-      return rows.get(role)?.pem ?? null;
+    async getPrivateKey(
+      role: GitHubEnterpriseAppRole,
+      accountId?: string | null,
+    ) {
+      return resolve(role, accountId)?.pem ?? null;
     },
     async recordValidation(
       role: GitHubEnterpriseAppRole,
       r: { status: string; error: string | null },
+      accountId?: string | null,
     ) {
-      const row = rows.get(role);
+      const row = rows.get(key(role, accountId));
       if (row) {
         row.lastValidationStatus = r.status;
         row.lastValidationError = r.error;
@@ -78,7 +90,9 @@ function fakeAppService() {
   };
 }
 
-function setup(opts: { isAdmin?: boolean; fetchStatus?: number } = {}) {
+function setup(
+  opts: { isAdmin?: boolean; fetchStatus?: number; accounts?: boolean } = {},
+) {
   const appService = fakeAppService();
   const fetchCalls: string[] = [];
   const fetchFn = (async (input: RequestInfo | URL) => {
@@ -116,6 +130,16 @@ function setup(opts: { isAdmin?: boolean; fetchStatus?: number } = {}) {
       c.set("isAdmin", opts.isAdmin ?? true);
       await next();
     }) as MiddlewareHandler<AdminUIEnv>,
+    ...(opts.accounts
+      ? {
+          accounts: {
+            listWithCounts: async () => [
+              { id: "acct-1", name: "Acme" },
+              { id: "acct-2", name: "Globex" },
+            ],
+          },
+        }
+      : {}),
     html: (content, o) =>
       new Response(content, {
         status: o?.status ?? 200,
@@ -166,6 +190,105 @@ describe("GET /admin/settings/github-enterprise", () => {
     expect(html).not.toContain("exactly as before");
     expect(html.match(/gh-ent-steps/g)?.length).toBe(2);
     expect(html.match(/gh-ent-ignore/g)?.length).toBe(2);
+  });
+});
+
+const saveForm = (
+  appId: string,
+  slug: string,
+  extra: Record<string, string> = {},
+) => form({ appId, slug, privateKey: PEM, ...extra });
+
+describe("lookup card without an installer", () => {
+  it("shows manual per-org install steps with the lookup slug link", async () => {
+    const { app } = setup();
+    await app.request(`${BASE}/apps/lookup`, saveForm("7", "my-lookup"));
+    const html = await (await app.request(BASE)).text();
+    expect(html).toContain("gh-ent-lookup-only");
+    expect(html).toContain(
+      "https://github.com/apps/my-lookup/installations/new",
+    );
+    expect(html).toContain("GitHub Enterprise Cloud is not needed");
+  });
+
+  it("shows a slug placeholder link when no lookup App is known", async () => {
+    const { app } = setup();
+    const html = await (await app.request(BASE)).text();
+    expect(html).toContain("gh-ent-lookup-only");
+    expect(html).toContain("github.com/apps/&lt;slug&gt;/installations/new");
+  });
+
+  it("keeps the existing instructions once an installer exists", async () => {
+    const { app } = setup();
+    await app.request(
+      `${BASE}/apps/installer`,
+      saveForm("1", "inst", { enterpriseSlug: "ent" }),
+    );
+    const html = await (await app.request(BASE)).text();
+    expect(html).not.toContain("gh-ent-lookup-only");
+    expect(html).toContain("It must be installed on all repositories");
+  });
+});
+
+describe("account selector", () => {
+  it("is hidden without an accounts dependency", async () => {
+    const { app } = setup();
+    expect(await (await app.request(BASE)).text()).not.toContain(
+      "gh-ent-account-selector",
+    );
+  });
+
+  it("renders on both cards with the default and each account", async () => {
+    const { app } = setup({ accounts: true });
+    const html = await (await app.request(`${BASE}?accountId=acct-2`)).text();
+    expect(html.match(/gh-ent-account-selector/g)?.length).toBe(2);
+    expect(html).toContain("Deployment-wide default");
+    expect(html).toContain('<option value="acct-1">Acme</option>');
+    expect(html).toContain('<option value="acct-2" selected>Globex</option>');
+  });
+
+  it("saves under the chosen account and marks own vs fallback", async () => {
+    const { app, appService } = setup({ accounts: true });
+    await app.request(`${BASE}/apps/lookup`, saveForm("7", "shared-lookup"));
+    const res = await app.request(
+      `${BASE}/apps/lookup?accountId=acct-1`,
+      saveForm("8", "acme-lookup"),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(
+      `${BASE}?notice=saved&accountId=acct-1`,
+    );
+    expect((await appService.list("acct-1"))[0]?.slug).toBe("acme-lookup");
+    expect((await appService.list())[0]?.slug).toBe("shared-lookup");
+
+    const own = await (await app.request(`${BASE}?accountId=acct-1`)).text();
+    expect(own).toContain("Account's own App");
+    const fallback = await (
+      await app.request(`${BASE}?accountId=acct-2`)
+    ).text();
+    expect(fallback).toContain("Deployment-wide fallback");
+    expect(fallback).toContain("shared-lookup");
+    expect(fallback).toContain(`action="${BASE}/apps/lookup?accountId=acct-2"`);
+  });
+
+  it("validates and deletes against the chosen account", async () => {
+    const { app, appService } = setup({ accounts: true });
+    await app.request(
+      `${BASE}/apps/installer?accountId=acct-1`,
+      saveForm("1", "inst", { enterpriseSlug: "ent" }),
+    );
+    const v = await app.request(
+      `${BASE}/apps/installer/validate?accountId=acct-1`,
+      { method: "POST" },
+    );
+    expect(v.headers.get("location")).toContain("accountId=acct-1");
+    expect((await appService.list("acct-1"))[0]?.lastValidationStatus).toBe(
+      "valid",
+    );
+    await app.request(`${BASE}/apps/installer/delete?accountId=acct-1`, {
+      method: "POST",
+    });
+    expect(await appService.list("acct-1")).toEqual([]);
   });
 });
 

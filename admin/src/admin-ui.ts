@@ -22,7 +22,6 @@
  * Allowed users are controlled by the adminAllowedEmails allowlist in deps.
  */
 
-import type { GheOrgs } from "./admin-ui-github-enterprise-pages.ts";
 import { join } from "node:path";
 import { isGithubLogin } from "@app-vitals/agent-lib/github-login";
 import { isOrgRepo } from "@app-vitals/agent-lib/org-repo";
@@ -51,6 +50,7 @@ import { runWithSettingsNav } from "./admin-ui-account-nav.ts";
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
+import type { GheOrgs } from "./admin-ui-github-enterprise-pages.ts";
 import {
   type GithubAccessPreviewView,
   renderGithubAccessError,
@@ -4091,6 +4091,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       requireAuth,
       settingsNav,
       api: githubEnterpriseApi,
+      ...(accountServices ? { accounts: accountServices.accounts } : {}),
       html,
     });
   }
