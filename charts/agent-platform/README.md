@@ -49,7 +49,8 @@ release-derived names are whatever the consumer defines.
   `component.selectorLabels` (see [Extension lists](#extension-lists))
 - Support: `publicHost`, `publicScheme`, `admin.appBaseUrl`,
   `agent.claudePolicy.configMapName`, `agent.claudePolicy.json`,
-  `validate`, `validate.claudePolicy`, `validate.anthropicFederation`
+  `validate`, `validate.claudePolicy`, `validate.anthropicFederation`,
+  `validate.templateSeed`
 
 ## Manifests
 
