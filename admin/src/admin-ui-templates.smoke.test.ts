@@ -328,3 +328,84 @@ describe("/admin/settings/templates smoke", () => {
     ).toBe(403);
   });
 });
+
+describe("/admin/settings/templates marketplace items (TMK-3.1)", () => {
+  const scope = { accountId: "", specialty: "" };
+
+  it("creates a marketplace item with name, source and ref and lists it", async () => {
+    const { app, rows } = setup();
+    const res = await app.request(
+      `${BASE}/items`,
+      form({
+        ...scope,
+        kind: "marketplace",
+        key: "acme-plugins",
+        source: "acme/plugins",
+        ref: "v1",
+      }),
+    );
+    expect(res.status).toBe(302);
+    expect(rows[0]?.items[0]).toMatchObject({
+      kind: "marketplace",
+      key: "acme-plugins",
+      payload: { source: "acme/plugins", ref: "v1" },
+    });
+    const html = await (await app.request(BASE)).text();
+    expect(html).toContain('data-kind="marketplace" data-key="acme-plugins"');
+    expect(html).toContain('value="acme/plugins"');
+    expect(html).toContain('value="v1"');
+  });
+
+  it("stores an empty ref as null", async () => {
+    const { app, rows } = setup();
+    await app.request(
+      `${BASE}/items`,
+      form({
+        ...scope,
+        kind: "marketplace",
+        key: "m",
+        source: "acme/plugins",
+        ref: "",
+      }),
+    );
+    expect(rows[0]?.items[0]?.payload).toMatchObject({ ref: null });
+  });
+
+  it("shows an invalid source as an inline 422 and creates nothing", async () => {
+    const { app, rows } = setup();
+    const res = await app.request(
+      `${BASE}/items`,
+      form({
+        ...scope,
+        kind: "marketplace",
+        key: "m",
+        source: "/etc/passwd",
+        ref: "",
+      }),
+    );
+    expect(res.status).toBe(422);
+    const html = await res.text();
+    expect(html).toContain("alert-error");
+    expect(html).toContain("source must be a GitHub");
+    expect(rows).toHaveLength(0);
+  });
+
+  it("removes a marketplace item", async () => {
+    const { app, rows } = setup();
+    await app.request(
+      `${BASE}/items`,
+      form({
+        ...scope,
+        kind: "marketplace",
+        key: "m",
+        source: "acme/plugins",
+      }),
+    );
+    const res = await app.request(
+      `${BASE}/items/delete`,
+      form({ ...scope, kind: "marketplace", key: "m" }),
+    );
+    expect(res.status).toBe(302);
+    expect(rows[0]?.items).toHaveLength(0);
+  });
+});

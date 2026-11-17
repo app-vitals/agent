@@ -419,3 +419,96 @@ describe("provisioning form (ATP-2.4)", () => {
     expect(patched.some((e) => e.EXTRA === "two words")).toBe(true);
   });
 });
+
+describe("agent Marketplaces card (TMK-3.1)", () => {
+  const row = (over: Record<string, unknown>) => ({
+    id: "m-x",
+    agentId: AGENT_ID,
+    name: "x",
+    source: "acme/x",
+    ref: null,
+    rowSource: "custom",
+    enabled: true,
+    createdAt: d,
+    updatedAt: d,
+    ...over,
+  });
+
+  function marketplaceApp() {
+    const deps = detailDeps({ agentsApi: fakeAgentsApi().api });
+    const agentDetail = deps.agentService.getDetail;
+    return createAdminUIApp({
+      ...deps,
+      agentService: {
+        ...deps.agentService,
+        getDetail: async (id: string) => ({
+          ...(await agentDetail(id)),
+          bakedMarketplaces: ["baked-mp"],
+        }),
+      },
+      agentMarketplaceService: {
+        list: async () => [
+          row({ id: "m-tpl", name: "tpl-mp", rowSource: "template" }),
+          row({ id: "m-own", name: "own-mp", rowSource: "custom" }),
+          row({
+            id: "m-dead",
+            name: "dead-mp",
+            rowSource: "template",
+            enabled: false,
+          }),
+        ],
+        upsert: async () => row({}),
+        remove: async () => undefined,
+      },
+    } as never);
+  }
+
+  async function card(): Promise<string> {
+    const html = await (
+      await get(marketplaceApp(), `/admin/agents/${AGENT_ID}/extensions`)
+    ).text();
+    const start = html.indexOf('id="marketplaces-table"');
+    return html.slice(start, html.indexOf("</table>", start));
+  }
+
+  const rowHtml = (html: string, name: string) =>
+    html
+      .slice(html.lastIndexOf("<tr", html.indexOf(`>${name}`)))
+      .split("</tr>")[0] ?? "";
+
+  it("badges template and custom rows", async () => {
+    const html = await card();
+    expect(rowHtml(html, "tpl-mp")).toContain('data-source="template"');
+    expect(rowHtml(html, "own-mp")).toContain('data-source="custom"');
+  });
+
+  it("marks tombstoned rows disabled", async () => {
+    const html = await card();
+    const dead = rowHtml(html, "dead-mp");
+    expect(dead).toContain('data-disabled="true"');
+    expect(dead).toContain(">disabled</span>");
+    expect(dead).not.toContain("marketplaces/delete");
+    const live = rowHtml(html, "tpl-mp");
+    expect(live).not.toContain("data-disabled");
+    expect(live).toContain("marketplaces/delete");
+  });
+
+  it("still renders baked rows as from image", async () => {
+    const html = await card();
+    expect(html).toContain('data-baked-marketplace="baked-mp"');
+    expect(html).toContain("from image");
+    expect(rowHtml(html, "baked-mp")).not.toContain("data-source=");
+  });
+
+  it("suggests template-sourced marketplace names for the plugin field, not tombstones", async () => {
+    const html = await (
+      await get(marketplaceApp(), `/admin/agents/${AGENT_ID}/extensions`)
+    ).text();
+    const list = html.slice(html.indexOf('id="plugin-marketplaces"'));
+    const datalist = list.slice(0, list.indexOf("</datalist>"));
+    expect(datalist).toContain('value="tpl-mp"');
+    expect(datalist).toContain('value="own-mp"');
+    expect(datalist).toContain('value="baked-mp"');
+    expect(datalist).not.toContain("dead-mp");
+  });
+});
