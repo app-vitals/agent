@@ -49,7 +49,8 @@ release-derived names are whatever the consumer defines.
   `component.selectorLabels` (see [Extension lists](#extension-lists))
 - Support: `publicHost`, `publicScheme`, `admin.appBaseUrl`,
   `agent.claudePolicy.configMapName`, `agent.claudePolicy.json`,
-  `validate`, `validate.claudePolicy`, `validate.anthropicFederation`
+  `validate`, `validate.claudePolicy`, `validate.anthropicFederation`,
+  `validate.templateSeed`
 
 ## Manifests
 
@@ -82,6 +83,25 @@ agent:
 They read the consumer's `.Values` (`admin`, `auth`, `agent`, `postgresql`,
 `externalDatabase`, `cloudSqlProxy`, `chat`, `networking`, `selfServe`, ...), so
 the consumer's values file must define those keys.
+
+### Template seed
+
+`admin.templateSeed` declares default marketplaces and plugins for every agent.
+When it has a `marketplaces` or `plugins` key (an explicit `[]` still counts, so
+operators can clear the seed), `agent-platform.admin.deployment` renders it as the
+JSON string env var `SHIPWRIGHT_TEMPLATE_SEED` on the admin container, which the
+admin applies on boot. Unset (or without either key) renders no env var.
+Rendering fails, naming the entry, when a marketplace lacks a `name` or `source`
+or a `plugins` entry is not a string.
+
+```yaml
+admin:
+  templateSeed:
+    marketplaces:
+      - {name: example-plugins, source: example-org/plugins, ref: v1.2.0}
+    plugins:
+      - some-plugin@example-plugins
+```
 
 ## Workload templates
 

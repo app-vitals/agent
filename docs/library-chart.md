@@ -54,6 +54,19 @@ Some templates (`httproute`, `ingress`, `ingressTraefikMiddleware`, `healthcheck
 
 Calling a template with the bare root context (`{{ include "agent-platform.httproute" . }}`) renders the platform-only set, with no extensions. The full key shapes are in the [chart README](../charts/agent-platform/README.md#extension-lists).
 
+## Template seed values
+
+`admin.templateSeed` lets GitOps operators declare default marketplaces and plugins for every agent in values. When it has a `marketplaces` or `plugins` key (checked with `hasKey`, so an explicit empty list still renders and clears that kind), `agent-platform.admin.deployment` renders it as the JSON string env var `SHIPWRIGHT_TEMPLATE_SEED` on the admin container; the admin applies it on each boot (see [agent-ops.md](agent-ops.md#seeding-the-deployment-wide-template-from-helm-values)). Unset renders no env var. Rendering fails with an error naming the entry (for example `admin.templateSeed.marketplaces[0] (example-plugins) requires a non-empty string source.`) when a marketplace entry lacks `name` or `source`, or a `plugins` entry is not a string.
+
+```yaml
+admin:
+  templateSeed:
+    marketplaces:
+      - {name: example-plugins, source: example-org/plugins, ref: v1.2.0}
+    plugins:
+      - some-plugin@example-plugins
+```
+
 ## Versioning
 
 The chart `version` tracks the platform release. When a release changes the shared templates, bump `version` in `charts/agent-platform/Chart.yaml` to the release's `X.Y.Z`. Merging the bump to `main` publishes that version, and the workflow then sends a `chart-release` dispatch carrying the version to `app-vitals/shipwright` so it can bump its dependency. An unchanged version repackages to no diff, so nothing new is published without a bump. Consumers pin an exact version and upgrade on their own schedule.

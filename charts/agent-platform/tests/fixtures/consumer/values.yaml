@@ -318,6 +318,11 @@ admin:
   repoAccessCheck:
     # -- Enable the agent repo-access check (sets SHIPWRIGHT_AGENT_REPO_ACCESS_CHECK_ENABLED).
     enabled: false
+  # -- Deployment-wide template seed (sets SHIPWRIGHT_TEMPLATE_SEED as JSON). Renders only when
+  # `marketplaces` or `plugins` is present (an explicit `[]` clears that kind's seeded items).
+  # marketplaces: [{name: example-plugins, source: example-org/plugins, ref: v1.2.0}]
+  # plugins: [some-plugin@example-plugins]
+  templateSeed: {}
   # -- Extra annotations for the admin pod template (spec.template.metadata.
   # annotations) — NOT the ServiceAccount (see serviceAccount.annotations
   # above). Empty by default. On GKE Autopilot, set
