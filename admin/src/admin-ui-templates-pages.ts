@@ -33,6 +33,20 @@ export interface TemplateItemRow {
   kind: AgentTemplateItemKind;
   key: string;
   payload: Record<string, unknown>;
+  /** TMK-3.2: "helm" for items applied from SHIPWRIGHT_TEMPLATE_SEED. */
+  managedBy?: string;
+}
+
+/**
+ * TMK-3.2: the "from Helm values" badge for a seeded item ("" otherwise).
+ * Seeded items stay editable; the next admin boot overwrites the edit.
+ */
+export function managedByBadge(
+  item: Pick<TemplateItemRow, "managedBy">,
+): string {
+  return item.managedBy === "helm"
+    ? ` <span class="badge badge-template" title="Set by admin.templateSeed in Helm values; edits are overwritten on the next admin restart">from Helm values</span>`
+    : "";
 }
 
 export interface TemplatesPageOpts {
@@ -125,7 +139,7 @@ function kindCard(o: TemplatesPageOpts, kind: TemplateItemRow["kind"]): string {
         i,
       ) => `<form method="POST" action="${BASE}/items" class="template-item" data-kind="${kind}" data-key="${escapeHtml(i.key)}" style="display:grid;gap:6px;padding:8px 0;border-bottom:1px solid #e5e7eb">
         ${scopeFields(o)}<input type="hidden" name="kind" value="${kind}" /><input type="hidden" name="key" value="${escapeHtml(i.key)}" />
-        <strong>${escapeHtml(i.key)}</strong>
+        <strong>${escapeHtml(i.key)}${managedByBadge(i)}</strong>
         ${itemFields(kind, i.payload)}
         <div style="display:flex;gap:8px"><button type="submit" class="btn btn-primary" style="font-size:12px;padding:4px 10px">Save</button>
         <button type="submit" formaction="${BASE}/items/delete" class="btn btn-danger" style="font-size:12px;padding:4px 10px">Remove</button></div>

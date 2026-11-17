@@ -338,6 +338,9 @@ model AgentTemplateItem {
   kind       String
   key        String
   payload    Json          @default("{}")
+  // TMK-3.2: null = hand-added; "helm" = applied from SHIPWRIGHT_TEMPLATE_SEED
+  // (admin/src/template-seed.ts), which overwrites and prunes only its own items.
+  managedBy  String?
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
 

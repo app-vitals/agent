@@ -5,9 +5,18 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  managedByBadge,
   renderTemplatesPage,
   type TemplatesPageOpts,
 } from "./admin-ui-templates-pages.ts";
+
+describe("managedByBadge (TMK-3.2)", () => {
+  it('renders "from Helm values" for helm-managed items only', () => {
+    expect(managedByBadge({ managedBy: "helm" })).toContain("from Helm values");
+    expect(managedByBadge({})).toBe("");
+    expect(managedByBadge({ managedBy: "other" })).toBe("");
+  });
+});
 
 const base: TemplatesPageOpts = {
   userEmail: "a@x.com",

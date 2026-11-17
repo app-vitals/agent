@@ -10,7 +10,8 @@
  *   Sentry → migrations → Prisma → platform services → resolve extensions →
  *   routes (health, runtime API, admin API, accounts API, extension APIs,
  *   admin UI, extension UI) → platform sweepers → extension background
- *   passes → Bun.serve → graceful shutdown → startup policy reconcile.
+ *   passes → Bun.serve → graceful shutdown → template seed → startup policy
+ *   reconcile.
  *
  * Route mount order (important — avoids shadowing):
  *   GET  /health                 — liveness check (no auth, DB-independent)
@@ -128,6 +129,7 @@ import { SlackConfigTokenService } from "./slack-config-token.ts";
 import { HttpSlackProvisioningClient } from "./slack-provisioning-client.ts";
 import { SpecialtyTypes } from "./specialty-types.ts";
 import { runStartupPolicyReconcile } from "./startup-policy-reconcile.ts";
+import { runTemplateSeed } from "./template-seed.ts";
 import { makeStrictTokenCrypto, makeTokenCrypto } from "./token-crypto.ts";
 import { parseTranscriptConfig } from "./transcript-config.ts";
 import {
@@ -841,6 +843,17 @@ export async function startAdmin(
   isShuttingDown = shutdown.isShuttingDown;
 
   console.log(`[admin] admin service listening on port ${port}`);
+
+  // Template seed (TMK-3.2): apply SHIPWRIGHT_TEMPLATE_SEED (Helm
+  // admin.templateSeed) to the deployment-wide template through the template
+  // service, whose fan-out reconciles the agents. Migrations already ran
+  // above. Fire-and-forget: it never throws (an invalid seed logs one error
+  // and writes nothing) and must not delay serving.
+  void runTemplateSeed({
+    raw: process.env.SHIPWRIGHT_TEMPLATE_SEED,
+    templateService,
+    logger: console,
+  });
 
   // Policy-only reconcile (ACP-1.3): a Claude policy change restarts admin via
   // the chart's policy-hash env var, so rolling only the agents whose policy

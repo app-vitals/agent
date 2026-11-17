@@ -23,7 +23,7 @@ function assertOrdered(markers: string[]): void {
 }
 
 describe("admin-boot.ts boot sequence", () => {
-  it("keeps the documented boot order: DB, services, routes, sweepers, serve, startup policy reconcile", () => {
+  it("keeps the documented boot order: DB, services, routes, sweepers, serve, template seed, startup policy reconcile", () => {
     assertOrdered([
       'initSentry({ service: "admin" })',
       "await runMigrations();",
@@ -46,8 +46,20 @@ describe("admin-boot.ts boot sequence", () => {
       "startBackgroundPasses(resolvedExtensions.backgroundPasses)",
       "const server = Bun.serve(",
       "const shutdown = registerGracefulShutdown(",
+      "void runTemplateSeed(",
       "void runStartupPolicyReconcile(",
     ]);
+  });
+
+  it("applies the template seed after migrations, through the template service, without blocking serving (TMK-3.2)", () => {
+    assertOrdered([
+      "await runMigrations();",
+      "const templateService = new AgentTemplateService(",
+      "const server = Bun.serve(",
+      "void runTemplateSeed(",
+    ]);
+    expect(source).toContain("raw: process.env.SHIPWRIGHT_TEMPLATE_SEED");
+    expect(source).not.toContain("await runTemplateSeed(");
   });
 
   it("feeds extension service deps into the platform app factories", () => {

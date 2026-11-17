@@ -6125,6 +6125,11 @@ export interface components {
              * @example 2026-01-01T00:00:00.000Z
              */
             updatedAt: string;
+            /**
+             * @description Set to "helm" on items applied from SHIPWRIGHT_TEMPLATE_SEED (Helm values); absent on hand-added items. Seeded items stay editable, but the next admin boot overwrites them.
+             * @example helm
+             */
+            managedBy?: string;
         };
         /** @enum {string} */
         TemplateItemKind: "env" | "tool" | "plugin" | "cron" | "marketplace";

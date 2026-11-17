@@ -281,6 +281,44 @@ describe("/admin/settings/templates smoke", () => {
     expect((await app.request(`${BASE}?accountId=acct-2`)).status).toBe(403);
   });
 
+  it('shows a "from Helm values" badge only on seeded items (TMK-3.2)', async () => {
+    const { app, rows } = setup();
+    rows.push({
+      id: "t-seed",
+      accountId: null,
+      specialty: null,
+      createdAt: now,
+      updatedAt: now,
+      items: [
+        {
+          kind: "plugin",
+          key: "seeded@example-plugins",
+          payload: {},
+          updatedAt: now,
+          managedBy: "helm",
+        },
+        {
+          kind: "plugin",
+          key: "manual@example-plugins",
+          payload: {},
+          updatedAt: now,
+        },
+      ],
+    });
+    const res = await app.request(BASE);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html.match(/from Helm values/g)).toHaveLength(1);
+    const seeded = html.slice(
+      html.indexOf('data-key="seeded@example-plugins"'),
+      html.indexOf('data-key="manual@example-plugins"'),
+    );
+    expect(seeded).toContain("from Helm values");
+    // Still editable: the seeded row keeps its Save and Remove buttons.
+    expect(seeded).toContain("Save");
+    expect(seeded).toContain("Remove");
+  });
+
   it("403s a non-admin without an account", async () => {
     const { app } = setup({ isAdmin: false });
     expect((await app.request(BASE)).status).toBe(403);

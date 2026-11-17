@@ -62,6 +62,11 @@ export interface TemplateItemView {
   key: string;
   payload: Record<string, unknown>;
   updatedAt: Date;
+  /**
+   * TMK-3.2: who owns the item ("helm" = SHIPWRIGHT_TEMPLATE_SEED). Absent for
+   * hand-added items. Optional so the exported shape stays additive.
+   */
+  managedBy?: string;
 }
 
 export interface TemplateView {
@@ -71,6 +76,42 @@ export interface TemplateView {
   createdAt: Date;
   updatedAt: Date;
   items: TemplateItemView[];
+}
+
+/** Outcome of AgentTemplateService.applyManagedItems() (TMK-3.2). */
+export interface ManagedItemsResult {
+  /** The deployment-wide template; null when none existed and none was needed. */
+  templateId: string | null;
+  created: number;
+  updated: number;
+  unchanged: number;
+  deleted: number;
+  /** Managed items not applied because a hand-added item holds the key. */
+  skipped: { kind: AgentTemplateItemKind; key: string }[];
+}
+
+/**
+ * pg_advisory_xact_lock key serializing applyManagedItems() across admin
+ * replicas ("TMK2" as a 32-bit integer). Constant so every replica contends
+ * on the same lock.
+ */
+export const MANAGED_ITEMS_LOCK_KEY = 0x544d4b32;
+
+/** Deep JSON equality that ignores object key order (jsonb reorders keys). */
+function sameJson(a: unknown, b: unknown): boolean {
+  const canon = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(canon);
+    if (v !== null && typeof v === "object") {
+      return Object.fromEntries(
+        Object.entries(v as Record<string, unknown>)
+          .filter(([, x]) => x !== undefined)
+          .sort(([x], [y]) => x.localeCompare(y))
+          .map(([k, x]) => [k, canon(x)]),
+      );
+    }
+    return v;
+  };
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 }
 
 // ─── Per-kind payload shapes ──────────────────────────────────────────────────
@@ -156,6 +197,7 @@ type TemplateRow = {
     key: string;
     payload: unknown;
     updatedAt: Date;
+    managedBy?: string | null;
   }[];
 };
 
@@ -208,7 +250,13 @@ export class AgentTemplateService {
         } else {
           payload = openTemplateItemPayload(kind, stored, this.crypto);
         }
-        return { kind, key: it.key, payload, updatedAt: it.updatedAt };
+        return {
+          kind,
+          key: it.key,
+          payload,
+          updatedAt: it.updatedAt,
+          ...(it.managedBy ? { managedBy: it.managedBy } : {}),
+        };
       });
     return {
       id: row.id,
@@ -369,14 +417,17 @@ export class AgentTemplateService {
         const stored = new Map(
           (existing?.items ?? []).map((it) => [`${it.kind}:${it.key}`, it]),
         );
-        const data = items.map((item) => ({
-          kind: item.kind,
-          key: item.key,
-          payload: this.seal(
-            item,
-            stored.get(`${item.kind}:${item.key}`)?.payload,
-          ),
-        }));
+        // A replaced item keeps its owner (TMK-3.2): an edited seeded item
+        // keeps its badge and is overwritten again on the next admin boot.
+        const data = items.map((item) => {
+          const prior = stored.get(`${item.kind}:${item.key}`);
+          return {
+            kind: item.kind,
+            key: item.key,
+            payload: this.seal(item, prior?.payload),
+            managedBy: prior?.managedBy ?? null,
+          };
+        });
 
         const templateId = existing
           ? existing.id
@@ -464,6 +515,130 @@ export class AgentTemplateService {
       data: { updatedAt: new Date() },
     });
     await this.propagate(existing);
+  }
+
+  /**
+   * TMK-3.2: make the deployment-wide, all-specialties template hold exactly
+   * `itemsInput` among the items `managedBy` owns for `kinds`, creating the
+   * template if absent. In one transaction under a constant advisory lock, so
+   * concurrent admin replicas serialize and end with one copy of each item:
+   *
+   * - each item is created, or updated in place, with `managedBy`;
+   * - items owned by `managedBy` of a listed kind that are not in
+   *   `itemsInput` are deleted;
+   * - hand-added items (`managedBy` null) are never touched; a managed item
+   *   whose key a hand-added item already holds is reported in `skipped`.
+   *
+   * Items go through normalizeTemplateItem() (the same validation as the API)
+   * before anything is written. The fan-out to agents runs after commit,
+   * whether or not this pass changed rows, so a boot also repairs a fan-out
+   * an earlier boot did not finish.
+   */
+  async applyManagedItems(
+    managedBy: string,
+    kinds: readonly AgentTemplateItemKind[],
+    itemsInput: TemplateItemInput[],
+  ): Promise<ManagedItemsResult> {
+    const seen = new Set<string>();
+    const items = itemsInput.map((raw) => {
+      const item = normalizeTemplateItem(raw);
+      if (!kinds.includes(item.kind)) {
+        throw new UnprocessableEntityError(
+          `${item.kind} item ${item.key} is not a managed kind`,
+        );
+      }
+      const id = `${item.kind}:${item.key}`;
+      if (seen.has(id)) {
+        throw new UnprocessableEntityError(
+          `duplicate ${item.kind} item key ${item.key}`,
+        );
+      }
+      seen.add(id);
+      return item;
+    });
+
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(${MANAGED_ITEMS_LOCK_KEY}::bigint)::text`;
+        const scope = { accountId: null, specialty: null };
+        const existing = await tx.agentTemplate.findFirst({
+          where: scope,
+          include: { items: true },
+        });
+        const out: ManagedItemsResult = {
+          templateId: existing?.id ?? null,
+          created: 0,
+          updated: 0,
+          unchanged: 0,
+          deleted: 0,
+          skipped: [],
+        };
+        if (!existing && items.length === 0) return out;
+        const templateId =
+          existing?.id ?? (await tx.agentTemplate.create({ data: scope })).id;
+        out.templateId = templateId;
+        const stored = new Map(
+          (existing?.items ?? []).map((it) => [`${it.kind}:${it.key}`, it]),
+        );
+
+        for (const item of items) {
+          const prior = stored.get(`${item.kind}:${item.key}`);
+          if (prior && prior.managedBy === null) {
+            out.skipped.push({ kind: item.kind, key: item.key });
+            continue;
+          }
+          const payload = this.seal(item, prior?.payload);
+          if (!prior) {
+            await tx.agentTemplateItem.create({
+              data: {
+                templateId,
+                kind: item.kind,
+                key: item.key,
+                payload,
+                managedBy,
+              },
+            });
+            out.created++;
+          } else if (
+            prior.managedBy === managedBy &&
+            sameJson(prior.payload, payload)
+          ) {
+            out.unchanged++;
+          } else {
+            await tx.agentTemplateItem.update({
+              where: { id: prior.id },
+              data: { payload, managedBy },
+            });
+            out.updated++;
+          }
+        }
+
+        const stale = (existing?.items ?? []).filter(
+          (it) =>
+            it.managedBy === managedBy &&
+            (kinds as readonly string[]).includes(it.kind) &&
+            !seen.has(`${it.kind}:${it.key}`),
+        );
+        if (stale.length > 0) {
+          await tx.agentTemplateItem.deleteMany({
+            where: { id: { in: stale.map((it) => it.id) } },
+          });
+          out.deleted = stale.length;
+        }
+        if (existing && out.created + out.updated + out.deleted > 0) {
+          await tx.agentTemplate.update({
+            where: { id: templateId },
+            data: { updatedAt: new Date() },
+          });
+        }
+        return out;
+      },
+      { timeout: 30_000, maxWait: 30_000 },
+    );
+    if (result.templateId !== null) {
+      await this.propagate({ accountId: null, specialty: null });
+    }
+    return result;
   }
 
   /** Delete a template and (by cascade) its items. */
