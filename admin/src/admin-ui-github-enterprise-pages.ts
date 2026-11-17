@@ -128,7 +128,7 @@ function lookupOnlySteps(slug: string | undefined): string[] {
     "In GitHub, open the organization that will own the App: Settings &rarr; Developer settings &rarr; GitHub Apps &rarr; New GitHub App.",
     "Grant Repository <code>Metadata</code> at <strong>Read</strong> and Organization <code>Members</code> at <strong>Read</strong>.",
     "Create the App. The App ID is on the App's settings page; the App slug is the last part of its public URL (<code>github.com/apps/&lt;slug&gt;</code>).",
-    `Install it manually on each organization you want covered, choosing <strong>All repositories</strong>: <a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a>. GitHub Enterprise Cloud is not needed.`,
+    `Install it manually on each organization you want covered, choosing <strong>All repositories</strong> (it must be installed on all repositories of each organization, not selected repositories only): <a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a>. GitHub Enterprise Cloud is not needed.`,
     "Under Private keys, choose Generate a private key and paste the downloaded PEM below.",
   ];
 }
