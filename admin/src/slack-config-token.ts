@@ -431,3 +431,54 @@ export class SlackConfigTokenService {
     return crypto.decrypt(row.accessTokenEncrypted);
   }
 }
+
+/**
+ * The slice of SlackConfigTokenService the create / connect / sync / delete
+ * flows need. Flows take it as an optional dependency: absent means no stored
+ * token and today's paste-only behavior.
+ */
+export type SlackConfigTokenResolver = Pick<
+  SlackConfigTokenService,
+  "get" | "resolveForAccount" | "withSlackConfigAccessToken"
+>;
+
+async function resolveStoredScope(
+  resolver: SlackConfigTokenResolver | undefined,
+  accountId: string | null | undefined,
+): Promise<SlackConfigTokenMetadata | null> {
+  if (!resolver) return null;
+  return accountId ? resolver.resolveForAccount(accountId) : resolver.get(null);
+}
+
+/**
+ * True when a stored config token applies to this account: its own row, else
+ * the deployment-wide default row (a null account only sees the default).
+ */
+export async function hasStoredSlackConfigToken(
+  resolver: SlackConfigTokenResolver | undefined,
+  accountId: string | null | undefined,
+): Promise<boolean> {
+  return (await resolveStoredScope(resolver, accountId)) !== null;
+}
+
+/**
+ * Run `fn` with a Slack config token: a pasted token wins (used as-is, no
+ * retry); otherwise mint an access token from the account's stored row, else
+ * the default row, with the revoked-token retry-once of
+ * withSlackConfigAccessToken. Throws SlackConfigTokenNotConfiguredError when
+ * neither exists, so callers check hasStoredSlackConfigToken() first when they
+ * have a paste-only fallback.
+ */
+export async function withSlackConfigToken<T>(
+  resolver: SlackConfigTokenResolver | undefined,
+  opts: { pasted?: string | undefined; accountId?: string | null | undefined },
+  fn: (token: string) => Promise<T>,
+): Promise<T> {
+  const pasted = opts.pasted?.trim();
+  if (pasted) return fn(pasted);
+  const row = await resolveStoredScope(resolver, opts.accountId);
+  if (!row || !resolver) {
+    throw new SlackConfigTokenNotConfiguredError(opts.accountId ?? null);
+  }
+  return resolver.withSlackConfigAccessToken(row.accountId, fn);
+}

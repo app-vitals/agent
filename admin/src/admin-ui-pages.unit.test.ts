@@ -13,7 +13,6 @@ import {
   type AgentDetail,
   type AgentListItem,
   agentSectionPath,
-  settingsRedirectSection,
   type CronJobItem,
   ERROR_KIND_LABELS,
   type MemberItem,
@@ -31,6 +30,7 @@ import {
   renderNewLocalAgentPage,
   renderProvisionCompletePage,
   renderProvisionXappTokenPage,
+  settingsRedirectSection,
   type TokenItem,
   type ToolItem,
 } from "./admin-ui-pages.ts";
@@ -1169,6 +1169,41 @@ describe("renderAgentDetailPage — connect-later actions", () => {
     const inputCount = (slackForm.match(/<input\b/g) ?? []).length;
     expect(inputCount).toBe(1);
     expect(slackForm).toMatch(/name="xoxpToken"[^>]*type="password"/);
+  });
+
+  test("Connect Slack xoxpToken field is required without a stored token and optional (with a hint) with one", () => {
+    const field = (html: string) =>
+      html.match(
+        /action="\/admin\/agents\/agent-123\/connect-slack"[\s\S]*?<\/form>/,
+      )?.[0] as string;
+    expect(field(render({}))).toMatch(/name="xoxpToken"[\s\S]*?required/);
+    const stored = renderAgentDetailPage(
+      AGENT,
+      {},
+      [],
+      [],
+      [],
+      [],
+      [],
+      USER_NAME,
+      true,
+      { timezone: "UTC", slackConfigTokenStored: true },
+    );
+    expect(field(stored)).not.toMatch(/required/);
+    expect(stored).toContain("stored Slack config token");
+  });
+
+  test("new-agent form hint says the token is optional when a stored token resolves", () => {
+    const CODING_TYPE = { name: "coding", displayName: "Coding Agent" };
+    const withStored = renderNewLocalAgentPage(USER_NAME, [CODING_TYPE], {
+      canProvision: true,
+      slackConfigTokenStored: true,
+    });
+    expect(withStored).toContain("Optional: a stored Slack config token");
+    const without = renderNewLocalAgentPage(USER_NAME, [CODING_TYPE], {
+      canProvision: true,
+    });
+    expect(without).not.toContain("Optional: a stored Slack config token");
   });
 
   test("Connect Slack action is hidden once SLACK_APP_TOKEN is set", () => {

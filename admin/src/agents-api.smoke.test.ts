@@ -24,11 +24,11 @@ import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AdminDeps } from "./agents-api.ts";
 import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
 import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
+import { accessFor, envWith } from "./github-installation.fixtures.ts";
 import {
   createGithubInstallationRepos,
   createGithubSync,
 } from "./github-installation-wiring.ts";
-import { accessFor, envWith } from "./github-installation.fixtures.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import {
   repoLostAccessBlockReason,
@@ -2160,6 +2160,112 @@ describe("admin API — delete agent", () => {
     expect(body.agentDeleted).toBe(true);
     expect(body.completed).toContain("slack-app");
     expect(slackCalls).toEqual([{ token: "xoxp-user-token", appId: "A123" }]);
+  });
+
+  describe("DELETE /agents/:id with a stored Slack config token (SCT-4.1)", () => {
+    const setup = (opts: {
+      rejectFirst?: boolean;
+      accountId?: string | null;
+    }) => {
+      const slackCalls: Array<{ token: string; appId: string }> = [];
+      const mintedFor: Array<string | null> = [];
+      let n = 0;
+      const slackConfigTokens = {
+        get: async (a: string | null) =>
+          a === null ? { accountId: null } : null,
+        resolveForAccount: async (a: string) =>
+          a === "acct-1" ? { accountId: "acct-1" } : { accountId: null },
+        withSlackConfigAccessToken: async <T>(
+          scope: string | null,
+          fn: (t: string) => Promise<T>,
+        ) => {
+          mintedFor.push(scope);
+          try {
+            return await fn(`minted-${++n}`);
+          } catch (err) {
+            if (!/token_revoked/.test(String(err))) throw err;
+            mintedFor.push(scope);
+            return fn(`minted-${++n}`);
+          }
+        },
+      } as unknown as NonNullable<AdminDeps["slackConfigTokens"]>;
+      const base = makeMockDeps();
+      const deps: AdminDeps = {
+        ...base,
+        prisma: {
+          ...base.prisma,
+          agent: {
+            ...base.prisma.agent,
+            findUnique: async () => ({
+              id: AGENT_ID,
+              name: "Test Agent",
+              accountId: opts.accountId ?? null,
+            }),
+          },
+          agentEnv: {
+            findMany: async () => [
+              { key: "SLACK_APP_ID", value: "A123", secret: true },
+            ],
+          },
+        } as unknown as AdminDeps["prisma"],
+        slack: {
+          deleteApp: async (token: string, appId: string) => {
+            slackCalls.push({ token, appId });
+            if (opts.rejectFirst && slackCalls.length === 1) {
+              throw new Error(
+                "Slack apps.manifest.delete failed: token_revoked",
+              );
+            }
+          },
+        },
+        slackConfigTokens,
+      };
+      return { app: createAdminApp(deps), slackCalls, mintedFor };
+    };
+    const del = async (
+      app: ReturnType<typeof createAdminApp>,
+      body?: Record<string, string>,
+    ) => {
+      const cookie = await makeSessionCookie();
+      return app.request(`/agents/${AGENT_ID}`, {
+        method: "DELETE",
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        headers: {
+          ...(body ? { "Content-Type": "application/json" } : {}),
+          Cookie: `admin_session=${cookie}`,
+        },
+      });
+    };
+
+    it("no body → the Slack app is deleted with a minted token", async () => {
+      const { app, slackCalls } = setup({});
+      const res = await del(app);
+      const body = await res.json();
+      expect(body.agentDeleted).toBe(true);
+      expect(body.completed).toContain("slack-app");
+      expect(body.manualStepsRequired).toEqual([]);
+      expect(slackCalls).toEqual([{ token: "minted-1", appId: "A123" }]);
+    });
+
+    it("the agent's account row is used (not the default)", async () => {
+      const { app, mintedFor } = setup({ accountId: "acct-1" });
+      await del(app);
+      expect(mintedFor).toEqual(["acct-1"]);
+    });
+
+    it("a pasted xoxpToken wins over the stored token", async () => {
+      const { app, slackCalls, mintedFor } = setup({});
+      await del(app, { xoxpToken: "xoxp-user-token" });
+      expect(slackCalls).toEqual([{ token: "xoxp-user-token", appId: "A123" }]);
+      expect(mintedFor).toEqual([]);
+    });
+
+    it("token_revoked → one forced rotate + retry, deletion succeeds", async () => {
+      const { app, slackCalls } = setup({ rejectFirst: true });
+      const body = await (await del(app)).json();
+      expect(body.agentDeleted).toBe(true);
+      expect(slackCalls.map((c) => c.token)).toEqual(["minted-1", "minted-2"]);
+    });
   });
 
   it("DELETE /agents/:id unknown id → 404 (no deprovision)", async () => {

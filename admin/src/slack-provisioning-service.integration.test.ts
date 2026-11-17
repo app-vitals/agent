@@ -14,8 +14,12 @@ import { readFileSync } from "node:fs";
 import { sign } from "hono/jwt";
 import type { AdminUISlackClient } from "./admin-ui.ts";
 import type { AgentDetail } from "./agents.ts";
-import { SlackProvisioningService } from "./slack-provisioning-service.ts";
+import {
+  isSlackConfigTokenRevokedError,
+  type SlackConfigTokenResolver,
+} from "./slack-config-token.ts";
 import type { AppManifest } from "./slack-provisioning-client.ts";
+import { SlackProvisioningService } from "./slack-provisioning-service.ts";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -120,6 +124,7 @@ function makeService(opts?: {
     allowedTools: string[];
   } | null>;
   getDetail?: () => Promise<AgentDetail | null>;
+  slackConfigTokens?: SlackConfigTokenResolver;
 }): SlackProvisioningService {
   const patchCalls = opts?.patchCalls ?? [];
   const reconcileCalls = opts?.reconcileCalls ?? [];
@@ -184,8 +189,75 @@ function makeService(opts?: {
     sessionSecret: SESSION_SECRET,
     appBaseUrl: APP_BASE_URL,
     secretEnvVars: new Set(["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"]),
+    ...(opts?.slackConfigTokens
+      ? { slackConfigTokens: opts.slackConfigTokens }
+      : {}),
   });
 }
+
+/** Records the token each createAppManifest call received; can reject the first. */
+class TokenRecordingSlackClient extends RecordedSlackClient {
+  readonly tokens: string[] = [];
+  constructor(private readonly rejectFirstWith?: string) {
+    super(CASSETTE_PATH);
+  }
+  override async createAppManifest(xoxpToken: string, manifest: AppManifest) {
+    this.tokens.push(xoxpToken);
+    if (this.rejectFirstWith && this.tokens.length === 1) {
+      throw new Error(
+        `Slack apps.manifest.create failed: ${this.rejectFirstWith}`,
+      );
+    }
+    return super.createAppManifest(xoxpToken, manifest);
+  }
+}
+
+/** Stored-token resolver double: `scopes` are the rows that exist; mints sequential tokens. */
+function makeStoredResolver(scopes: Array<string | null>) {
+  const mintedFor: Array<string | null> = [];
+  let n = 0;
+  const resolver = {
+    get: async (a: string | null) =>
+      scopes.includes(a) ? { accountId: a } : null,
+    resolveForAccount: async (a: string) =>
+      scopes.includes(a)
+        ? { accountId: a }
+        : scopes.includes(null)
+          ? { accountId: null }
+          : null,
+    withSlackConfigAccessToken: async <T>(
+      scope: string | null,
+      fn: (t: string) => Promise<T>,
+    ) => {
+      mintedFor.push(scope);
+      try {
+        return await fn(`minted-${++n}`);
+      } catch (err) {
+        if (!isSlackConfigTokenRevokedError(err)) throw err;
+        mintedFor.push(scope);
+        return fn(`minted-${++n}`);
+      }
+    },
+  } as unknown as SlackConfigTokenResolver;
+  return { resolver, mintedFor };
+}
+
+const agentInAccount = (accountId: string | null) => async () =>
+  ({
+    id: AGENT_ID,
+    name: "Test Agent",
+    accountId,
+    slackId: null,
+    selfHosted: false,
+    createdAt: new Date("2024-01-01"),
+    updatedAt: new Date("2024-01-01"),
+    repos: [],
+    reviewAuthorAllowlist: [],
+    patchAuthorAllowlist: [],
+    restrictSlackToMembers: false,
+    specialty: "coding",
+    missingRequiredEnv: [],
+  }) as unknown as AgentDetail;
 
 async function makeProvisionStateToken(
   overrides: Partial<{
@@ -352,6 +424,122 @@ describe("SlackProvisioningService.startConnect", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected error result");
     expect(result.error).toBe("Agent not found.");
+  });
+});
+
+describe("SlackProvisioningService.startConnect — stored Slack config token", () => {
+  it("no pasted token + stored default row → mints a token and creates the app", async () => {
+    const client = new TokenRecordingSlackClient();
+    const { resolver, mintedFor } = makeStoredResolver([null]);
+    const service = makeService({
+      slackClient: client,
+      getDetail: agentInAccount("acct-1"),
+      slackConfigTokens: resolver,
+    });
+    const result = await service.startConnect(
+      AGENT_ID,
+      undefined,
+      CONNECT_SLACK_CALLBACK,
+    );
+    expect(result.ok).toBe(true);
+    expect(client.tokens).toEqual(["minted-1"]);
+    expect(mintedFor).toEqual([null]);
+  });
+
+  it("account row overrides the default row", async () => {
+    const { resolver, mintedFor } = makeStoredResolver([null, "acct-1"]);
+    const service = makeService({
+      slackClient: new TokenRecordingSlackClient(),
+      getDetail: agentInAccount("acct-1"),
+      slackConfigTokens: resolver,
+    });
+    await service.startConnect(AGENT_ID, "", CONNECT_SLACK_CALLBACK);
+    expect(mintedFor).toEqual(["acct-1"]);
+  });
+
+  it("a pasted token wins and the resolver is not used", async () => {
+    const client = new TokenRecordingSlackClient();
+    const { resolver, mintedFor } = makeStoredResolver([null]);
+    const service = makeService({
+      slackClient: client,
+      slackConfigTokens: resolver,
+    });
+    const result = await service.startConnect(
+      AGENT_ID,
+      "xoxe.xoxp-1-pasted",
+      CONNECT_SLACK_CALLBACK,
+    );
+    expect(result.ok).toBe(true);
+    expect(client.tokens).toEqual(["xoxe.xoxp-1-pasted"]);
+    expect(mintedFor).toEqual([]);
+  });
+
+  it("a pasted token still needs the xoxe.xoxp- prefix even when a stored token exists", async () => {
+    const client = new TokenRecordingSlackClient();
+    const { resolver } = makeStoredResolver([null]);
+    const service = makeService({
+      slackClient: client,
+      slackConfigTokens: resolver,
+    });
+    const result = await service.startConnect(
+      AGENT_ID,
+      "xoxb-nope",
+      CONNECT_SLACK_CALLBACK,
+    );
+    expect(result.ok).toBe(false);
+    expect(client.tokens).toEqual([]);
+  });
+
+  it("neither pasted nor stored → today's prefix error", async () => {
+    const { resolver } = makeStoredResolver([]);
+    const service = makeService({ slackConfigTokens: resolver });
+    const result = await service.startConnect(
+      AGENT_ID,
+      undefined,
+      CONNECT_SLACK_CALLBACK,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected error result");
+    expect(result.error).toContain("xoxe.xoxp-");
+  });
+
+  it("token_revoked on the manifest call → one forced rotate + retry succeeds", async () => {
+    const client = new TokenRecordingSlackClient("token_revoked");
+    const { resolver, mintedFor } = makeStoredResolver([null]);
+    const service = makeService({
+      slackClient: client,
+      slackConfigTokens: resolver,
+    });
+    const result = await service.startConnect(
+      AGENT_ID,
+      undefined,
+      CONNECT_SLACK_CALLBACK,
+    );
+    expect(result.ok).toBe(true);
+    expect(client.tokens).toEqual(["minted-1", "minted-2"]);
+    expect(mintedFor).toHaveLength(2);
+  });
+
+  it("createAppManifest (legacy wizard) mints a token when none is pasted, and prefers a pasted one", async () => {
+    const client = new TokenRecordingSlackClient();
+    const { resolver } = makeStoredResolver([null]);
+    const service = makeService({
+      slackClient: client,
+      slackConfigTokens: resolver,
+    });
+    await service.createAppManifest(
+      "wiz",
+      undefined,
+      LEGACY_PROVISION_COMPLETE,
+      null,
+    );
+    await service.createAppManifest(
+      "wiz",
+      "xoxe.xoxp-1-p",
+      LEGACY_PROVISION_COMPLETE,
+      null,
+    );
+    expect(client.tokens).toEqual(["minted-1", "xoxe.xoxp-1-p"]);
   });
 });
 

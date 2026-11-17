@@ -124,6 +124,7 @@ import { isPushEnabled } from "./push-sender.ts";
 import { PushService } from "./push-service.ts";
 import { parseRepoAccessConfig } from "./repo-access-config.ts";
 import { parseSelfServeConfig } from "./self-serve-config.ts";
+import { SlackConfigTokenService } from "./slack-config-token.ts";
 import { HttpSlackProvisioningClient } from "./slack-provisioning-client.ts";
 import { SpecialtyTypes } from "./specialty-types.ts";
 import { runStartupPolicyReconcile } from "./startup-policy-reconcile.ts";
@@ -303,6 +304,15 @@ export async function startAdmin(
     ? new HttpOktaAuthClient({ issuer: oktaIssuer })
     : undefined;
   const slackClient = new HttpSlackProvisioningClient();
+  // Stored Slack config token (SCT-4.1): strict crypto (null without
+  // SHIPWRIGHT_ENCRYPTION_KEY) and the same HTTP client as the rotate client.
+  // Shared by agent create / connect-slack / sync-manifest / delete.
+  const slackConfigTokens = new SlackConfigTokenService(
+    prisma,
+    makeStrictTokenCrypto(),
+    undefined,
+    slackClient,
+  );
   const githubAppClient = new HttpGithubAppProvisioningClient();
 
   // Chat-service client for deleteAgentFully() cleanup, shared by both delete
@@ -532,6 +542,7 @@ export async function startAdmin(
     chatService: deletionChatService,
     slack: slackClient,
     decrypt: crypto.decrypt,
+    slackConfigTokens,
     agentTemplateReconcileService: templateReconcileService,
     sessionSecret,
     adminApiKeys,
@@ -656,6 +667,7 @@ export async function startAdmin(
     chatService: deletionChatService,
     slack: slackClient,
     decrypt: crypto.decrypt,
+    slackConfigTokens,
     sessionSecret,
     googleClientId,
     googleClientSecret,

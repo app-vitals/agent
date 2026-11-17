@@ -207,8 +207,10 @@ export const CreateAgentBodySchema = z
 
 /**
  * DELETE /agents/:id request body. Entirely optional — omit it (or the
- * xoxpToken field) to skip automatic Slack app deletion; a present Slack app
- * then becomes a manual checklist entry instead of a hard failure.
+ * xoxpToken field) to use the stored Slack config token when one resolves for
+ * the agent's account (else the deployment default). With neither a pasted nor
+ * a stored token, a present Slack app becomes a manual checklist entry instead
+ * of a hard failure. A pasted xoxpToken wins over the stored token.
  */
 export const DeleteAgentBodySchema = z
   .object({

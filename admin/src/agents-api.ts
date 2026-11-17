@@ -61,13 +61,13 @@ import { deleteAgentFully } from "./agent-deletion.ts";
 import type { AgentEnvService } from "./agent-envs.ts";
 import type { AgentGitHubInstallationsService } from "./agent-github-installations.ts";
 import { AgentMarketplaceService } from "./agent-marketplaces.ts";
-import { AGENT_TEMPLATE_ITEM_KINDS } from "./agent-template-items.ts";
 import type { AgentMemberService } from "./agent-members.ts";
 import type { AgentPluginService } from "./agent-plugins.ts";
 import {
   type AgentProvisioner,
   hasPerAgentIdentity,
 } from "./agent-provisioner.ts";
+import { AGENT_TEMPLATE_ITEM_KINDS } from "./agent-template-items.ts";
 import type { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
 import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AgentToolService } from "./agent-tools.ts";
@@ -111,7 +111,9 @@ import {
   UnprocessableEntityError,
 } from "./errors.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
+import type { GithubSyncService } from "./github-sync.ts";
 import { normalizeGithubUsername } from "./github-username.ts";
+import type { InstallationReposService } from "./installation-repos-service.ts";
 import {
   AddAgentReposBodySchema,
   AgentChatTokenUsageDailySchema,
@@ -167,8 +169,6 @@ import {
   UpsertAgentMarketplaceBodySchema,
   UpsertChatTokenDailyBodySchema,
 } from "./openapi-schemas.ts";
-import type { InstallationReposService } from "./installation-repos-service.ts";
-import type { GithubSyncService } from "./github-sync.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 import {
   blockRepoRemovalWork,
@@ -327,6 +327,12 @@ export interface AdminDeps {
   chatService: DeleteAgentFullyDeps["chatService"];
   slack: DeleteAgentFullyDeps["slack"];
   decrypt: DeleteAgentFullyDeps["decrypt"];
+  /**
+   * Optional stored Slack config token resolver (SCT-4.1; additive). When set,
+   * DELETE /agents/:id deletes the Slack app with a minted token if no
+   * xoxpToken is supplied. Absent keeps the paste-only behavior.
+   */
+  slackConfigTokens?: DeleteAgentFullyDeps["slackConfigTokens"];
   sessionSecret: string;
   /** Parsed SHIPWRIGHT_ADMIN_API_KEYS — optional; absent means env key auth is disabled. */
   adminApiKeys?: Map<string, AdminApiKey>;
@@ -960,7 +966,7 @@ const deleteAgentRoute = createRoute({
   path: "/agents/{id}",
   summary: "Delete an agent",
   description:
-    "Admin-only. Runs the full deleteAgentFully() teardown: deprovisions the K8s workload, removes the agent's per-agent Anthropic identity when it has one (federation rule, then Anthropic service account, then Kubernetes ServiceAccount), revokes task-store and chat-service tokens, deletes chat threads, and — if an `xoxpToken` is supplied — deletes the Slack app. The Agent row (and its cascade-deleted child records) is deleted last, only if every automatable step succeeded; `agentDeleted: false` means the row was preserved and the call is safe to retry.",
+    "Admin-only. Runs the full deleteAgentFully() teardown: deprovisions the K8s workload, removes the agent's per-agent Anthropic identity when it has one (federation rule, then Anthropic service account, then Kubernetes ServiceAccount), revokes task-store and chat-service tokens, deletes chat threads, and — if an `xoxpToken` is supplied, or a stored Slack config token resolves for the agent's account (else the deployment default) — deletes the Slack app. The Agent row (and its cascade-deleted child records) is deleted last, only if every automatable step succeeded; `agentDeleted: false` means the row was preserved and the call is safe to retry.",
   request: {
     params: AgentIdParamSchema,
     body: {
@@ -2089,6 +2095,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
     chatService,
     slack,
     decrypt,
+    slackConfigTokens,
     sessionSecret,
     adminApiKeys,
     sentryClient,
@@ -2556,6 +2563,7 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         chatService,
         slack,
         decrypt,
+        ...(slackConfigTokens ? { slackConfigTokens } : {}),
       },
       { xoxpToken: body?.xoxpToken },
     );

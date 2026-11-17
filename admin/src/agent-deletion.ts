@@ -49,6 +49,11 @@ import type { AgentProvisioner } from "./agent-provisioner.ts";
 import type { ChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
 import { NotFoundError } from "./errors.ts";
 import type { DeletionServiceIntegration } from "./service-integration.ts";
+import {
+  hasStoredSlackConfigToken,
+  type SlackConfigTokenResolver,
+  withSlackConfigToken,
+} from "./slack-config-token.ts";
 import type { SlackProvisioningClient } from "./slack-provisioning-client.ts";
 
 // ─── Step identifiers ─────────────────────────────────────────────────────────
@@ -113,8 +118,17 @@ interface DeleteAgentPrisma {
         anthropicFederationRuleId: true;
         anthropicServiceAccountId: true;
         k8sServiceAccountName: true;
+        accountId: true;
       };
-    }): Promise<({ id: string; name: string } & LeftoverIdentity) | null>;
+    }): Promise<
+      | ({
+          id: string;
+          name: string;
+          /** Owning account; picks the stored Slack config token row. */
+          accountId?: string | null;
+        } & LeftoverIdentity)
+      | null
+    >;
     delete(args: { where: { id: string } }): Promise<unknown>;
   };
   agentEnv: {
@@ -149,12 +163,20 @@ export interface DeleteAgentFullyDeps {
    * crypto and is trivially unit-testable.
    */
   decrypt(value: string): string;
+  /**
+   * Optional stored Slack config token resolver. When present and a token
+   * resolves for the agent's account (else the default), the Slack app is
+   * deleted with a minted access token if no token was pasted. Absent keeps the
+   * paste-only behavior.
+   */
+  slackConfigTokens?: SlackConfigTokenResolver;
 }
 
 interface DeleteAgentFullyOpts {
   /**
    * Slack user token (xoxp-) authorizing the Slack app deletion. Supplied
-   * per-request (same UX as the sync-manifest flow) — when omitted, a Slack app
+   * per-request (same UX as the sync-manifest flow) and wins over a stored
+   * Slack config token. When omitted and no stored token resolves, a Slack app
    * (if present) is NOT auto-deleted and instead becomes a manual checklist
    * entry. Its absence is never a failure.
    */
@@ -190,6 +212,7 @@ export async function deleteAgentFully(
     anthropicFederationRuleId: true,
     anthropicServiceAccountId: true,
     k8sServiceAccountName: true,
+    accountId: true,
   } as const;
   const agent = await deps.prisma.agent.findUnique({
     where: { id: agentId },
@@ -266,14 +289,25 @@ export async function deleteAgentFully(
   const manualSlackSteps: ManualStep[] = [];
   if (slackAppIdRow) {
     const slackAppId = deps.decrypt(slackAppIdRow.value);
-    if (opts.xoxpToken) {
+    const pasted = opts.xoxpToken?.trim() || undefined;
+    if (
+      pasted ||
+      (await hasStoredSlackConfigToken(
+        deps.slackConfigTokens,
+        agent.accountId ?? null,
+      ))
+    ) {
       await runStep("slack-app", async () => {
-        await deps.slack.deleteApp(opts.xoxpToken as string, slackAppId);
+        await withSlackConfigToken(
+          deps.slackConfigTokens,
+          { pasted, accountId: agent.accountId ?? null },
+          (token) => deps.slack.deleteApp(token, slackAppId),
+        );
       });
     } else {
       manualSlackSteps.push({
         key: "SLACK_APP_ID",
-        message: `Slack app ${slackAppId} was not deleted automatically — no Slack user token was supplied. Delete it manually at api.slack.com/apps or retry with a token.`,
+        message: `Slack app ${slackAppId} was not deleted automatically — no Slack user token was supplied and no stored Slack config token applies. Delete it manually at api.slack.com/apps or retry with a token.`,
       });
     }
   }
