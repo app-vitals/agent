@@ -46,10 +46,12 @@ function lazyInstallerClient(
     "appService" | "fetchFn" | "apiBase" | "now"
   >,
 ): InstallationRepoClient & InstalledOrgsClient {
-  const client = async (): Promise<GithubEnterpriseClient> => {
+  const client = async (
+    accountId?: string | null,
+  ): Promise<GithubEnterpriseClient> => {
     const [installer, privateKey] = await Promise.all([
-      deps.appService.get("installer"),
-      deps.appService.getPrivateKey("installer"),
+      deps.appService.get("installer", accountId),
+      deps.appService.getPrivateKey("installer", accountId),
     ]);
     if (!installer?.enterpriseSlug || !privateKey) {
       throw new Error("installer App is not configured");
@@ -64,16 +66,16 @@ function lazyInstallerClient(
     });
   };
   return {
-    listInstallableOrganizations: async () =>
-      (await client()).listInstallableOrganizations(),
-    listOrgInstallations: async (org) =>
-      (await client()).listOrgInstallations(org),
-    listInstallationRepositories: async (org, id) =>
-      (await client()).listInstallationRepositories(org, id),
-    addRepositories: async (org, id, names) =>
-      (await client()).addRepositories(org, id, names),
-    removeRepositories: async (org, id, names) =>
-      (await client()).removeRepositories(org, id, names),
+    listInstallableOrganizations: async (accountId) =>
+      (await client(accountId)).listInstallableOrganizations(),
+    listOrgInstallations: async (org, accountId) =>
+      (await client(accountId)).listOrgInstallations(org),
+    listInstallationRepositories: async (org, id, accountId) =>
+      (await client(accountId)).listInstallationRepositories(org, id),
+    addRepositories: async (org, id, names, accountId) =>
+      (await client(accountId)).addRepositories(org, id, names),
+    removeRepositories: async (org, id, names, accountId) =>
+      (await client(accountId)).removeRepositories(org, id, names),
   };
 }
 

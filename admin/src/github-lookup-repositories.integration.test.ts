@@ -200,7 +200,9 @@ describe("githubLookup.listRepositories", () => {
         fetchFn: replay((_u, id) =>
           Response.json({
             repositories:
-              id === 1 ? [repo("acme", "api", false, 10)] : [repo("beta", "web", false, 20)],
+              id === 1
+                ? [repo("acme", "api", false, 10)]
+                : [repo("beta", "web", false, 20)],
           }),
         ),
         now: () => NOW,
@@ -233,29 +235,157 @@ describe("githubLookup.listRepositories", () => {
       const svc = createGithubLookupService({
         appService: stored(null),
         fetchFn: (async () =>
-          Response.json({ message: "boom" }, { status: 500 })) as unknown as typeof fetch,
+          Response.json(
+            { message: "boom" },
+            { status: 500 },
+          )) as unknown as typeof fetch,
         now: () => NOW,
       });
-      await expect(svc.listRepositories()).rejects.toBeInstanceOf(GithubEnterpriseError);
+      await expect(svc.listRepositories()).rejects.toBeInstanceOf(
+        GithubEnterpriseError,
+      );
     });
 
     it("an installer with a slug but no key stays unconfigured", async () => {
       const svc = createGithubLookupService({
         appService: {
           get: async (kind: string) =>
-            kind === "lookup" ? lookupApp : { appId: "1", enterpriseSlug: "ent" },
+            kind === "lookup"
+              ? lookupApp
+              : { appId: "1", enterpriseSlug: "ent" },
           getPrivateKey: async (kind: string) =>
             kind === "lookup" ? privateKey : null,
         } as unknown as GitHubEnterpriseAppService,
       });
-      expect(await svc.listRepositories()).toEqual({ configured: false, repos: [] });
+      expect(await svc.listRepositories()).toEqual({
+        configured: false,
+        repos: [],
+      });
     });
 
     it("with an installer configured the org list still comes from it", async () => {
-      const svc = service(["acme"], replay(() => Response.json({ repositories: [repo("acme", "api")] })));
+      const svc = service(
+        ["acme"],
+        replay(() => Response.json({ repositories: [repo("acme", "api")] })),
+      );
       expect((await svc.listRepositories()).repos).toEqual([
         { fullName: "acme/api", archived: false },
       ]);
+    });
+  });
+});
+
+describe("githubLookup.listRepositories(accountId)", () => {
+  type Row = { appId: string; enterpriseSlug: string | null };
+  /** In-memory app service with the real account-then-deployment-wide fallback. */
+  function scopedApps(rows: Record<string, Row | undefined>) {
+    const key = (role: string, accountId?: string | null) =>
+      `${accountId ?? ""}:${role}`;
+    const resolve = (role: string, accountId?: string | null) =>
+      (accountId ? rows[key(role, accountId)] : undefined) ??
+      rows[key(role, null)];
+    return {
+      get: async (role: string, accountId?: string | null) =>
+        resolve(role, accountId) ?? null,
+      getPrivateKey: async (role: string, accountId?: string | null) =>
+        resolve(role, accountId) ? privateKey : null,
+    } as unknown as GitHubEnterpriseAppService;
+  }
+
+  /** The lookup App id (JWT iss) decides which org installation it sees. */
+  const byApp: typeof fetch = (async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    const u = new URL(input.toString());
+    const bearer = String(new Headers(init?.headers).get("authorization"));
+    const jwt = bearer.replace(/^Bearer /, "");
+    if (u.pathname === "/app/installations") {
+      const iss = JSON.parse(
+        Buffer.from(jwt.split(".")[1], "base64url").toString(),
+      ).iss;
+      const org = String(iss) === "777" ? "gamma" : "acme";
+      return Response.json([
+        {
+          id: org === "gamma" ? 3 : 1,
+          account: { login: org, type: "Organization" },
+        },
+      ]);
+    }
+    const inst = u.pathname.match(/^\/orgs\/([^/]+)\/installation$/);
+    if (inst) {
+      return Response.json({
+        id: inst[1] === "gamma" ? 3 : 1,
+        repository_selection: "all",
+      });
+    }
+    if (u.pathname.match(/^\/app\/installations\/(\d+)\/access_tokens$/)) {
+      const id = u.pathname.match(/installations\/(\d+)/)?.[1];
+      return Response.json({
+        token: `ghs_tok${id}`,
+        expires_at: "2026-11-09T13:00:00Z",
+      });
+    }
+    if (u.pathname === "/installation/repositories") {
+      return Response.json({
+        repositories: bearer.endsWith("tok3")
+          ? [repo("gamma", "tenant", false, 30)]
+          : [repo("acme", "shared", false, 10)],
+      });
+    }
+    return Response.json({ message: "Not Found" }, { status: 404 });
+  }) as unknown as typeof fetch;
+
+  const lookup = (appId: string): Row => ({ appId, enterpriseSlug: null });
+
+  it("lists through the account's own lookup App", async () => {
+    const svc = createGithubLookupService({
+      appService: scopedApps({
+        ":lookup": lookup("555"),
+        "acct-1:lookup": lookup("777"),
+      }),
+      fetchFn: byApp,
+      now: () => NOW,
+    });
+    expect((await svc.listRepositories("acct-1")).repos).toEqual([
+      { fullName: "gamma/tenant", archived: false },
+    ]);
+  });
+
+  it("falls back to the deployment-wide pair when the account has none", async () => {
+    const svc = createGithubLookupService({
+      appService: scopedApps({ ":lookup": lookup("555") }),
+      fetchFn: byApp,
+      now: () => NOW,
+    });
+    expect((await svc.listRepositories("acct-2")).repos).toEqual([
+      { fullName: "acme/shared", archived: false },
+    ]);
+  });
+
+  it("with no argument uses the deployment-wide pair, ignoring account rows", async () => {
+    const svc = createGithubLookupService({
+      appService: scopedApps({
+        ":lookup": lookup("555"),
+        "acct-1:lookup": lookup("777"),
+      }),
+      fetchFn: byApp,
+      now: () => NOW,
+    });
+    expect((await svc.listRepositories()).repos).toEqual([
+      { fullName: "acme/shared", archived: false },
+    ]);
+  });
+
+  it("is unconfigured when neither the account nor the deployment has a lookup App", async () => {
+    const svc = createGithubLookupService({
+      appService: scopedApps({}),
+      fetchFn: byApp,
+      now: () => NOW,
+    });
+    expect(await svc.listRepositories("acct-1")).toEqual({
+      configured: false,
+      repos: [],
     });
   });
 });

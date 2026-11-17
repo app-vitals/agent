@@ -64,8 +64,10 @@ export interface InstallationReposDeps {
 export function identityOf(agent: {
   clientId?: string;
   slug?: string;
+  accountId?: string | null;
 }): AppIdentity {
   return {
+    ...(agent.accountId ? { accountId: agent.accountId } : {}),
     ...(agent.clientId ? { clientId: agent.clientId } : {}),
     ...(agent.slug ? { slug: agent.slug } : {}),
   };
@@ -130,7 +132,7 @@ export class InstallationReposService {
     let access: UserRepoAccessResult | undefined;
     if (username) {
       try {
-        const preview = await this.deps.access(username);
+        const preview = await this.deps.access(username, agent.accountId);
         if (preview.status === "ok") access = preview.access;
       } catch {
         // The hint is advisory: a failed lookup omits it.
@@ -149,7 +151,9 @@ export class InstallationReposService {
 
 /** The slice of the installer client the installation-repos port needs. */
 export interface InstalledOrgsClient {
-  listInstallableOrganizations(): Promise<{ login: string }[]>;
+  listInstallableOrganizations(
+    accountId?: string | null,
+  ): Promise<{ login: string }[]>;
 }
 
 /**
@@ -164,7 +168,9 @@ export function createInstallationReposPort(
     ...base,
     async listInstalled(appId, identity) {
       const out: { org: string; repos: string[] }[] = [];
-      for (const { login } of await client.listInstallableOrganizations()) {
+      for (const { login } of await client.listInstallableOrganizations(
+        identity?.accountId,
+      )) {
         try {
           const repos = await base.listRepos(appId, [login], identity);
           out.push({ org: login, repos: repos[login] ?? [] });

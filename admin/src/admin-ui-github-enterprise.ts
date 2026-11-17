@@ -7,10 +7,7 @@
  * `{ error }` bodies as readable messages. No key is ever read back.
  */
 
-import type { SettingsNav } from "./admin-ui-settings-layout.ts";
 import type { Context, Hono, MiddlewareHandler } from "hono";
-import { readPrivateKeyField } from "./github-enterprise-pem-upload.ts";
-import { warningCodeFor } from "./github-enterprise-warnings.ts";
 import type { AdminUIEnv } from "./admin-ui.ts";
 import {
   ADMIN_GITHUB_ENTERPRISE_PATH as BASE,
@@ -18,11 +15,16 @@ import {
   type GheStatus,
   renderGithubEnterpriseSettingsPage,
 } from "./admin-ui-github-enterprise-pages.ts";
+import type { SettingsNav } from "./admin-ui-settings-layout.ts";
+import { readPrivateKeyField } from "./github-enterprise-pem-upload.ts";
+import { warningCodeFor } from "./github-enterprise-warnings.ts";
 
 export interface AdminGithubEnterpriseRouteDeps {
   requireAuth: MiddlewareHandler<AdminUIEnv>;
   /** Calls the GHE-1.3 API app (its `.request`), e.g. `/github-enterprise/apps`. */
   api: (path: string, init?: RequestInit) => Response | Promise<Response>;
+  /** Accounts for the per-account App selector; omitted hides it. */
+  accounts?: { listWithCounts: () => Promise<{ id: string; name: string }[]> };
   /** Settings sidebar nav (SGL-2.2). */
   settingsNav?: SettingsNav;
   html: (content: string, opts?: { status?: number }) => Response;
@@ -90,14 +92,24 @@ export function registerAdminGithubEnterpriseRoutes(
     return { ok: false, status: res.status, error };
   }
 
+  /** Selected account (query), as an API query suffix and a redirect suffix. */
+  const scopeOf = (c: Context<AdminUIEnv>) => {
+    const accountId = c.req.query("accountId")?.trim() || undefined;
+    const q = accountId ? `accountId=${encodeURIComponent(accountId)}` : "";
+    return { accountId, q };
+  };
+  const withQuery = (path: string, q: string) =>
+    q ? `${path}${path.includes("?") ? "&" : "?"}${q}` : path;
+
   async function renderPage(
     c: Context<AdminUIEnv>,
     flash: { error?: string; notice?: string; status?: number } = {},
   ): Promise<Response> {
+    const { accountId, q } = scopeOf(c);
     const statusRes = await call<GheStatus>(
       c,
       "GET",
-      "/github-enterprise/apps",
+      withQuery("/github-enterprise/apps", q),
     );
     if (!statusRes.ok || !statusRes.data) {
       return deps.html(
@@ -114,8 +126,22 @@ export function registerAdminGithubEnterpriseRoutes(
     const status = statusRes.data;
     let orgs: GheOrgs | undefined;
     let orgsError: string | undefined;
-    if (status.installer) {
-      const r = await call<GheOrgs>(c, "GET", "/github-enterprise/orgs");
+    // With an account selected, the deployment-wide pair is the fallback.
+    let defaultStatus: GheStatus | undefined;
+    if (accountId) {
+      const d = await call<GheStatus>(c, "GET", "/github-enterprise/apps");
+      if (d.ok) defaultStatus = d.data;
+    }
+    let accounts: { id: string; name: string }[] | undefined;
+    if (deps.accounts) {
+      accounts = await deps.accounts.listWithCounts().catch(() => undefined);
+    }
+    if (status.installer ?? defaultStatus?.installer) {
+      const r = await call<GheOrgs>(
+        c,
+        "GET",
+        withQuery("/github-enterprise/orgs", q),
+      );
       if (r.ok) orgs = r.data;
       else orgsError = r.error;
     }
@@ -127,6 +153,9 @@ export function registerAdminGithubEnterpriseRoutes(
         isAdmin: c.var.isAdmin === true,
         ...(deps.settingsNav ? { nav: deps.settingsNav } : {}),
         status,
+        accountId,
+        accounts: accounts?.map((a) => ({ id: a.id, name: a.name })),
+        defaultStatus,
         orgs,
         orgsError,
         error: flash.error,
@@ -146,8 +175,10 @@ export function registerAdminGithubEnterpriseRoutes(
       return new FormData();
     }
   }
-  const back = (c: Context<AdminUIEnv>, notice: string) =>
-    c.redirect(`${BASE}?notice=${notice}`, 302);
+  const back = (c: Context<AdminUIEnv>, notice: string) => {
+    const { q } = scopeOf(c);
+    return c.redirect(`${BASE}?notice=${notice}${q ? `&${q}` : ""}`, 302);
+  };
   const fail = (c: Context<AdminUIEnv>, r: ApiResult<unknown>) =>
     renderPage(c, { error: r.error, status: r.status >= 400 ? r.status : 400 });
 
@@ -160,13 +191,19 @@ export function registerAdminGithubEnterpriseRoutes(
     const enterpriseSlug = field(form, "enterpriseSlug");
     const key = await readPrivateKeyField(form);
     if (!key.ok) return renderPage(c, { error: key.error, status: 400 });
-    const r = await call(c, "PUT", `/github-enterprise/apps/${role}`, {
-      appId: field(form, "appId"),
-      slug: field(form, "slug"),
-      ...(enterpriseSlug ? { enterpriseSlug } : {}),
-      // Pasted or uploaded; never echoed back to the page.
-      privateKey: key.pem,
-    });
+    const { q } = scopeOf(c);
+    const r = await call(
+      c,
+      "PUT",
+      withQuery(`/github-enterprise/apps/${role}`, q),
+      {
+        appId: field(form, "appId"),
+        slug: field(form, "slug"),
+        ...(enterpriseSlug ? { enterpriseSlug } : {}),
+        // Pasted or uploaded; never echoed back to the page.
+        privateKey: key.pem,
+      },
+    );
     return r.ok ? back(c, "saved") : fail(c, r);
   });
 
@@ -180,7 +217,7 @@ export function registerAdminGithubEnterpriseRoutes(
       const r = await call<{ warnings?: string[] }>(
         c,
         "POST",
-        `/github-enterprise/apps/${role}/validate`,
+        withQuery(`/github-enterprise/apps/${role}/validate`, scopeOf(c).q),
       );
       if (!r.ok) return fail(c, r);
       // Warnings ride the redirect as stable codes, never free text.
@@ -188,7 +225,7 @@ export function registerAdminGithubEnterpriseRoutes(
         .map(warningCodeFor)
         .filter((x): x is NonNullable<typeof x> => x !== undefined);
       return c.redirect(
-        `${BASE}?notice=validated${codes.length ? `&warn=${codes.join(",")}` : ""}`,
+        `${BASE}?notice=validated${codes.length ? `&warn=${codes.join(",")}` : ""}${scopeOf(c).q ? `&${scopeOf(c).q}` : ""}`,
         302,
       );
     },
@@ -201,7 +238,11 @@ export function registerAdminGithubEnterpriseRoutes(
     async (c) => {
       const role = c.req.param("role");
       if (!isRole(role)) return new Response("Not Found", { status: 404 });
-      const r = await call(c, "DELETE", `/github-enterprise/apps/${role}`);
+      const r = await call(
+        c,
+        "DELETE",
+        withQuery(`/github-enterprise/apps/${role}`, scopeOf(c).q),
+      );
       return r.ok ? back(c, "deleted") : fail(c, r);
     },
   );

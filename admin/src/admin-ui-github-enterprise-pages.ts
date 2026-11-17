@@ -7,17 +7,17 @@
  * never renders a key (the status API only reports `keySet`).
  */
 
-import {
-  GHE_WARNINGS,
-  type GheWarningCode,
-} from "./github-enterprise-warnings.ts";
 import { renderAdminPage } from "./admin-ui-layout.ts";
-import { escapeHtml } from "./admin-ui-styles.ts";
 import {
   buildSettingsNav,
   renderSettingsLayout,
   type SettingsNav,
 } from "./admin-ui-settings-layout.ts";
+import { escapeHtml } from "./admin-ui-styles.ts";
+import {
+  GHE_WARNINGS,
+  type GheWarningCode,
+} from "./github-enterprise-warnings.ts";
 
 export const ADMIN_GITHUB_ENTERPRISE_PATH = "/admin/settings/github-enterprise";
 
@@ -63,6 +63,12 @@ export interface GithubEnterpriseSettingsPageOpts {
   /** Settings sidebar nav; defaults to the base Platform nav. */
   nav?: SettingsNav;
   status: GheStatus;
+  /** Account whose pair is shown; omitted for the deployment-wide pair. */
+  accountId?: string;
+  /** Accounts offered by the selector; omitted hides it. */
+  accounts?: { id: string; name: string }[];
+  /** Deployment-wide pair, passed when an account is selected (fallback). */
+  defaultStatus?: GheStatus;
   /** Present when the installer App is configured and the org list loaded. */
   orgs?: GheOrgs;
   /** Readable message when the org list could not be loaded. */
@@ -113,12 +119,31 @@ const ROLE_COPY = {
   },
 } as const;
 
+/** Lookup setup steps when no installer App exists (per-org manual install). */
+function lookupOnlySteps(slug: string | undefined): string[] {
+  const link = slug
+    ? `https://github.com/apps/${escapeHtml(slug)}/installations/new`
+    : "https://github.com/apps/&lt;slug&gt;/installations/new";
+  return [
+    "In GitHub, open the organization that will own the App: Settings &rarr; Developer settings &rarr; GitHub Apps &rarr; New GitHub App.",
+    "Grant Repository <code>Metadata</code> at <strong>Read</strong> and Organization <code>Members</code> at <strong>Read</strong>.",
+    "Create the App. The App ID is on the App's settings page; the App slug is the last part of its public URL (<code>github.com/apps/&lt;slug&gt;</code>).",
+    `Install it manually on each organization you want covered, choosing <strong>All repositories</strong> (it must be installed on all repositories of each organization, not selected repositories only): <a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a>. GitHub Enterprise Cloud is not needed.`,
+    "Under Private keys, choose Generate a private key and paste the downloaded PEM below.",
+  ];
+}
+
 const IGNORED_OPTIONS =
   "Ignore these options: callback URL, request user authorization, expire user authorization tokens, device flow, and webhook (uncheck Active).";
 
-function guidance(role: "installer" | "lookup"): string {
-  const copy = ROLE_COPY[role];
-  return `<ol class="help-text gh-ent-steps" style="font-size:12px;margin:8px 0;padding-left:20px">${copy.steps.map((x) => `<li>${x}</li>`).join("")}</ol>
+function guidance(
+  role: "installer" | "lookup",
+  lookupOnly: string[] | null,
+): string {
+  const steps =
+    role === "lookup" && lookupOnly ? lookupOnly : ROLE_COPY[role].steps;
+  const variant = role === "lookup" && lookupOnly ? " gh-ent-lookup-only" : "";
+  return `<ol class="help-text gh-ent-steps${variant}" style="font-size:12px;margin:8px 0;padding-left:20px">${steps.map((x) => `<li>${x}</li>`).join("")}</ol>
       <p class="help-text gh-ent-ignore" style="font-size:12px;margin:8px 0">${IGNORED_OPTIONS}</p>`;
 }
 
@@ -160,17 +185,57 @@ function warningsBlock(
     .join("");
 }
 
+/** Query suffix carrying the selected account (empty = deployment-wide). */
+function scopeQuery(accountId: string | undefined): string {
+  return accountId ? `?accountId=${encodeURIComponent(accountId)}` : "";
+}
+
+function accountSelector(opts: GithubEnterpriseSettingsPageOpts): string {
+  if (!opts.accounts) return "";
+  const options = [
+    `<option value=""${opts.accountId ? "" : " selected"}>Deployment-wide default</option>`,
+    ...opts.accounts.map(
+      (a) =>
+        `<option value="${escapeHtml(a.id)}"${a.id === opts.accountId ? " selected" : ""}>${escapeHtml(a.name)}</option>`,
+    ),
+  ].join("");
+  return `<form method="GET" action="${BASE}" class="gh-ent-account-selector" style="display:flex;gap:8px;align-items:center;margin:8px 0">
+        <label>Account <select name="accountId" class="form-input">${options}</select></label>
+        <button type="submit" class="btn btn-secondary" style="font-size:12px;padding:4px 10px">Switch</button>
+      </form>`;
+}
+
+/** Which pair the selected account is using: its own row or the fallback. */
+function scopeNote(
+  role: "installer" | "lookup",
+  opts: GithubEnterpriseSettingsPageOpts,
+  own: GheApp | null,
+): string {
+  if (!opts.accountId) return "";
+  if (own)
+    return `<p class="help-text gh-ent-scope" style="font-size:12px;margin:8px 0"><span class="badge badge-green">Account's own App</span> This account uses its own ${role} App.</p>`;
+  const fallback = opts.defaultStatus?.[role];
+  return fallback
+    ? `<p class="help-text gh-ent-scope" style="font-size:12px;margin:8px 0"><span class="badge badge-gray">Deployment-wide fallback</span> This account has no ${role} App of its own and uses the deployment-wide one (slug <strong>${escapeHtml(fallback.slug)}</strong>). Saving credentials below creates an account-specific App.</p>`
+    : `<p class="help-text gh-ent-scope" style="font-size:12px;margin:8px 0"><span class="badge badge-gray">None</span> No ${role} App for this account or deployment-wide.</p>`;
+}
+
 function appCard(
   role: "installer" | "lookup",
   app: GheApp | null,
-  warnings?: string[],
+  opts: GithubEnterpriseSettingsPageOpts,
+  lookupOnly: string[] | null,
 ): string {
+  const warnings = opts.warnings;
   const copy = ROLE_COPY[role];
-  const action = `${BASE}/apps/${role}`;
+  const scope = scopeQuery(opts.accountId);
+  const action = `${BASE}/apps/${role}${scope}`;
+  const actionFor = (suffix: string) =>
+    `${BASE}/apps/${role}/${suffix}${scope}`;
   const summary = app
     ? `<p style="margin:8px 0">App ID <strong>${escapeHtml(app.appId)}</strong> &middot; slug <strong>${escapeHtml(app.slug)}</strong>${app.enterpriseSlug ? ` &middot; enterprise <strong>${escapeHtml(app.enterpriseSlug)}</strong>` : ""}</p>
     ${statusLine(app)}${warningsBlock(role, warnings)}
-    <div style="display:flex;gap:8px;margin:12px 0">${postButton(`${action}/validate`, "Validate")}${postButton(`${action}/delete`, "Delete", "btn-danger")}</div>`
+    <div style="display:flex;gap:8px;margin:12px 0">${postButton(actionFor("validate"), "Validate")}${postButton(actionFor("delete"), "Delete", "btn-danger")}</div>`
     : `<p class="help-text" style="font-size:12px;margin:8px 0">Not configured.</p>`;
   const enterprise =
     role === "installer"
@@ -179,7 +244,9 @@ function appCard(
   return `<div class="card">
       <div class="card-title">${copy.title}</div>
       <p class="help-text" style="font-size:12px">${copy.descriptor}</p>
-      ${guidance(role)}
+      ${accountSelector(opts)}
+      ${scopeNote(role, opts, app)}
+      ${guidance(role, lookupOnly)}
       ${summary}
       <form method="POST" action="${action}" enctype="multipart/form-data" style="display:grid;gap:8px;max-width:480px">
         <label>App ID <input name="appId" class="form-input" required inputmode="numeric" pattern="[0-9]+" /></label>
@@ -201,8 +268,8 @@ function installedCell(v: boolean | null): string {
 
 function orgsCard(opts: GithubEnterpriseSettingsPageOpts): string {
   const { status } = opts;
-  if (!status.installer) return "";
-  const lookupSlug = status.lookup?.slug;
+  if (!(status.installer ?? opts.defaultStatus?.installer)) return "";
+  const lookupSlug = (status.lookup ?? opts.defaultStatus?.lookup)?.slug;
 
   let body: string;
   if (opts.orgsError) {
@@ -240,6 +307,11 @@ export function renderGithubEnterpriseSettingsPage(
   opts: GithubEnterpriseSettingsPageOpts,
 ): string {
   const { status } = opts;
+  const effectiveInstaller = status.installer ?? opts.defaultStatus?.installer;
+  const effectiveLookup = status.lookup ?? opts.defaultStatus?.lookup;
+  const lookupOnly = effectiveInstaller
+    ? null
+    : lookupOnlySteps(effectiveLookup?.slug);
   const error = opts.error
     ? `<div class="alert alert-error">${escapeHtml(opts.error)}</div>`
     : "";
@@ -262,8 +334,8 @@ export function renderGithubEnterpriseSettingsPage(
       active: BASE,
       isAdmin: opts.isAdmin ?? false,
       body: `${error}${notice}${intro}
-    ${appCard("installer", status.installer, opts.warnings)}
-    ${appCard("lookup", status.lookup, opts.warnings)}
+    ${appCard("installer", status.installer, opts, lookupOnly)}
+    ${appCard("lookup", status.lookup, opts, lookupOnly)}
     ${orgsCard(opts)}`,
     }),
   });

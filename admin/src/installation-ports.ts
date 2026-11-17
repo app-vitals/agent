@@ -31,6 +31,8 @@ export const MAX_UNCONFIRMED_REMOVALS = 10;
 
 export interface InstallationAgentRecord {
   id: string;
+  /** The agent's account; selects that account's GitHub App pair (null/absent: deployment-wide). */
+  accountId?: string | null;
   repos: string[];
   githubUsername: string | null;
   /** The agent's own GitHub App id (its stored GH_APP_ID); undefined when unset or not numeric. */
@@ -48,6 +50,8 @@ export interface InstallationAgentRecord {
 export interface AppIdentity {
   clientId?: string;
   slug?: string;
+  /** Account whose installer App makes the calls (null/absent: deployment-wide pair). */
+  accountId?: string | null;
 }
 
 export interface InstallationAgentsPort {
@@ -139,7 +143,7 @@ export class PrismaInstallationAgents implements InstallationAgentsPort {
   async get(agentId: string): Promise<InstallationAgentRecord | null> {
     const agent = await this.prisma.agent.findUnique({
       where: { id: agentId },
-      select: { id: true, repos: true, githubUsername: true },
+      select: { id: true, repos: true, githubUsername: true, accountId: true },
     });
     if (!agent) return null;
     const env = (await this.env.getConfigBundle(agentId))?.env;
@@ -165,7 +169,10 @@ export class PrismaInstallationAgents implements InstallationAgentsPort {
 
 /** The slice of GithubEnterpriseClient the installation port needs. */
 export interface InstallationRepoClient {
-  listOrgInstallations(org: string): Promise<
+  listOrgInstallations(
+    org: string,
+    accountId?: string | null,
+  ): Promise<
     {
       id: number;
       /** Absent on the enterprise-organization-installation schema. */
@@ -177,16 +184,19 @@ export interface InstallationRepoClient {
   listInstallationRepositories(
     org: string,
     installationId: number,
+    accountId?: string | null,
   ): Promise<{ fullName: string }[]>;
   addRepositories(
     org: string,
     installationId: number,
     names: readonly string[],
+    accountId?: string | null,
   ): Promise<unknown>;
   removeRepositories(
     org: string,
     installationId: number,
     names: readonly string[],
+    accountId?: string | null,
   ): Promise<unknown>;
 }
 
@@ -239,7 +249,7 @@ export function createInstallationPort(
     identity?: AppIdentity,
   ): Promise<number> => {
     const found = matchInstallation(
-      await client.listOrgInstallations(org),
+      await client.listOrgInstallations(org, identity?.accountId),
       appId,
       identity,
     );
@@ -255,6 +265,7 @@ export function createInstallationPort(
         const repos = await client.listInstallationRepositories(
           org,
           await installationId(appId, org, identity),
+          identity?.accountId,
         );
         out[org] = repos.map((r) => r.fullName);
       }
@@ -265,6 +276,7 @@ export function createInstallationPort(
         org,
         await installationId(appId, org, identity),
         repos.map(baseName),
+        identity?.accountId,
       );
     },
     async removeRepos(appId, org, repos, identity) {
@@ -272,6 +284,7 @@ export function createInstallationPort(
         org,
         await installationId(appId, org, identity),
         repos.map(baseName),
+        identity?.accountId,
       );
     },
   };

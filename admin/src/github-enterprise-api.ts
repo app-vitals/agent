@@ -111,8 +111,23 @@ const OrgParamSchema = z.object({
     .openapi({ param: { name: "org", in: "path" }, example: "example-org" }),
 });
 
+const AccountQuerySchema = z.object({
+  accountId: z
+    .string()
+    .min(1)
+    .optional()
+    .openapi({
+      param: { name: "accountId", in: "query" },
+      description:
+        "Account whose App pair to read/write. Omit for the deployment-wide pair.",
+    }),
+});
+
 const AppMetadataSchema = z
   .object({
+    accountId: z.string().nullable().optional().openapi({
+      description: "Null for the deployment-wide App.",
+    }),
     role: z.string().openapi({ example: "installer" }),
     appId: z.string().openapi({ example: "12345" }),
     slug: z.string().openapi({ example: "example-installer" }),
@@ -168,7 +183,7 @@ const ValidateResultSchema = z
   })
   .openapi("GithubEnterpriseValidateResult");
 
-const OrgsQuerySchema = z.object({
+const OrgsQuerySchema = AccountQuerySchema.extend({
   agentId: z
     .string()
     .min(1)
@@ -253,6 +268,7 @@ const statusRoute = createRoute({
   summary: "GitHub Enterprise App status",
   description:
     "Admin-only. Metadata and key-set flag per role; never the key. Returns configured=false with null roles when nothing is set.",
+  request: { query: AccountQuerySchema },
   responses: {
     200: {
       description: "Status",
@@ -271,6 +287,7 @@ const putRoute = createRoute({
     "Admin-only. Stores the App id, slug, enterprise slug (installer) and the encrypted private key, and resets validation state. 422 when SHIPWRIGHT_ENCRYPTION_KEY is not configured.",
   request: {
     params: RoleParamSchema,
+    query: AccountQuerySchema,
     body: { content: { "application/json": { schema: PutAppBodySchema } } },
   },
   responses: {
@@ -293,7 +310,7 @@ const deleteRoute = createRoute({
   tags,
   summary: "Remove the App for a role",
   description: "Admin-only. No-op when the role is not configured.",
-  request: { params: RoleParamSchema },
+  request: { params: RoleParamSchema, query: AccountQuerySchema },
   responses: {
     204: { description: "Removed" },
     ...errorResponses,
@@ -307,7 +324,7 @@ const validateRoute = createRoute({
   summary: "Validate the App for a role",
   description:
     "Admin-only. Authenticates as the App and checks the required permission (installer: enterprise_organization_installations write; lookup: metadata read). The outcome is persisted and returned; GitHub failures are reported as status=error with a generic message.",
-  request: { params: RoleParamSchema },
+  request: { params: RoleParamSchema, query: AccountQuerySchema },
   responses: {
     200: {
       description: "Validation outcome",
@@ -345,6 +362,7 @@ const installRoute = createRoute({
     "Admin-only. Uses the agent's stored GH_APP_CLIENT_ID when set; otherwise resolves the stored GH_APP_SLUG and looks the App up through the public GET /apps/{slug} to get its client id. Installs it on the org with the installer App. 422 for an agent with neither a stored client id nor a slug, and for a private App (not visible to the public lookup) with no stored client id; 409 when the installer App is not configured.",
   request: {
     params: OrgParamSchema,
+    query: AccountQuerySchema,
     body: { content: { "application/json": { schema: InstallBodySchema } } },
   },
   responses: {
@@ -417,6 +435,7 @@ export function mapEnterpriseFailure(kind: GithubEnterpriseErrorKind): Mapped {
 
 function serializeApp(m: GitHubEnterpriseAppMetadata) {
   return {
+    accountId: m.accountId ?? null,
     role: m.role,
     appId: m.appId,
     slug: m.slug,
@@ -444,17 +463,17 @@ export function createGithubAccessPreview(
     "appService" | "fetchFn" | "apiBase" | "now"
   >,
 ): GithubAccessPreviewFn {
-  return async (username) => {
+  return async (username, accountId) => {
     const [installer, lookup] = await Promise.all([
-      deps.appService.get("installer"),
-      deps.appService.get("lookup"),
+      deps.appService.get("installer", accountId),
+      deps.appService.get("lookup", accountId),
     ]);
     if (!installer || !lookup || !installer.enterpriseSlug) {
       return { status: "unconfigured" };
     }
     const [installerKey, lookupKey] = await Promise.all([
-      deps.appService.getPrivateKey("installer"),
-      deps.appService.getPrivateKey("lookup"),
+      deps.appService.getPrivateKey("installer", accountId),
+      deps.appService.getPrivateKey("lookup", accountId),
     ]);
     if (!installerKey || !lookupKey) return { status: "unconfigured" };
 
@@ -504,15 +523,18 @@ export function createGithubLookupService(
   },
 ): GithubLookupService {
   return {
-    async listRepositories() {
+    async listRepositories(accountId) {
       let clients = deps.clients;
       if (!clients) {
         const [installer, lookup] = await Promise.all([
-          deps.appService.get("installer"),
-          deps.appService.get("lookup"),
+          deps.appService.get("installer", accountId),
+          deps.appService.get("lookup", accountId),
         ]);
         if (!lookup) return { configured: false, repos: [] };
-        const lookupKey = await deps.appService.getPrivateKey("lookup");
+        const lookupKey = await deps.appService.getPrivateKey(
+          "lookup",
+          accountId,
+        );
         if (!lookupKey) return { configured: false, repos: [] };
         const common = {
           apiBase: deps.apiBase,
@@ -522,7 +544,7 @@ export function createGithubLookupService(
         // An installer with an enterprise slug supplies the org list; without
         // one the lookup App lists the orgs it is installed on.
         const installerKey = installer?.enterpriseSlug
-          ? await deps.appService.getPrivateKey("installer")
+          ? await deps.appService.getPrivateKey("installer", accountId)
           : null;
         if (installer?.enterpriseSlug && !installerKey) {
           return { configured: false, repos: [] };
@@ -613,9 +635,11 @@ export function createGithubEnterpriseApp(
 
   const clientFor = async (
     meta: GitHubEnterpriseAppMetadata,
+    accountId: string | undefined,
   ): Promise<GithubEnterpriseClient> => {
     const privateKey = await appService.getPrivateKey(
       meta.role as GitHubEnterpriseAppRole,
+      accountId,
     );
     if (!privateKey || !meta.enterpriseSlug) {
       throw new UnprocessableEntityError(
@@ -682,7 +706,8 @@ export function createGithubEnterpriseApp(
 
   app.openapi(statusRoute, async (c) => {
     requireAdmin(c);
-    const rows = await appService.list();
+    const { accountId } = c.req.valid("query");
+    const rows = await appService.list(accountId);
     const byRole = (role: string) => {
       const r = rows.find((x) => x.role === role);
       return r ? serializeApp(r) : null;
@@ -700,6 +725,7 @@ export function createGithubEnterpriseApp(
   app.openapi(putRoute, async (c) => {
     requireAdmin(c);
     const { role } = c.req.valid("param");
+    const { accountId } = c.req.valid("query");
     const body = c.req.valid("json");
     if (role === "installer" && !body.enterpriseSlug) {
       throw new UnprocessableEntityError(
@@ -715,6 +741,7 @@ export function createGithubEnterpriseApp(
       );
     }
     const saved = await appService.save({
+      accountId,
       role,
       appId: body.appId,
       slug: body.slug,
@@ -726,16 +753,20 @@ export function createGithubEnterpriseApp(
 
   app.openapi(deleteRoute, async (c) => {
     requireAdmin(c);
-    await appService.delete(c.req.valid("param").role);
+    await appService.delete(
+      c.req.valid("param").role,
+      c.req.valid("query").accountId,
+    );
     return c.body(null, 204);
   });
 
   app.openapi(validateRoute, async (c) => {
     requireAdmin(c);
     const { role } = c.req.valid("param");
-    const meta = await appService.get(role);
+    const { accountId } = c.req.valid("query");
+    const meta = await appService.get(role, accountId);
     if (!meta) throw new NotFoundError(`no '${role}' App is configured`);
-    const privateKey = await appService.getPrivateKey(role);
+    const privateKey = await appService.getPrivateKey(role, accountId);
     if (!privateKey) throw new NotFoundError(`no '${role}' App is configured`);
 
     const required = REQUIRED_PERMISSION[role];
@@ -792,8 +823,14 @@ export function createGithubEnterpriseApp(
       }
     }
 
-    await appService.recordValidation(role, { status, error });
-    const updated = await appService.get(role);
+    // Record against the row that was validated (the deployment-wide row when
+    // the account has none of its own).
+    await appService.recordValidation(
+      role,
+      { status, error },
+      meta.accountId ?? null,
+    );
+    const updated = await appService.get(role, accountId);
     return c.json(
       {
         role,
@@ -811,8 +848,8 @@ export function createGithubEnterpriseApp(
 
   app.openapi(orgsRoute, async (c) => {
     requireAdmin(c);
-    const { agentId } = c.req.valid("query");
-    const installer = await appService.get("installer");
+    const { agentId, accountId } = c.req.valid("query");
+    const installer = await appService.get("installer", accountId);
     if (!installer) return c.json({ configured: false, orgs: [] }, 200);
 
     let agentAppSlug: string | null = null;
@@ -835,9 +872,9 @@ export function createGithubEnterpriseApp(
         }
       }
     }
-    const lookup = await appService.get("lookup");
+    const lookup = await appService.get("lookup", accountId);
 
-    const client = await clientFor(installer);
+    const client = await clientFor(installer, accountId);
     const orgs = await client.listInstallableOrganizations();
     const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
     const needInstallations = lookup !== null || agentAppSlug !== null;
@@ -872,8 +909,9 @@ export function createGithubEnterpriseApp(
     requireAdmin(c);
     const { org } = c.req.valid("param");
     const body = c.req.valid("json");
+    const { accountId } = c.req.valid("query");
 
-    const installer = await appService.get("installer");
+    const installer = await appService.get("installer", accountId);
     if (!installer) {
       throw new ConflictError("the installer App is not configured");
     }
@@ -902,7 +940,7 @@ export function createGithubEnterpriseApp(
       }
     }
 
-    const client = await clientFor(installer);
+    const client = await clientFor(installer, accountId);
     const res = await client.installOnOrg(org, {
       clientId,
       repositorySelection: body.repositorySelection,

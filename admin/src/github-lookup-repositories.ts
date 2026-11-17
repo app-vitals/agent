@@ -25,7 +25,10 @@ export interface GithubLookupRepositories {
 
 /** The extension-facing lister (optional member of AdminPlatformServices). */
 export interface GithubLookupService {
-  listRepositories(): Promise<GithubLookupRepositories>;
+  /** Lists the account's App pair, else the deployment-wide pair (no argument: deployment-wide). */
+  listRepositories(
+    accountId?: string | null,
+  ): Promise<GithubLookupRepositories>;
 }
 
 /** The installer-side client surface the lister needs. */
