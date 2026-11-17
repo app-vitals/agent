@@ -355,6 +355,21 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The checked-in plugin.json version is a placeholder: Claude Code only
+      # refreshes an installed plugin when its version changes, so every
+      # release stamps the baked agent-platform plugin with the release
+      # version before the image (COPY plugins/) is built.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
+        with:
+          bun-version: "1.4.4"
+          # Release jobs publish artifacts: never restore a shared cache into them.
+          no-cache: true
+
+      - name: Stamp the agent-platform plugin version
+        if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
+        run: bun scripts/stamp-plugin-version.ts "$VERSION"
+
       # The Dockerfiles' module-resolution guards (bun build over every runtime /
       # chat source file) run inside this build.
       - name: Build image
@@ -415,13 +430,6 @@ jobs:
           docker run --rm --user 1000 --security-opt=no-new-privileges \
             --entrypoint bun "$IMAGE:$VERSION" \
             run scripts/verify-browser-launch.ts
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
-        with:
-          bun-version: "1.4.4"
-          # Release jobs publish artifacts: never restore a shared cache into them.
-          no-cache: true
 
       - name: Base-image contract smoke test
         if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
