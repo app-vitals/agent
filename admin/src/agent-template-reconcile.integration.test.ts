@@ -66,6 +66,7 @@ describeOrSkip("AgentTemplateReconcileService (integration)", () => {
     await prisma.agentTemplate.deleteMany();
     await prisma.agentCronJob.deleteMany();
     await prisma.agentTool.deleteMany();
+    await prisma.agentMarketplace.deleteMany();
     await prisma.agentPlugin.deleteMany();
     await prisma.agentEnv.deleteMany();
     await prisma.agentToken.deleteMany();
@@ -818,6 +819,222 @@ describeOrSkip("AgentTemplateReconcileService (integration)", () => {
     expect(result.conflicts).toEqual([
       { kind: "env", key: "GH_TOKEN", reason: "denylisted_env_key" },
     ]);
+  });
+
+  // ─── marketplaces (TMK-2.3) ───────────────────────────────────────────────
+
+  describe("marketplaces", () => {
+    const mkt = (agentId: string, name: string) =>
+      prisma.agentMarketplace.findUnique({
+        where: { agentId_name: { agentId, name } },
+      });
+
+    it("creates a missing template marketplace", async () => {
+      const agentId = await agent();
+      await template(null, null, [
+        {
+          kind: "marketplace",
+          key: "mk",
+          payload: { source: "example-org/plugins", ref: "v1" },
+        },
+      ]);
+      const result = await service.reconcile(agentId);
+      expect(result.counts.marketplace).toEqual({
+        created: 1,
+        updated: 0,
+        adopted: 0,
+        deleted: 0,
+      });
+      expect(await mkt(agentId, "mk")).toMatchObject({
+        source: "example-org/plugins",
+        ref: "v1",
+        rowSource: "template",
+        enabled: true,
+      });
+    });
+
+    it("updates a changed ref in place, keeping the row id", async () => {
+      const agentId = await agent();
+      const tid = await template(null, null, [
+        {
+          kind: "marketplace",
+          key: "mk",
+          payload: { source: "example-org/plugins", ref: "v1" },
+        },
+      ]);
+      await service.reconcile(agentId);
+      const before = await mkt(agentId, "mk");
+      await setItems(tid, [
+        {
+          kind: "marketplace",
+          key: "mk",
+          payload: { source: "example-org/plugins", ref: "v2" },
+        },
+      ]);
+      const result = await service.reconcile(agentId);
+      expect(result.counts.marketplace?.updated).toBe(1);
+      const after = await mkt(agentId, "mk");
+      expect(after?.id).toBe(before?.id);
+      expect(after?.ref).toBe("v2");
+    });
+
+    it("adopts an enabled custom row with the same name, source and ref", async () => {
+      const agentId = await agent();
+      const row = await prisma.agentMarketplace.create({
+        data: { agentId, name: "mk", source: "example-org/plugins" },
+      });
+      await template(null, null, [
+        {
+          kind: "marketplace",
+          key: "mk",
+          payload: { source: "example-org/plugins" },
+        },
+      ]);
+      const result = await service.reconcile(agentId);
+      expect(result.counts.marketplace?.adopted).toBe(1);
+      expect(await mkt(agentId, "mk")).toMatchObject({
+        id: row.id,
+        rowSource: "template",
+      });
+    });
+
+    it("leaves a same-named custom row with a different source and reports a conflict", async () => {
+      const agentId = await agent();
+      await prisma.agentMarketplace.create({
+        data: { agentId, name: "mk", source: "someone/else" },
+      });
+      await template(null, null, [
+        {
+          kind: "marketplace",
+          key: "mk",
+          payload: { source: "example-org/plugins" },
+        },
+      ]);
+      const before = await mkt(agentId, "mk");
+      const result = await service.reconcile(agentId);
+      expect(result.conflicts).toEqual([
+        { kind: "marketplace", key: "mk", reason: "marketplace_conflict" },
+      ]);
+      expect(await mkt(agentId, "mk")).toEqual(before);
+    });
+
+    it("deletes an orphaned template row but never a custom row", async () => {
+      const agentId = await agent();
+      const tid = await template(null, null, [
+        {
+          kind: "marketplace",
+          key: "mk",
+          payload: { source: "example-org/plugins" },
+        },
+      ]);
+      await service.reconcile(agentId);
+      await prisma.agentMarketplace.create({
+        data: { agentId, name: "mine", source: "me/mine" },
+      });
+      await setItems(tid, []);
+      const result = await service.reconcile(agentId);
+      expect(result.counts.marketplace?.deleted).toBe(1);
+      expect(await mkt(agentId, "mk")).toBeNull();
+      expect((await mkt(agentId, "mine"))?.rowSource).toBe("custom");
+    });
+
+    it("does not re-add or re-enable a tombstoned row", async () => {
+      const agentId = await agent();
+      await prisma.agentMarketplace.create({
+        data: {
+          agentId,
+          name: "mk",
+          source: "example-org/plugins",
+          rowSource: "custom",
+          enabled: false,
+        },
+      });
+      await template(null, null, [
+        {
+          kind: "marketplace",
+          key: "mk",
+          payload: { source: "example-org/plugins" },
+        },
+      ]);
+      const before = await mkt(agentId, "mk");
+      const result = await service.reconcile(agentId);
+      expect(result.counts.marketplace).toEqual({
+        created: 0,
+        updated: 0,
+        adopted: 0,
+        deleted: 0,
+      });
+      expect(result.conflicts).toEqual([]);
+      expect(await mkt(agentId, "mk")).toEqual(before);
+    });
+
+    it("reset drops custom rows and tombstones for template keys and re-creates them", async () => {
+      const agentId = await agent();
+      await template(null, null, [
+        {
+          kind: "marketplace",
+          key: "mk",
+          payload: { source: "example-org/plugins" },
+        },
+        {
+          kind: "marketplace",
+          key: "tomb",
+          payload: { source: "example-org/other" },
+        },
+      ]);
+      await prisma.agentMarketplace.create({
+        data: { agentId, name: "mk", source: "someone/else" },
+      });
+      await prisma.agentMarketplace.create({
+        data: {
+          agentId,
+          name: "tomb",
+          source: "example-org/other",
+          rowSource: "custom",
+          enabled: false,
+        },
+      });
+      await prisma.agentMarketplace.create({
+        data: { agentId, name: "mine", source: "me/mine" },
+      });
+
+      await service.reset(agentId, { kind: "marketplace", key: "mk" });
+      expect(await mkt(agentId, "mk")).toMatchObject({
+        source: "example-org/plugins",
+        rowSource: "template",
+      });
+      expect((await mkt(agentId, "tomb"))?.enabled).toBe(false);
+
+      await service.reset(agentId);
+      expect(await mkt(agentId, "tomb")).toMatchObject({
+        rowSource: "template",
+        enabled: true,
+      });
+      expect((await mkt(agentId, "mine"))?.rowSource).toBe("custom");
+    });
+
+    it("leaves a detached agent's marketplaces untouched", async () => {
+      const agentId = await agent({ templateDetached: true });
+      await prisma.agentMarketplace.create({
+        data: {
+          agentId,
+          name: "old",
+          source: "example-org/old",
+          rowSource: "template",
+        },
+      });
+      await template(null, null, [
+        {
+          kind: "marketplace",
+          key: "mk",
+          payload: { source: "example-org/plugins" },
+        },
+      ]);
+      const result = await service.reconcile(agentId);
+      expect(result.status).toBe("detached");
+      expect(await mkt(agentId, "mk")).toBeNull();
+      expect(await mkt(agentId, "old")).not.toBeNull();
+    });
   });
 
   it("throws NotFoundError for an unknown agent", async () => {

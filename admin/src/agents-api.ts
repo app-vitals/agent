@@ -1084,6 +1084,7 @@ const TemplateReconcileResultSchema = z
       tool: TemplateReconcileCountsSchema,
       plugin: TemplateReconcileCountsSchema,
       cron: TemplateReconcileCountsSchema,
+      marketplace: TemplateReconcileCountsSchema.optional(),
     }),
     systemCrons: z.object({
       created: z.number().int(),
@@ -1098,6 +1099,7 @@ const TemplateReconcileResultSchema = z
           "cron_name_conflict",
           "invalid_cron_schedule",
           "denylisted_env_key",
+          "marketplace_conflict",
         ]),
       }),
     ),

@@ -12,6 +12,13 @@
  * - Missing items are created with source="template".
  * - Rows with source="template" track the template: edited in place (ids
  *   stay stable), and deleted once no layer defines their key (orphans).
+ * - Marketplaces (TMK-2.3) follow the plugin rules, keyed by name, on
+ *   AgentMarketplace.rowSource: created and updated in place (source/ref)
+ *   through AgentMarketplaceService.addFromTemplate(), adopted when an enabled
+ *   custom row has the same source and ref, and deleted as orphans. A custom
+ *   row with the same name but a different source/ref is left alone and
+ *   reported in `conflicts` (marketplace_conflict). They run before plugins,
+ *   whose "<plugin>@<marketplace>" names refer to them.
  * - Rows with source="custom" are never modified. That covers admin edits and
  *   tombstones (ATP-1.2 turns a deleted template row into enabled=false,
  *   source=custom), so a deleted inherited row is never re-added.
@@ -36,11 +43,13 @@
 import type {
   AgentCronJob,
   AgentEnv,
+  AgentMarketplace,
   AgentPlugin,
   AgentTool,
   PrismaClient,
 } from "../prisma/client/client.ts";
 import { applySystemCronDefaults, isValidCron } from "./agent-cron-jobs.ts";
+import { AgentMarketplaceService } from "./agent-marketplaces.ts";
 import {
   type AgentTemplateItemKind,
   openTemplateItemPayload,
@@ -76,7 +85,11 @@ export interface TemplateReconcileCounts {
 export interface TemplateReconcileConflict {
   kind: AgentTemplateItemKind;
   key: string;
-  reason: "cron_name_conflict" | "invalid_cron_schedule" | "denylisted_env_key";
+  reason:
+    | "cron_name_conflict"
+    | "invalid_cron_schedule"
+    | "denylisted_env_key"
+    | "marketplace_conflict";
 }
 
 export interface TemplateReconcileResult {
@@ -88,7 +101,7 @@ export interface TemplateReconcileResult {
     Exclude<AgentTemplateItemKind, "marketplace">,
     TemplateReconcileCounts
   > & {
-    /** TMK-2.3: present once the marketplace reconcile lands (additive). */
+    /** TMK-2.3: optional so the exported shape stays additive for consumers. */
     marketplace?: TemplateReconcileCounts;
   };
   systemCrons: { created: number; updated: number; deleted: number };
@@ -117,6 +130,7 @@ function emptyResult(
       tool: zeroCounts(),
       plugin: zeroCounts(),
       cron: zeroCounts(),
+      marketplace: zeroCounts(),
     },
     systemCrons: { created: 0, updated: 0, deleted: 0 },
     conflicts: [],
@@ -296,6 +310,7 @@ export class AgentTemplateReconcileService {
     const result = emptyResult(agentId, "reconciled");
     // Env goes last: it is the only kind that encrypts on write.
     await this.reconcileTools(tx, agentId, merged, result);
+    await this.reconcileMarketplaces(tx, agentId, merged, result);
     await this.reconcilePlugins(tx, agentId, merged, result);
     await this.reconcileCrons(tx, agentId, merged, defaults.crons, result);
     await this.reconcileEnv(tx, agentId, merged, result);
@@ -318,6 +333,13 @@ export class AgentTemplateReconcileService {
         agentId,
         source: "custom",
         pattern: { in: keys("tool", merged.tool.keys()) },
+      },
+    });
+    await tx.agentMarketplace.deleteMany({
+      where: {
+        agentId,
+        rowSource: "custom",
+        name: { in: keys("marketplace", merged.marketplace.keys()) },
       },
     });
     await tx.agentPlugin.deleteMany({
@@ -461,6 +483,66 @@ export class AgentTemplateReconcileService {
     if (!guard) {
       for (const row of orphans) {
         await tx.agentTool.delete({ where: { id: row.id } });
+        counts.deleted++;
+      }
+    }
+  }
+
+  private async reconcileMarketplaces(
+    tx: PrismaTransactionClient,
+    agentId: string,
+    merged: MergedTemplate,
+    result: TemplateReconcileResult,
+  ): Promise<void> {
+    const counts = result.counts.marketplace ?? zeroCounts();
+    result.counts.marketplace = counts;
+    const rows = await tx.agentMarketplace.findMany({ where: { agentId } });
+    const byName = new Map<string, AgentMarketplace>(
+      rows.map((r) => [r.name, r]),
+    );
+    const service = new AgentMarketplaceService(this.prisma);
+
+    for (const item of merged.marketplace.values()) {
+      const source =
+        typeof item.payload.source === "string" ? item.payload.source : "";
+      const ref =
+        typeof item.payload.ref === "string" ? item.payload.ref : null;
+      const row = byName.get(item.key);
+      if (!row) {
+        await service.addFromTemplate(
+          agentId,
+          { name: item.key, source, ref },
+          tx,
+        );
+        counts.created++;
+      } else if (row.rowSource === "template") {
+        if (row.source !== source || row.ref !== ref || !row.enabled) {
+          await service.addFromTemplate(
+            agentId,
+            { name: item.key, source, ref },
+            tx,
+          );
+          counts.updated++;
+        }
+      } else if (!row.enabled) {
+        // Tombstone: the user deleted the inherited row; never re-add it.
+      } else if (row.source === source && row.ref === ref) {
+        await tx.agentMarketplace.update({
+          where: { id: row.id },
+          data: { rowSource: "template" },
+        });
+        counts.adopted++;
+      } else {
+        result.conflicts.push({
+          kind: "marketplace",
+          key: item.key,
+          reason: "marketplace_conflict",
+        });
+      }
+    }
+    for (const row of rows) {
+      if (row.rowSource === "template" && !merged.marketplace.has(row.name)) {
+        await tx.agentMarketplace.delete({ where: { id: row.id } });
         counts.deleted++;
       }
     }
