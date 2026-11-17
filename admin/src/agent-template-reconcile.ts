@@ -507,21 +507,14 @@ export class AgentTemplateReconcileService {
         typeof item.payload.source === "string" ? item.payload.source : "";
       const ref =
         typeof item.payload.ref === "string" ? item.payload.ref : null;
+      const fromTemplate = { name: item.key, source, ref };
       const row = byName.get(item.key);
       if (!row) {
-        await service.addFromTemplate(
-          agentId,
-          { name: item.key, source, ref },
-          tx,
-        );
+        await service.addFromTemplate(agentId, fromTemplate, tx);
         counts.created++;
       } else if (row.rowSource === "template") {
         if (row.source !== source || row.ref !== ref || !row.enabled) {
-          await service.addFromTemplate(
-            agentId,
-            { name: item.key, source, ref },
-            tx,
-          );
+          await service.addFromTemplate(agentId, fromTemplate, tx);
           counts.updated++;
         }
       } else if (!row.enabled) {

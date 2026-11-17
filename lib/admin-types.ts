@@ -4850,13 +4850,13 @@ export interface components {
                     updated: number;
                     adopted: number;
                     deleted: number;
+                };
                 marketplace?: {
                     created: number;
                     updated: number;
                     adopted: number;
                     deleted: number;
                 };
-            };
             };
             systemCrons: {
                 created: number;
