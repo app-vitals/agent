@@ -833,7 +833,9 @@ describe("account-scoped routes", () => {
       "delete",
       "getPrivateKey",
     ] as const) {
-      const orig = (h.appService as never as Record<string, Function>)[m];
+      const orig = (
+        h.appService as never as Record<string, (...a: unknown[]) => unknown>
+      )[m];
       (h.appService as never as Record<string, unknown>)[m] = async (
         ...args: unknown[]
       ) => {
@@ -841,7 +843,7 @@ describe("account-scoped routes", () => {
           m === "save"
             ? (args[0] as { accountId?: string }).accountId
             : args[m === "list" ? 0 : 1];
-        (seen[m] ??= []).push(acct);
+        seen[m] = [...(seen[m] ?? []), acct];
         return orig.apply(h.appService, args);
       };
     }
