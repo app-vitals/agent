@@ -94,5 +94,36 @@
   "authTest_missing_user_id": {
     "status": 200,
     "body": { "ok": true, "team_id": "T0123456789" }
+  },
+  "rotateConfigToken_success": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "token": "xoxb-rotated-access-token",
+      "refresh_token": "xoxe-1-rotated-refresh-token",
+      "team_id": "T0123456789",
+      "user_id": "U0AALR8M69X",
+      "iat": 1234567890,
+      "exp": 1234571490
+    }
+  },
+  "rotateConfigToken_invalid_refresh_token": {
+    "status": 200,
+    "body": { "ok": false, "error": "invalid_refresh_token" }
+  },
+  "rotateConfigToken_token_revoked": {
+    "status": 200,
+    "body": { "ok": false, "error": "token_revoked" }
+  },
+  "rotateConfigToken_http_error": {
+    "status": 500,
+    "body": { "ok": false, "error": "internal_error" }
+  },
+  "rotateConfigToken_missing_fields": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "token": "xoxb-rotated-access-token"
+    }
   }
 }

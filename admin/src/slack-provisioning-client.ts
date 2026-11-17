@@ -9,6 +9,23 @@
  * directly in the response — no separate oauth.v2.access exchange needed.
  */
 
+// ─── Errors ───────────────────────────────────────────────────────────────────
+
+/**
+ * Typed error for Slack config token rotation failures.
+ * Errors include Slack API errors and HTTP errors.
+ * Error messages never contain token values.
+ */
+export class SlackConfigTokenError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SlackConfigTokenError";
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface AppManifestDisplayInfo {
@@ -112,6 +129,31 @@ export interface SlackProvisioningClient {
   authTest(botToken: string): Promise<{ userId: string }>;
 }
 
+// ─── SlackConfigTokenClient ───────────────────────────────────────────────────
+
+/**
+ * Client for Slack config token rotation operations.
+ * Used to refresh expired or rotating OAuth tokens via tooling.tokens.rotate.
+ */
+export interface SlackConfigTokenClient {
+  /**
+   * Call tooling.tokens.rotate with a refresh token to get a new access token.
+   * Returns the new access token, refresh token, team ID, user ID, and timestamps.
+   * Throws SlackConfigTokenError on Slack API errors (invalid_refresh_token, token_revoked, etc.)
+   * or on HTTP errors.
+   */
+  rotateConfigToken(
+    refreshToken: string,
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    teamId: string;
+    userId: string;
+    iat: number;
+    exp: number;
+  }>;
+}
+
 // ─── Agent manifest ───────────────────────────────────────────────────────────
 
 /**
@@ -199,7 +241,9 @@ export function buildAgentManifest(
  *
  * The constructor takes optional Slack API URL overrides for testing/staging.
  */
-export class HttpSlackProvisioningClient implements SlackProvisioningClient {
+export class HttpSlackProvisioningClient
+  implements SlackProvisioningClient, SlackConfigTokenClient
+{
   private readonly apiBase: string;
   private readonly fetchFn: typeof fetch;
 
@@ -406,6 +450,78 @@ export class HttpSlackProvisioningClient implements SlackProvisioningClient {
       clientId: data.credentials.client_id,
       clientSecret: data.credentials.client_secret,
       signingSecret: data.credentials.signing_secret,
+    };
+  }
+
+  async rotateConfigToken(
+    refreshToken: string,
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    teamId: string;
+    userId: string;
+    iat: number;
+    exp: number;
+  }> {
+    const url = `${this.apiBase}/tooling.tokens.rotate`;
+    const params = new URLSearchParams({
+      refresh_token: refreshToken,
+    });
+
+    const resp = await this.fetchFn(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+
+    if (!resp.ok) {
+      throw new SlackConfigTokenError(
+        "http_error",
+        `Slack tooling.tokens.rotate HTTP error: ${resp.status} ${resp.statusText}`,
+      );
+    }
+
+    const data = (await resp.json()) as {
+      ok: boolean;
+      error?: string;
+      token?: string;
+      refresh_token?: string;
+      team_id?: string;
+      user_id?: string;
+      iat?: number;
+      exp?: number;
+    };
+
+    if (!data.ok) {
+      throw new SlackConfigTokenError(
+        data.error ?? "unknown_error",
+        `Slack tooling.tokens.rotate failed: ${data.error}`,
+      );
+    }
+
+    if (
+      !data.token ||
+      !data.refresh_token ||
+      !data.team_id ||
+      !data.user_id ||
+      data.iat === undefined ||
+      data.exp === undefined
+    ) {
+      throw new SlackConfigTokenError(
+        "missing_response_fields",
+        "Slack tooling.tokens.rotate response missing required fields",
+      );
+    }
+
+    return {
+      accessToken: data.token,
+      refreshToken: data.refresh_token,
+      teamId: data.team_id,
+      userId: data.user_id,
+      iat: data.iat,
+      exp: data.exp,
     };
   }
 }
