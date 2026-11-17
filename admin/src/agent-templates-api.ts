@@ -175,6 +175,7 @@ function serialize(t: TemplateView) {
       key: i.key,
       payload: i.payload,
       updatedAt: i.updatedAt.toISOString(),
+      ...(i.managedBy ? { managedBy: i.managedBy } : {}),
     })),
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),

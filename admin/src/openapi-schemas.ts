@@ -1600,6 +1600,11 @@ export const TemplateItemSchema = TemplateItemBaseSchema.extend({
     .string()
     .datetime()
     .openapi({ example: "2026-01-01T00:00:00.000Z" }),
+  managedBy: z.string().optional().openapi({
+    description:
+      'Set to "helm" on items applied from SHIPWRIGHT_TEMPLATE_SEED (Helm values); absent on hand-added items. Seeded items stay editable, but the next admin boot overwrites them.',
+    example: "helm",
+  }),
 }).openapi("TemplateItem");
 
 export const AgentTemplateSchema = z
