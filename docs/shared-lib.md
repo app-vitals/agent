@@ -68,8 +68,10 @@ path into another package.
 ### Web
 
 - `web/toolbar.ts`: `renderShipwrightToolbar`, `baseStyles` and `escapeHtml`, the
-  toolbar shared by the metrics dashboard and the admin UI. Exposed through
-  the `./web/*` export.
+  toolbar shared by the metrics dashboard and the admin UI. Callers pass an
+  `audience` (`admin`, `member` or `public`); nav visibility derives from the
+  `TOOLBAR_NAV_ITEMS` manifest (the old `readOnly`, `showAccount` and
+  `showSettings` flags are gone). Exposed through the `./web/*` export.
 
 ## Adding a module
 
