@@ -19,6 +19,7 @@ import type {
   InstallationState,
   InstallationsSnapshot,
 } from "./github-installations.ts";
+import type { CredentialHelperCheck } from "./setup-github-auth.ts";
 import type { RepoAccessEntry, RepoAccessProbe } from "./repo-access-probe.ts";
 
 export const INSTALLATIONS_HEARTBEAT_MS = 30 * 60 * 1000;
@@ -41,7 +42,21 @@ const REASON_TEXT: Record<NonNullable<InstallationState["reason"]>, string> = {
   mint_rejected: "installation token mint rejected",
 };
 
-function toReported(i: InstallationState): ReportedInstallation {
+/** Constant on purpose: the helper path and raw check reason stay off the wire. */
+export const CREDENTIAL_HELPER_BROKEN_TEXT = "git credential helper not found";
+
+function toReported(
+  i: InstallationState,
+  helperBroken: boolean,
+): ReportedInstallation {
+  if (helperBroken) {
+    return {
+      owner: i.owner ?? "unknown",
+      installationId: i.id,
+      state: "broken",
+      lastError: CREDENTIAL_HELPER_BROKEN_TEXT,
+    };
+  }
   return {
     owner: i.owner ?? "unknown",
     installationId: i.id,
@@ -62,6 +77,11 @@ interface HttpGitHubInstallationsReporterOptions {
    * scope change); the reporter just merges whatever it returns into the PUT.
    */
   repoAccessProbe?: RepoAccessProbe;
+  /**
+   * CHP-1.3: evaluated on every report so the broken state clears itself once
+   * the helper is fixed. A failing check marks every installation broken.
+   */
+  checkCredentialHelper?: () => CredentialHelperCheck;
 }
 
 export class HttpGitHubInstallationsReporter
@@ -82,7 +102,10 @@ export class HttpGitHubInstallationsReporter
 
   async report(snapshot: InstallationsSnapshot): Promise<void> {
     try {
-      const installations = snapshot.installations.map(toReported);
+      const helperBroken = this.opts.checkCredentialHelper?.().ok === false;
+      const installations = snapshot.installations.map((i) =>
+        toReported(i, helperBroken),
+      );
       const signature = JSON.stringify(installations);
       const probed = await this.opts.repoAccessProbe?.run();
       if (probed) this.lastRepos = probed;
