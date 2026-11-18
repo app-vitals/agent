@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { InstallationsSnapshot } from "./github-installations.ts";
+import type { CredentialHelperCheck } from "./setup-github-auth.ts";
 import type { RepoAccessEntry, RepoAccessProbe } from "./repo-access-probe.ts";
 import {
   HttpGitHubInstallationsReporter,
@@ -35,6 +36,7 @@ function snap(
 function harness(
   responses: (Response | Error)[] = [],
   repoAccessProbe?: RepoAccessProbe,
+  checkCredentialHelper?: () => CredentialHelperCheck,
 ) {
   let nowMs = Date.UTC(2026, 0, 1);
   const calls: { url: string; init: RequestInit | undefined }[] = [];
@@ -52,6 +54,7 @@ function harness(
     fetchFn,
     clock: { now: () => new Date(nowMs) },
     repoAccessProbe,
+    checkCredentialHelper,
   });
   return {
     reporter,
@@ -212,5 +215,62 @@ describe("HttpGitHubInstallationsReporter repo access (COS-44.1)", () => {
     expect(
       Object.keys(JSON.parse(String(h.calls[0].init?.body))).sort(),
     ).toEqual(["installations", "reportedAt"]);
+  });
+});
+
+describe("credential helper check (CHP-1.3)", () => {
+  test("failing check reports every installation broken with constant lastError", async () => {
+    const h = harness([], undefined, () => ({
+      ok: false,
+      reason: "missing /secret/path",
+    }));
+    await h.reporter.report(
+      snap("ok", [
+        { id: 2, owner: "beta", pinned: false, health: "ok", reason: null },
+      ]),
+    );
+    const raw = String(h.calls[0].init?.body);
+    const body = JSON.parse(raw);
+    expect(body.installations).toEqual([
+      {
+        owner: "acme",
+        installationId: 1,
+        state: "broken",
+        lastError: "git credential helper not found",
+      },
+      {
+        owner: "beta",
+        installationId: 2,
+        state: "broken",
+        lastError: "git credential helper not found",
+      },
+    ]);
+    expect(raw).not.toContain("/secret/path");
+  });
+
+  test("passing check leaves the health/reason mapping unchanged", async () => {
+    const h = harness([], undefined, () => ({ ok: true }));
+    await h.reporter.report(snap("broken"));
+    const body = JSON.parse(String(h.calls[0].init?.body));
+    expect(body.installations[0].lastError).toBe(
+      "installation token mint rejected",
+    );
+  });
+
+  test("ok <-> broken flip posts immediately inside the heartbeat window and recovers", async () => {
+    let check: CredentialHelperCheck = { ok: true };
+    const h = harness([], undefined, () => check);
+    await h.reporter.report(snap());
+    h.advance(1_000);
+    check = { ok: false, reason: "missing" };
+    await h.reporter.report(snap());
+    h.advance(1_000);
+    check = { ok: true };
+    await h.reporter.report(snap());
+    expect(h.calls).toHaveLength(3);
+    const states = h.calls.map(
+      (c) => JSON.parse(String(c.init?.body)).installations[0].state,
+    );
+    expect(states).toEqual(["ok", "broken", "ok"]);
   });
 });

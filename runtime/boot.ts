@@ -98,7 +98,7 @@ import {
 } from "./sessions.ts";
 import { ensureAgentHome, installPlugins, runMiseStartup } from "./setup.ts";
 import { SCRIPTS_BIN } from "./scripts-bin.ts";
-import { setupGitHubAuth } from "./setup-github-auth.ts";
+import { checkCredentialHelper, setupGitHubAuth } from "./setup-github-auth.ts";
 import { HttpShipwrightRuntimeClient } from "./shipwright-runtime-client.ts";
 import { createSlackApp, hasSlackCredentials } from "./slack.ts";
 import {
@@ -250,6 +250,10 @@ export async function startAgent(
           apiUrl: config.shipwright.apiUrl,
           agentId: config.shipwright.agentId,
           apiKey: config.shipwright.apiKey,
+          checkCredentialHelper: () =>
+            checkCredentialHelper(
+              join(SCRIPTS_BIN, "git-credential-shipwright.sh"),
+            ),
           repoAccessProbe: createRepoAccessProbe({
             fetch,
             clock: SystemClock(),
