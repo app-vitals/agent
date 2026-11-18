@@ -10,11 +10,12 @@ import { describe, expect, test } from "bun:test";
 import { renderShipwrightToolbar, TOOLBAR_NAV_ITEMS } from "./toolbar.ts";
 
 describe("renderShipwrightToolbar", () => {
-  describe("authenticated mode (readOnly=false)", () => {
+  describe("authenticated mode (member)", () => {
     const html = renderShipwrightToolbar({
       userName: "Alice",
       activePath: "/admin/agents",
       logoutAction: "/auth/logout",
+      audience: "member",
     });
 
     test("contains hamburger button with class vos-hamburger", () => {
@@ -99,6 +100,7 @@ describe("renderShipwrightToolbar", () => {
       const html = renderShipwrightToolbar({
         userName: "Alice",
         activePath: "/admin/agents",
+        audience: "member",
         logoutAction: "/auth/logout",
       });
       expect(activeHref(html)).toBe("/admin/agents");
@@ -111,6 +113,7 @@ describe("renderShipwrightToolbar", () => {
       const html = renderShipwrightToolbar({
         userName: "Alice",
         activePath: "/admin/agents/agent-123",
+        audience: "member",
         logoutAction: "/auth/logout",
       });
       expect(activeHref(html)).toBe("/admin/agents");
@@ -123,6 +126,7 @@ describe("renderShipwrightToolbar", () => {
       const html = renderShipwrightToolbar({
         userName: "Alice",
         activePath: "/admin/agents/agent-123/queue-activity",
+        audience: "member",
         logoutAction: "/auth/logout",
       });
       expect(activeHref(html)).toBe("/admin/queue-activity");
@@ -142,6 +146,7 @@ describe("renderShipwrightToolbar", () => {
       const html = renderShipwrightToolbar({
         userName: "Alice",
         activePath: "/admin/sessions",
+        audience: "member",
         logoutAction: "/auth/logout",
       });
       expect(activeHref(html)).toBe("/admin/sessions");
@@ -151,18 +156,19 @@ describe("renderShipwrightToolbar", () => {
       const html = renderShipwrightToolbar({
         userName: "Alice",
         activePath: "/admin/sessions/some-slug",
+        audience: "member",
         logoutAction: "/auth/logout",
       });
       expect(activeHref(html)).toBe("/admin/sessions");
     });
   });
 
-  describe("read-only mode (readOnly=true)", () => {
+  describe("read-only mode (public)", () => {
     const html = renderShipwrightToolbar({
       userName: "",
       activePath: "/dashboard",
       logoutAction: "",
-      readOnly: true,
+      audience: "public",
     });
 
     test("contains hamburger button with class vos-hamburger", () => {
@@ -213,42 +219,9 @@ describe("renderShipwrightToolbar Account entry (SGL-2.3)", () => {
       userName: "Alice",
       activePath: "/admin/agents",
       logoutAction: "/auth/logout",
-      showSettings: true,
+      audience: "admin",
     });
     expect(html).not.toContain('href="/admin/account"');
-  });
-});
-
-describe("renderShipwrightToolbar Settings entry (GHE-1.4)", () => {
-  const base = {
-    userName: "a@x.com",
-    activePath: "/admin/settings/github-enterprise",
-    logoutAction: "/admin/logout",
-  };
-  test("omitted by default", () => {
-    expect(renderShipwrightToolbar(base)).not.toContain("/admin/settings");
-  });
-  test("rendered and active when showSettings is true", () => {
-    const html = renderShipwrightToolbar({ ...base, showSettings: true });
-    expect(html).toContain(
-      'href="/admin/settings" class="vos-nav-link active">Settings</a>',
-    );
-  });
-  test("active on any /admin/settings/* sub-page and links to /admin/settings", () => {
-    const html = renderShipwrightToolbar({
-      ...base,
-      activePath: "/admin/settings/templates",
-      showSettings: true,
-    });
-    expect(html).toContain(
-      'href="/admin/settings" class="vos-nav-link active"',
-    );
-    expect(html).not.toContain('href="/admin/settings/github-enterprise"');
-  });
-  test("readOnly never renders it", () => {
-    expect(
-      renderShipwrightToolbar({ ...base, readOnly: true, showSettings: true }),
-    ).not.toContain("/admin/settings");
   });
 });
 
@@ -276,26 +249,6 @@ describe("renderShipwrightToolbar audience (MNAV-2.1)", () => {
     expect(html).not.toContain("/admin/");
     expect(html).not.toContain("Sign out");
     expect(html).toContain("/public/tasks");
-  });
-  test("audience admin output equals legacy showSettings output", () => {
-    expect(renderShipwrightToolbar({ ...base, audience: "admin" })).toBe(
-      renderShipwrightToolbar({ ...base, showSettings: true }),
-    );
-  });
-  test("audience member output equals legacy default output", () => {
-    expect(renderShipwrightToolbar({ ...base, audience: "member" })).toBe(
-      renderShipwrightToolbar(base),
-    );
-  });
-  test("legacy readOnly still works", () => {
-    expect(renderShipwrightToolbar({ ...base, readOnly: true })).toBe(
-      renderShipwrightToolbar({ ...base, audience: "public" }),
-    );
-  });
-  test("legacy showSettings still adds Settings for a member", () => {
-    expect(
-      renderShipwrightToolbar({ ...base, audience: "member", showSettings: true }),
-    ).toContain(settings);
   });
 });
 

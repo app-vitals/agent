@@ -1010,8 +1010,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     await next();
   });
 
-  // GHE-1.4: the admin-only "Settings" toolbar entry.
-  // SGL-2.2: shown to admins and to account members.
+  // GHE-1.4: per-request toolbar audience; TOOLBAR_NAV_ITEMS decides visibility.
   if (
     githubEnterpriseApi ||
     templateService ||
@@ -1022,20 +1021,21 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       const token = getCookie(c, SESSION_COOKIE);
       const user = token ? await getSessionUser(token, sessionSecret) : null;
       const isAdmin = user?.isAdmin === true;
-      let show = false; // member with an account keeps Settings (SGL-2.2)
+      let hasAccount = false; // member with an account keeps Settings (SGL-2.2)
       if (user && !isAdmin && accountServices) {
         try {
-          show =
+          hasAccount =
             (await accountServices.accounts.getByMemberEmail(user.email)) !==
             null;
         } catch {
           // nav is cosmetic — never fail the page over the lookup
         }
       }
+      // Account members (SGL-2.2) get the `admin` audience: the manifest lists
+      // Settings admin-only, and members with an account keep it.
       return runWithToolbarAudience(
-        isAdmin ? "admin" : "member",
+        isAdmin || hasAccount ? "admin" : "member",
         () => next(),
-        { showSettings: show },
       );
     });
   }

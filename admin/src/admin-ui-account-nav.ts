@@ -12,11 +12,6 @@ import type { ToolbarAudience } from "@app-vitals/agent-lib/web/toolbar.ts";
 
 export interface ToolbarViewer {
   audience: ToolbarAudience;
-  /**
-   * Show Settings even though the audience's manifest hides it. Account members
-   * (SGL-2.2) keep their Settings entry; the manifest lists it admin-only.
-   */
-  showSettings: boolean;
 }
 
 const storage = new AsyncLocalStorage<ToolbarViewer>();
@@ -25,12 +20,8 @@ const storage = new AsyncLocalStorage<ToolbarViewer>();
 export function runWithToolbarAudience<T>(
   audience: ToolbarAudience,
   fn: () => T,
-  opts: { showSettings?: boolean } = {},
 ): T {
-  return storage.run(
-    { audience, showSettings: audience === "admin" || !!opts.showSettings },
-    fn,
-  );
+  return storage.run({ audience }, fn);
 }
 
 export function currentToolbarViewer(): ToolbarViewer | undefined {
