@@ -4,7 +4,7 @@
  */
 
 /**
- * Who is viewing the toolbar. `admin` = admins and owners; `member` = any other
+ * Who is viewing the toolbar. `admin` = admins, owners and account members; `member` = any other
  * signed-in user; `public` = the unauthenticated read-only proof host.
  */
 export type ToolbarAudience = "admin" | "member" | "public";
@@ -45,10 +45,10 @@ export const TOOLBAR_NAV_ITEMS: readonly ToolbarNavItem[] = [
 export interface ShipwrightToolbarOptions {
   /**
    * Who is viewing. Nav visibility derives from {@link TOOLBAR_NAV_ITEMS}.
-   * `public` renders the read-only variant (same as `readOnly`). When omitted,
-   * the legacy `readOnly` / `showSettings` flags decide.
+   * `public` renders the read-only variant (Metrics + public task board, no
+   * sign-out).
    */
-  audience?: ToolbarAudience;
+  audience: ToolbarAudience;
   userName: string;
   /** Current request path, used to highlight the active nav link. */
   activePath: string;
@@ -58,21 +58,8 @@ export interface ShipwrightToolbarOptions {
   metricsUrl?: string;
   /** Base URL of the admin service. Defaults to empty string (same origin). */
   adminBaseUrl?: string;
-  /**
-   * Public, unauthenticated variant. When true, render only the read-only
-   * surfaces (Metrics dashboard + public task board) and no sign-out — the
-   * authenticated /admin/* links and logout are omitted, since they 404 (and
-   * aren't reachable) on the public proof host.
-   */
-  readOnly?: boolean;
-  /** Public task board URL, used only in readOnly mode. Defaults to "/public/tasks". */
+  /** Public task board URL, used only for the public audience. Defaults to "/public/tasks". */
   tasksUrl?: string;
-  /**
-   * Render the "Settings" nav entry (links to /admin/settings; shown to
-   * admins and account members). Defaults to false. Legacy: prefer
-   * `audience`; when both are set, Settings shows if either allows it.
-   */
-  showSettings?: boolean;
 }
 
 export function baseStyles(): string {
@@ -251,18 +238,14 @@ export function renderShipwrightToolbar(
   const isQueueActivity = activePath.includes("/queue-activity");
 
   const audience = opts.audience;
-  const visible = (id: ToolbarNavItemId): boolean => {
-    if (id === "settings" && opts.showSettings) return true; // legacy flag
-    const item = TOOLBAR_NAV_ITEMS.find((i) => i.id === id);
-    // No audience: legacy rendering (everything except Settings, which is flag-gated).
-    if (!audience) return id !== "settings" && id !== "public-tasks";
-    return item?.audiences.includes(audience) ?? false;
-  };
+  const visible = (id: ToolbarNavItemId): boolean =>
+    TOOLBAR_NAV_ITEMS.find((i) => i.id === id)?.audiences.includes(audience) ??
+    false;
 
   // Public proof surface: only the read-only Metrics + Tasks views are routed and
   // reachable, so omit every /admin/* link and the sign-out form (they 404 on the
   // public host). The wordmark points at the dashboard instead of /admin/agents.
-  if (opts.readOnly || audience === "public") {
+  if (audience === "public") {
     const tasksUrl = opts.tasksUrl ?? "/public/tasks";
     return `<input type="checkbox" id="vos-nav-toggle" class="vos-nav-toggle" aria-hidden="true">
   <nav class="vos-toolbar" aria-label="Site navigation">

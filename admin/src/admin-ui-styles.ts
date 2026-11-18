@@ -690,7 +690,6 @@ export function renderAdminToolbar(userName: string, activePath = ""): string {
     activePath,
     logoutAction: "/admin/logout",
     metricsUrl: process.env.METRICS_DASHBOARD_URL ?? "/dashboard",
-    audience: viewer?.audience,
-    showSettings: viewer?.showSettings,
+    audience: viewer?.audience ?? "member",
   });
 }
