@@ -221,6 +221,34 @@ describe("setupGitHubAuth — App path", () => {
     expect(credHelperCall).toContain("status 1");
   });
 
+  test("missing credential helper logs an error naming the path and still writes the config", async () => {
+    const { getToken, startBackgroundRefresh } = makeTokenManager();
+    const spawnSync = makeSpawnSync(0);
+    const errorSpy = mock((..._args: unknown[]) => {});
+
+    const result = await setupGitHubAuth({
+      env: {
+        GH_APP_ID: "123",
+        GH_APP_INSTALLATION_ID: "456",
+        GH_APP_PRIVATE_KEY: "fake-private-key",
+      },
+      createTokenManager: mock(() => ({ getToken, startBackgroundRefresh })),
+      getBotIdentity: makeBotIdentity(),
+      spawnSync,
+      writeToken: makeWriteToken(),
+      tokenPath: TEST_TOKEN_PATH,
+      credentialHelperPath: TEST_HELPER_PATH,
+      logger: { error: errorSpy },
+    });
+
+    expect(result).toBe(true);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0]?.[0] as string).toContain(TEST_HELPER_PATH);
+    expect(spawnSync.mock.calls.map((c) => c[1].join(" "))).toContain(
+      `config --global credential.https://github.com.helper !${TEST_HELPER_PATH}`,
+    );
+  });
+
   test("background refresh callback rewrites the token file only — no env mutation, no further spawnSync calls", async () => {
     let capturedCallback: ((t: string) => Promise<void>) | null = null;
     const getToken = mock(async () => "ghs_first_token");

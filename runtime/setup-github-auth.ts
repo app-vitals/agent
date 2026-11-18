@@ -18,6 +18,7 @@
  * callers gate repeat calls on that result (github-auth-startup.ts).
  */
 
+import { accessSync, constants, statSync } from "node:fs";
 import type { TokenFilesInput } from "./gh-token-files.ts";
 import type { BotIdentity } from "./github-app-auth.ts";
 import type { InstallationsSnapshot } from "./github-installations.ts";
@@ -70,6 +71,25 @@ export interface GitHubInstallationsDeps {
   writeTokenFiles: (input: TokenFilesInput) => void;
   /** Called once with the manager App auth activated with. */
   onActivated?: (manager: InstallationsManagerLike) => void;
+}
+
+export type CredentialHelperCheck =
+  | { ok: true }
+  | { ok: false; reason: string };
+
+/** Verifies the git credential helper exists and is an executable file. */
+export function checkCredentialHelper(path: string): CredentialHelperCheck {
+  try {
+    if (!statSync(path).isFile()) return { ok: false, reason: "not a file" };
+    accessSync(path, constants.X_OK);
+    return { ok: true };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return {
+      ok: false,
+      reason: code === "ENOENT" ? "missing" : "not executable",
+    };
+  }
 }
 
 function runOrWarn(
@@ -152,6 +172,13 @@ async function configureAppGit(deps: GitHubAuthDeps): Promise<AppIdentity> {
     env,
     logger,
   );
+  // Log and continue: a bad helper path breaks git auth but must not fail boot.
+  const helper = checkCredentialHelper(credentialHelperPath);
+  if (!helper.ok) {
+    (logger ?? console).error(
+      `[entrypoint] git credential helper ${credentialHelperPath} is ${helper.reason} — git auth will fail`,
+    );
+  }
   // Makes git send the repo path to the helper so it can pick the per-owner
   // token. Host-scoped only; the helper ignores it unless gh-token.d exists.
   runOrWarn(
