@@ -33,6 +33,7 @@
     "./markers": "./markers.ts",
     "./process-tree-kill": "./process-tree-kill.ts",
     "./run-telemetry": "./run-telemetry.ts",
+    "./scripts-bin": "./scripts-bin.ts",
     "./setup": "./setup.ts",
     "./setup-github-auth": "./setup-github-auth.ts",
     "./shipwright-runtime-client": "./shipwright-runtime-client.ts",

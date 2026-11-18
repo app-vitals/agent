@@ -22,6 +22,7 @@ import {
   installPlugins,
   runMiseStartup,
 } from "@app-vitals/agent-runtime/setup";
+import { SCRIPTS_BIN } from "@app-vitals/agent-runtime/scripts-bin";
 import { setupGitHubAuth } from "@app-vitals/agent-runtime/setup-github-auth";
 import { HttpShipwrightRuntimeClient } from "@app-vitals/agent-runtime/shipwright-runtime-client";
 
@@ -41,8 +42,6 @@ const runtimeClient = new HttpShipwrightRuntimeClient({
 const configClient = {
   getConfig: (id: string) => runtimeClient.getAgentConfigBundle(id),
 };
-
-const SCRIPTS_BIN = join(import.meta.dir, "..", "scripts", "bin");
 
 await runEntrypoint({
   agentId,
