@@ -22,6 +22,7 @@
     "./openapi-schemas": "./src/openapi-schemas.ts",
     "./prisma-client": "./src/prisma-client.ts",
     "./specialty-types": "./src/specialty-types.ts",
+    "./brand-tokens.json": "./src/brand-tokens.json",
     "./theme-tokens.json": "./src/theme-tokens.json",
     "./*": "./src/*.ts",
     "./prisma/client/*": "./prisma/client/*",
