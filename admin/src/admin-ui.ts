@@ -46,7 +46,7 @@ import {
   type SettingsNavContribution,
 } from "./admin-extension.ts";
 import { registerAccountRoutes } from "./admin-ui-account.ts";
-import { runWithSettingsNav } from "./admin-ui-account-nav.ts";
+import { runWithToolbarAudience } from "./admin-ui-account-nav.ts";
 import { renderZeroQuotaNotice } from "./admin-ui-account-pages.ts";
 import { registerAdminAccountsRoutes } from "./admin-ui-accounts.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
@@ -1021,8 +1021,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     app.use("/admin/*", async (c, next) => {
       const token = getCookie(c, SESSION_COOKIE);
       const user = token ? await getSessionUser(token, sessionSecret) : null;
-      let show = user?.isAdmin === true;
-      if (user && !show && accountServices) {
+      const isAdmin = user?.isAdmin === true;
+      let show = false; // member with an account keeps Settings (SGL-2.2)
+      if (user && !isAdmin && accountServices) {
         try {
           show =
             (await accountServices.accounts.getByMemberEmail(user.email)) !==
@@ -1031,7 +1032,11 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           // nav is cosmetic — never fail the page over the lookup
         }
       }
-      return runWithSettingsNav(show, () => next());
+      return runWithToolbarAudience(
+        isAdmin ? "admin" : "member",
+        () => next(),
+        { showSettings: show },
+      );
     });
   }
 

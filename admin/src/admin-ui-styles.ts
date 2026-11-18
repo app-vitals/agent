@@ -3,7 +3,7 @@ import {
   renderShipwrightToolbar,
   baseStyles as toolbarBaseStyles,
 } from "@app-vitals/agent-lib/web/toolbar.ts";
-import { shouldShowSettingsNav } from "./admin-ui-account-nav.ts";
+import { currentToolbarViewer } from "./admin-ui-account-nav.ts";
 
 export { escapeHtml };
 
@@ -684,11 +684,13 @@ export function baseStyles(): string {
 }
 
 export function renderAdminToolbar(userName: string, activePath = ""): string {
+  const viewer = currentToolbarViewer();
   return renderShipwrightToolbar({
     userName,
     activePath,
     logoutAction: "/admin/logout",
     metricsUrl: process.env.METRICS_DASHBOARD_URL ?? "/dashboard",
-    showSettings: shouldShowSettingsNav(),
+    audience: viewer?.audience,
+    showSettings: viewer?.showSettings,
   });
 }

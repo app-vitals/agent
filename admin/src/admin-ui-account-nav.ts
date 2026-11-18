@@ -1,26 +1,38 @@
 /**
  * admin/src/admin-ui-account-nav.ts
- * Per-request "show the Settings nav entry" flag. renderAdminToolbar()
- * is called from dozens of page renderers; rather than thread a parameter
- * through all of them, an admin-ui middleware wraps each /admin/* request in
- * runWithAccountNav() and the toolbar reads the flag back. Outside any
- * context (tests, other services) the entry is hidden.
+ * Per-request toolbar audience. renderAdminToolbar() is called from dozens of
+ * page renderers; rather than thread a parameter through all of them, an
+ * admin-ui middleware wraps each /admin/* request in runWithToolbarAudience()
+ * and the toolbar reads it back. Outside any context (tests, other services)
+ * no audience is set and the toolbar renders its legacy default (no Settings).
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { ToolbarAudience } from "@app-vitals/agent-lib/web/toolbar.ts";
 
-interface NavFlags {
-  /** The "Settings" entry (admins and account members). */
+export interface ToolbarViewer {
+  audience: ToolbarAudience;
+  /**
+   * Show Settings even though the audience's manifest hides it. Account members
+   * (SGL-2.2) keep their Settings entry; the manifest lists it admin-only.
+   */
   showSettings: boolean;
 }
 
-const storage = new AsyncLocalStorage<NavFlags>();
+const storage = new AsyncLocalStorage<ToolbarViewer>();
 
-/** Wrap a request so the toolbar shows (or hides) the admin Settings entry. */
-export function runWithSettingsNav<T>(showSettings: boolean, fn: () => T): T {
-  return storage.run({ showSettings }, fn);
+/** Wrap a request so the toolbar renders for the given audience. */
+export function runWithToolbarAudience<T>(
+  audience: ToolbarAudience,
+  fn: () => T,
+  opts: { showSettings?: boolean } = {},
+): T {
+  return storage.run(
+    { audience, showSettings: audience === "admin" || !!opts.showSettings },
+    fn,
+  );
 }
 
-export function shouldShowSettingsNav(): boolean {
-  return storage.getStore()?.showSettings === true;
+export function currentToolbarViewer(): ToolbarViewer | undefined {
+  return storage.getStore();
 }

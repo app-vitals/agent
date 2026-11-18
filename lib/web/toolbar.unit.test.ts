@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { renderShipwrightToolbar } from "./toolbar.ts";
+import { renderShipwrightToolbar, TOOLBAR_NAV_ITEMS } from "./toolbar.ts";
 
 describe("renderShipwrightToolbar", () => {
   describe("authenticated mode (readOnly=false)", () => {
@@ -249,5 +249,81 @@ describe("renderShipwrightToolbar Settings entry (GHE-1.4)", () => {
     expect(
       renderShipwrightToolbar({ ...base, readOnly: true, showSettings: true }),
     ).not.toContain("/admin/settings");
+  });
+});
+
+describe("renderShipwrightToolbar audience (MNAV-2.1)", () => {
+  const base = {
+    userName: "a@x.com",
+    activePath: "/admin/agents",
+    logoutAction: "/admin/logout",
+  };
+  const settings = 'href="/admin/settings"';
+
+  test("admin sees every signed-in item including Settings", () => {
+    const html = renderShipwrightToolbar({ ...base, audience: "admin" });
+    expect(html).toContain(settings);
+    expect(html).toContain("/admin/sessions");
+    expect(html).toContain("Sign out");
+  });
+  test("member sees signed-in items but not Settings", () => {
+    const html = renderShipwrightToolbar({ ...base, audience: "member" });
+    expect(html).not.toContain(settings);
+    expect(html).toContain("/admin/prs");
+  });
+  test("public renders the read-only variant", () => {
+    const html = renderShipwrightToolbar({ ...base, audience: "public" });
+    expect(html).not.toContain("/admin/");
+    expect(html).not.toContain("Sign out");
+    expect(html).toContain("/public/tasks");
+  });
+  test("audience admin output equals legacy showSettings output", () => {
+    expect(renderShipwrightToolbar({ ...base, audience: "admin" })).toBe(
+      renderShipwrightToolbar({ ...base, showSettings: true }),
+    );
+  });
+  test("audience member output equals legacy default output", () => {
+    expect(renderShipwrightToolbar({ ...base, audience: "member" })).toBe(
+      renderShipwrightToolbar(base),
+    );
+  });
+  test("legacy readOnly still works", () => {
+    expect(renderShipwrightToolbar({ ...base, readOnly: true })).toBe(
+      renderShipwrightToolbar({ ...base, audience: "public" }),
+    );
+  });
+  test("legacy showSettings still adds Settings for a member", () => {
+    expect(
+      renderShipwrightToolbar({ ...base, audience: "member", showSettings: true }),
+    ).toContain(settings);
+  });
+});
+
+describe("TOOLBAR_NAV_ITEMS manifest", () => {
+  const audiences = ["admin", "member", "public"] as const;
+  test("every item renders for at least one audience", () => {
+    for (const item of TOOLBAR_NAV_ITEMS) {
+      expect(item.audiences.length).toBeGreaterThan(0);
+    }
+    const out = audiences.map((audience) =>
+      renderShipwrightToolbar({
+        userName: "a",
+        activePath: "",
+        logoutAction: "/x",
+        audience,
+      }),
+    );
+    for (const item of TOOLBAR_NAV_ITEMS) {
+      const i = audiences.findIndex((a) => item.audiences.includes(a));
+      expect(out[i]).toContain(`>${item.label.replace("&", "&amp;")}</a>`);
+    }
+  });
+  test("Settings is admin only", () => {
+    const s = TOOLBAR_NAV_ITEMS.find((i) => i.id === "settings");
+    expect(s?.audiences).toEqual(["admin"]);
+  });
+  test("ids are unique", () => {
+    const ids = TOOLBAR_NAV_ITEMS.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

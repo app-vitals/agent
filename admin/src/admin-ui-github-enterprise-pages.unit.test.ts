@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { runWithSettingsNav } from "./admin-ui-account-nav.ts";
+import { runWithToolbarAudience } from "./admin-ui-account-nav.ts";
 import {
   type GheApp,
   renderGithubEnterpriseSettingsPage,
@@ -236,7 +236,9 @@ describe("renderGithubEnterpriseSettingsPage", () => {
 describe("toolbar Settings entry", () => {
   test("hidden outside a settings-nav context, shown inside one", () => {
     expect(renderAdminToolbar("a@x.com")).not.toContain("/admin/settings");
-    const html = runWithSettingsNav(true, () => renderAdminToolbar("a@x.com"));
+    const html = runWithToolbarAudience("admin", () =>
+      renderAdminToolbar("a@x.com"),
+    );
     expect(html).toContain('href="/admin/settings" class="vos-nav-link');
   });
 });
