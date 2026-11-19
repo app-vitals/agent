@@ -234,6 +234,7 @@ function makeMockDeps(overrides?: Partial<AdminUIDeps>): AdminUIDeps {
         id: "m1",
         agentId,
         email,
+        memberId: null,
         createdAt: new Date(),
       }),
       remove: async () => {},
@@ -538,13 +539,20 @@ describe("admin UI — new local agent create flow", () => {
         ...makeMockDeps().agentMemberService,
         add: async (agentId: string, email: string) => {
           addCalls.push({ agentId, email });
-          return { id: "m1", agentId, email, createdAt: new Date() };
+          return {
+            id: "m1",
+            agentId,
+            email,
+            memberId: null,
+            createdAt: new Date(),
+          };
         },
         listByAgentId: async () =>
           addCalls.map((c) => ({
             id: "m1",
             agentId: c.agentId,
             email: c.email,
+            memberId: null,
             createdAt: new Date(),
           })),
       },

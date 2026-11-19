@@ -220,6 +220,7 @@ function makeMockDeps(
         id: "m1",
         agentId,
         email,
+        memberId: null,
         createdAt: new Date(),
       }),
       remove: async () => {},

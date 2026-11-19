@@ -1654,3 +1654,34 @@ export const TemplateItemKeyQuerySchema = z.object({
   kind: TemplateItemKindSchema,
   key: z.string().min(1),
 });
+
+// ─── Principals (ACM-1.1) ─────────────────────────────────────────────────────
+
+export const PrincipalSchema = z
+  .object({
+    id: z.string().openapi({ example: "clx1abc" }),
+    type: z.enum(["user", "agent"]),
+    email: z
+      .string()
+      .nullable()
+      .openapi({ description: "null for agents", example: "o@acme.com" }),
+  })
+  .openapi("Principal");
+
+export const PrincipalLookupBodySchema = z
+  .object({ ids: z.array(z.string().min(1)).max(500) })
+  .openapi("PrincipalLookupBody");
+
+export const PrincipalLookupResponseSchema = z
+  .object({
+    principals: z.array(PrincipalSchema),
+    notFound: z.array(z.string()),
+  })
+  .openapi("PrincipalLookupResponse");
+
+export const PrincipalByEmailQuerySchema = z.object({
+  email: z
+    .string()
+    .min(1)
+    .openapi({ param: { name: "email", in: "query" }, example: "o@acme.com" }),
+});

@@ -163,6 +163,7 @@ function makeMockDeps(overrides?: Partial<AdminUIDeps>): AdminUIDeps {
         id: "m1",
         agentId,
         email,
+        memberId: null,
         createdAt: new Date(),
       }),
       remove: async () => {},
