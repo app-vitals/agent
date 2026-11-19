@@ -1302,6 +1302,7 @@ describe("admin UI — authenticated pages", () => {
                       id: "m1",
                       agentId: AGENT_ID,
                       email,
+                      memberId: null,
                       createdAt: new Date(),
                     },
                   ]
@@ -1312,6 +1313,7 @@ describe("admin UI — authenticated pages", () => {
               id: "m1",
               agentId: AGENT_ID,
               email: MEMBER_EMAIL,
+              memberId: null,
               createdAt: new Date(),
             }),
             remove: async () => {},
@@ -2881,7 +2883,15 @@ describe("admin UI — member access control", () => {
       agentMemberService: {
         listByEmail: async (email: string) =>
           email === MEMBER_EMAIL
-            ? [{ id: "m1", agentId: AGENT_ID, email, createdAt: new Date() }]
+            ? [
+                {
+                  id: "m1",
+                  agentId: AGENT_ID,
+                  email,
+                  memberId: null,
+                  createdAt: new Date(),
+                },
+              ]
             : [],
         exists: async (_agentId: string, email: string) =>
           email === MEMBER_EMAIL,
@@ -2889,6 +2899,7 @@ describe("admin UI — member access control", () => {
           id: "m1",
           agentId: AGENT_ID,
           email: MEMBER_EMAIL,
+          memberId: null,
           createdAt: new Date(),
         }),
         remove: async () => {},
@@ -3031,6 +3042,7 @@ describe("admin UI — member access control", () => {
                   id: "m1",
                   agentId: AGENT_ID,
                   email: MEMBER_EMAIL,
+                  memberId: null,
                   createdAt: new Date(),
                 },
               ]
@@ -3040,6 +3052,7 @@ describe("admin UI — member access control", () => {
           id: "m1",
           agentId: AGENT_ID,
           email: MEMBER_EMAIL,
+          memberId: null,
           createdAt: new Date(),
         }),
         remove: async () => {},
@@ -3186,6 +3199,7 @@ describe("admin UI — member access control", () => {
                   id: "m1",
                   agentId: AGENT_ID,
                   email: MEMBER_EMAIL,
+                  memberId: null,
                   createdAt: new Date(),
                 },
               ]
@@ -3195,6 +3209,7 @@ describe("admin UI — member access control", () => {
           id: "m1",
           agentId: AGENT_ID,
           email: MEMBER_EMAIL,
+          memberId: null,
           createdAt: new Date(),
         }),
         remove: async () => {},
@@ -3668,7 +3683,13 @@ describe("admin UI — member management routes", () => {
         exists: async () => false,
         add: async (agentId: string, email: string) => {
           created = { agentId, email };
-          return { id: "m-new", agentId, email, createdAt: new Date() };
+          return {
+            id: "m-new",
+            agentId,
+            email,
+            memberId: null,
+            createdAt: new Date(),
+          };
         },
         remove: async () => {},
         listByAgentId: async () => [],
@@ -3761,6 +3782,7 @@ describe("admin UI — member management routes", () => {
           id: "m1",
           agentId: AGENT_ID,
           email: "member@example.com",
+          memberId: null,
           createdAt: new Date(),
         }),
         remove: async (_agentId: string, memberId: string) => {
@@ -3821,13 +3843,22 @@ describe("admin UI — marketplaces (PMK-1.5)", () => {
     agentMemberService: {
       listByEmail: async (email: string) =>
         email === MEMBER
-          ? [{ id: "m1", agentId: AGENT_ID, email, createdAt: new Date() }]
+          ? [
+              {
+                id: "m1",
+                agentId: AGENT_ID,
+                email,
+                memberId: null,
+                createdAt: new Date(),
+              },
+            ]
           : [],
       exists: async (_agentId: string, email: string) => email === MEMBER,
       add: async () => ({
         id: "m1",
         agentId: AGENT_ID,
         email: MEMBER,
+        memberId: null,
         createdAt: new Date(),
       }),
       remove: async () => {},
@@ -4051,7 +4082,15 @@ describe("admin UI — plugin add/remove (PUI-1.2)", () => {
         agentMemberService: {
           listByEmail: async (email: string) =>
             email === MEMBER
-              ? [{ id: "m1", agentId: AGENT_ID, email, createdAt: new Date() }]
+              ? [
+                  {
+                    id: "m1",
+                    agentId: AGENT_ID,
+                    email,
+                    memberId: null,
+                    createdAt: new Date(),
+                  },
+                ]
               : [],
           exists: async (_a: string, email: string) => email === MEMBER,
           add: async () => ({}) as never,
@@ -6985,6 +7024,7 @@ describe("admin UI — Slack access settings route (restrictSlackToMembers)", ()
           id: "m1",
           agentId: AGENT_ID,
           email: "member@example.com",
+          memberId: null,
           createdAt: new Date("2024-01-01"),
         },
       ],
@@ -7247,6 +7287,7 @@ describe("admin UI — Okta-authenticated access control", () => {
                   id: "m1",
                   agentId: AGENT_ID,
                   email: OKTA_MEMBER_EMAIL,
+                  memberId: null,
                   createdAt: new Date(),
                 },
               ]
@@ -7257,6 +7298,7 @@ describe("admin UI — Okta-authenticated access control", () => {
           id: "m1",
           agentId: AGENT_ID,
           email: OKTA_MEMBER_EMAIL,
+          memberId: null,
           createdAt: new Date(),
         }),
         remove: async () => {},
@@ -7361,7 +7403,15 @@ describe("admin UI — Okta-authenticated access control", () => {
       agentMemberService: {
         listByEmail: async (email: string) =>
           email === OKTA_MEMBER_EMAIL
-            ? [{ id: "m1", agentId: AGENT_ID, email, createdAt: new Date() }]
+            ? [
+                {
+                  id: "m1",
+                  agentId: AGENT_ID,
+                  email,
+                  memberId: null,
+                  createdAt: new Date(),
+                },
+              ]
             : [],
         exists: async (_agentId: string, email: string) =>
           email === OKTA_MEMBER_EMAIL,
@@ -7369,6 +7419,7 @@ describe("admin UI — Okta-authenticated access control", () => {
           id: "m1",
           agentId: AGENT_ID,
           email: OKTA_MEMBER_EMAIL,
+          memberId: null,
           createdAt: new Date(),
         }),
         remove: async () => {},
@@ -7819,9 +7870,7 @@ describe("admin UI — self-serve agent management (SSP-4.3)", () => {
       expect(accessRes.status).toBe(200);
       const html = `${await res.text()}${await accessRes.text()}`;
       expect(html.includes("Danger Zone")).toBe(shown);
-      expect(html.includes('<div class="card-title">Slack</div>')).toBe(
-        shown,
-      );
+      expect(html.includes('<div class="card-title">Slack</div>')).toBe(shown);
       expect(html.includes(`/admin/agents/${AGENT_ID}/members`)).toBe(shown);
     });
   }

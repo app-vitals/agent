@@ -577,6 +577,7 @@ function makeMockDeps(): AdminDeps {
         id: "member-test-id",
         agentId,
         email,
+        memberId: null,
         createdAt: new Date("2024-01-01"),
       }),
       // Default: at least one member, so restrictSlackToMembers tests that
@@ -587,6 +588,7 @@ function makeMockDeps(): AdminDeps {
           id: "member-test-id",
           agentId,
           email: "member@example.com",
+          memberId: null,
           createdAt: new Date("2024-01-01"),
         },
       ],
@@ -3069,6 +3071,7 @@ describe("admin API — restrictSlackToMembers field", () => {
             id: "member-1",
             agentId: AGENT_ID,
             email: "member@example.com",
+            memberId: null,
             createdAt: new Date("2024-01-01"),
           },
         ],
@@ -5228,6 +5231,7 @@ describe("non-admin session cookie scoping", () => {
                   id: "m1",
                   agentId: AGENT_ID,
                   email,
+                  memberId: null,
                   createdAt: new Date("2024-01-01"),
                 },
               ]
@@ -6221,6 +6225,7 @@ describe("admin API — repo removal blocks open work", () => {
                   id: "m1",
                   agentId: AGENT_ID,
                   email,
+                  memberId: null,
                   createdAt: new Date("2024-01-01"),
                 },
               ]

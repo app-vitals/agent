@@ -264,6 +264,8 @@ model AgentMember {
   id        String   @id @default(cuid())
   agentId   String
   email     String
+  // ACM-1.1: AccountMember.id, additive/nullable; email column stays the key until backfilled.
+  memberId  String?
   createdAt DateTime @default(now())
   agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
@@ -653,6 +655,7 @@ model PushSubscription {
   p256dh      String   // base64url of the UA public key
   auth        String   // base64url of the UA auth secret
   detailOptIn String   @default("generic") // user opt-in: generic | title | preview
+  memberId    String?  // ACM-1.1: AccountMember.id, additive/nullable
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -671,6 +674,7 @@ model ChatThreadWatch {
   userEmail String
   threadId  String
   agentId   String
+  memberId  String?  // ACM-1.1: AccountMember.id, additive/nullable
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -700,6 +704,7 @@ model UserNotificationPrefs {
   autoFollowSessions Boolean   @default(true)
   reminderHourLocal  Int       @default(9)
   autoFollowSince    DateTime?
+  memberId           String?   // ACM-1.1: AccountMember.id, additive/nullable
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 }

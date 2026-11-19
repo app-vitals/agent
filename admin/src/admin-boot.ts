@@ -115,6 +115,8 @@ import {
   createGithubSync,
 } from "./github-installation-wiring.ts";
 
+import { PrincipalLookupService } from "./principal-lookup.ts";
+import { createPrincipalsApp } from "./principals-api.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";
@@ -599,6 +601,17 @@ export async function startAdmin(
       accountService: new AccountService(prisma),
       accountLifecycle,
       selfServe,
+      sessionSecret,
+      adminApiKeys,
+      agentTokenService,
+    }),
+  );
+
+  // 3b'. Principals lookup API — /principals/* — admin-only (ACM-1.1)
+  root.route(
+    "/",
+    createPrincipalsApp({
+      lookup: new PrincipalLookupService(prisma),
       sessionSecret,
       adminApiKeys,
       agentTokenService,

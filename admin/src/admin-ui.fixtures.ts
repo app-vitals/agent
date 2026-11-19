@@ -328,6 +328,7 @@ export function makeMockDeps(
         id: "m1",
         agentId: AGENT_ID,
         email: "member@example.com",
+        memberId: null,
         createdAt: new Date(),
       }),
       remove: async () => {},

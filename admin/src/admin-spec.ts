@@ -26,6 +26,7 @@ import {
 } from "./agents-api.ts";
 import { createAgentRuntimeApp } from "./api.ts";
 import { createGithubEnterpriseApp } from "./github-enterprise-api.ts";
+import { createPrincipalsApp } from "./principals-api.ts";
 
 /** The admin OpenAPI document shape the spec builders and generators share. */
 export interface AdminOpenApiDocument {
@@ -207,6 +208,21 @@ export function buildPlatformAdminSpec(): AdminOpenApiDocument {
     mergedPaths[path] = def as Record<string, unknown>;
   }
 
+  // ACM-1.1: the /principals lookup routes live in their own app (mounted at
+  // the root in admin-boot.ts); fold their paths and schemas in.
+  const principalsSpec = createPrincipalsApp({
+    lookup: {} as never,
+    sessionSecret: SESSION_SECRET,
+    adminApiKeys,
+    agentTokenService: { validate: async () => null },
+  }).getOpenAPI31Document({
+    openapi: "3.1.0",
+    info: { title: "principals (internal)", version: "0.1.0" },
+  });
+  for (const [path, def] of Object.entries(principalsSpec.paths ?? {})) {
+    mergedPaths[path] = def as Record<string, unknown>;
+  }
+
   return {
     ...adminSpec,
     paths: mergedPaths,
@@ -217,6 +233,7 @@ export function buildPlatformAdminSpec(): AdminOpenApiDocument {
         ...(runtimeSpec.components?.schemas ?? {}),
         ...(gheSpec.components?.schemas ?? {}),
         ...(templatesSpec.components?.schemas ?? {}),
+        ...(principalsSpec.components?.schemas ?? {}),
       },
     },
   };

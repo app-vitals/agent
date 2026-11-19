@@ -346,6 +346,7 @@ function makeBaseDeps(overrides?: Partial<AdminUIDeps>): AdminUIDeps {
         id: "m1",
         agentId,
         email,
+        memberId: null,
         createdAt: new Date(),
       }),
       remove: async () => {},
@@ -1610,6 +1611,7 @@ function makeMemberDeps(
               id: `m-${agentId}`,
               agentId,
               email,
+              memberId: null,
               createdAt: new Date(),
             }))
           : [],

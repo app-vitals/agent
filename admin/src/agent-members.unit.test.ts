@@ -14,6 +14,7 @@ interface FakeAgentMemberRow {
   id: string;
   agentId: string;
   email: string;
+  memberId: string | null;
   createdAt: Date;
 }
 
@@ -64,6 +65,7 @@ function makeFakePrisma(seed: FakeAgentMemberRow[] = []) {
         id: `member-${nextId++}`,
         agentId: data.agentId,
         email: data.email,
+        memberId: null,
         createdAt: new Date("2024-01-01"),
       };
       rows.set(row.id, row);
@@ -88,11 +90,14 @@ function makeFakePrisma(seed: FakeAgentMemberRow[] = []) {
 
 type FakePrisma = ReturnType<typeof makeFakePrisma>;
 
-function seedRow(overrides: Partial<FakeAgentMemberRow> = {}): FakeAgentMemberRow {
+function seedRow(
+  overrides: Partial<FakeAgentMemberRow> = {},
+): FakeAgentMemberRow {
   return {
     id: "member-existing",
     agentId: "agent-1",
     email: "person@example.com",
+    memberId: null,
     createdAt: new Date("2024-01-01"),
     ...overrides,
   };
