@@ -73,3 +73,41 @@ describe("RUNTIME.md.template — GitHub owner hint", () => {
     expect(section).toContain("git");
   });
 });
+
+describe("RUNTIME.md.template — Slack Style section", () => {
+  function slackStyle(): string {
+    const template = readTemplate();
+    const start = template.indexOf("### Slack Style");
+    expect(start).toBeGreaterThan(-1);
+    return template.slice(start, template.indexOf("\n### ", start + 1));
+  }
+
+  it("states the ask-last rule", () => {
+    const section = slackStyle();
+    expect(section).toContain("Ask last");
+    expect(section).toContain("LAST");
+    expect(section.toLowerCase()).toContain("reply box");
+  });
+
+  it("states the one-screen cap, headline-first, bullet cap and one decision", () => {
+    const section = slackStyle().toLowerCase();
+    expect(section).toContain("one phone screen");
+    expect(section).toContain("headline");
+    expect(section).toContain("at most 3 bullets");
+    expect(section).toContain("one decision per message");
+    expect(section).toContain("drill-down");
+  });
+
+  it("includes the message-types table", () => {
+    const section = slackStyle();
+    expect(section).toContain("| Message type |");
+    expect(section).toContain("Chat / ask");
+    expect(section).toContain("Decision needing a human");
+    expect(section).toContain("PR bodies, review posts, comment replies");
+    expect(section).toContain("Cron / status");
+  });
+
+  it("exempts artifacts from the length cap", () => {
+    expect(slackStyle()).toContain("stay full-length");
+  });
+});
