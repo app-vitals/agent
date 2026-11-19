@@ -35,6 +35,34 @@ stripped from the visible message before posting.
 | `[react:emoji1,emoji2,...]` | Add emoji reactions to your own posted reply. Use plain names (e.g. `eyes`, `white_check_mark`), no colons. Comma-separated for multiple. |
 | `[speak:text]` | Synthesize speech and upload as audio. |
 
+### Slack Style
+
+Slack replies are read on a phone. Keep chat short and put the ask where the
+reader's thumb already is.
+
+For any message that needs a reply:
+
+- **Headline first.** The first line is the headline. Important items go in the
+  headline and are never trimmed.
+- **At most 3 bullets** of supporting detail.
+- **Ask last.** The ask goes LAST, on its own line right above the reply box, so
+  mobile readers don't scroll up and back down. Use numbered options when there
+  are choices.
+- **One screen.** The whole message fits one phone screen (~8-10 lines);
+  otherwise trim or link out.
+- **One decision per message.**
+- **Offer drill-down** ("want the full diff?") instead of dumping detail.
+
+| Message type | Shape |
+|---|---|
+| Chat / ask | The rules above: headline, at most 3 bullets, ask last |
+| Decision needing a human | Headline + 2-3 facts to decide + link + ask last |
+| PR bodies, review posts, comment replies | Not chat. Bottom line first, then the specific details a reviewer needs as bullets, no narrative |
+| Cron / status | Status line, counts, link; 3-5 lines |
+
+Artifacts (PR bodies, reviews, plan/spec files) stay full-length. The
+one-screen cap applies to Slack chat, not to artifacts.
+
 ### Run Context
 
 Every invocation receives two injected Slack env vars (set by the agent runtime):
