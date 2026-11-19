@@ -1,7 +1,7 @@
 /**
  * admin/scripts/backfill-member-id.ts (ACM-1.2)
  *
- *   DATABASE_URL=... bun admin/scripts/backfill-member-id.ts [--dry-run] [--overrides overrides.json] [--report report.json]
+ *   DATABASE_URL_SHIPWRIGHT_ADMIN=... bun admin/scripts/backfill-member-id.ts [--dry-run] [--overrides overrides.json] [--report report.json]
  *
  * overrides.json: { "alice@old.com": "<AccountMember.id>" }. Overrides win over
  * the automatic email match. --dry-run changes nothing.
@@ -9,15 +9,18 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { parseFlags } from "@app-vitals/agent-lib/cli-flags";
-import { parseOverrides, runMemberIdBackfill } from "../src/member-id-backfill.ts";
+import {
+  parseOverrides,
+  runMemberIdBackfill,
+} from "../src/member-id-backfill.ts";
 import { createAdminPrismaClient } from "../src/prisma-client.ts";
 
 const flags = parseFlags(process.argv.slice(2), ["--overrides", "--report"], {
   booleans: ["--dry-run"],
 });
-const url = process.env.DATABASE_URL;
+const url = process.env.DATABASE_URL_SHIPWRIGHT_ADMIN;
 if (!url) {
-  console.error("DATABASE_URL is required");
+  console.error("DATABASE_URL_SHIPWRIGHT_ADMIN is required");
   process.exit(2);
 }
 
