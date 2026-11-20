@@ -64,6 +64,7 @@ All paths are under `admin/src/`. Most modules have sibling `*.unit.test.ts`,
 | `transcript-config.ts` | Parses `SHIPWRIGHT_TRANSCRIPT_API_ENABLED` and `SHIPWRIGHT_LOOP_TRANSCRIPT_AGENT_IDS` into `{enabled, loopAgentIds}`. |
 | `agent-ask.ts` | `registerAgentAskRoutes` (`POST /agents/{id}/ask`, `GET /agents/{id}/asks`, flag gated) and `AgentAskService`, the AgentAsk audit store. |
 | `accounts-api.ts` | `createAccountsApp`: `/accounts` list/get/create/patch, admin-only and self-serve-flag gated. |
+| `principals-api.ts`, `principal-lookup.ts` | `createPrincipalsApp` and `PrincipalLookupService` (ACM-1.1): admin-only `POST /principals/lookup` (batch-resolve AccountMember and Agent ids to type and email; unknown ids go in `notFound`) and `GET /principals/by-email` (case-insensitive, 404 when unknown). |
 | `api-auth.ts` | Combined bearer-or-session-cookie middleware, scope kinds, `PLATFORM_OPS_ROUTES`. |
 | `caller-scope.ts` | Resolves which agents a caller may see (`all` vs `scoped`), per request from the caller's email. Account membership counts only when self-serve is on. |
 | `dev-auth-guard.ts` | `isDevAuthAllowed`: `/admin/dev-login` needs `ADMIN_DEV_AUTH=true` and is always off when `NODE_ENV=production`. |
@@ -188,7 +189,7 @@ Route mount order matters because both the runtime and admin apps live under
 
 1. `GET /health` (liveness, no DB) and `GET /health/ready` (`SELECT 1`; 503 once shutdown starts); `/` redirects to `/admin/login`.
 2. Runtime API at `/agents` (`:id/config`, `:id/crons`).
-3. Admin CRUD API, then `/accounts`, then extension API routes.
+3. Admin CRUD API, then `/accounts`, then `/principals`, then extension API routes.
 4. Admin UI at `/admin/*`, then extension UI routes.
 
 Sweepers start after the routes: per-agent warning (hourly) and expiry
@@ -238,6 +239,12 @@ points specialties at a fixture). Integration tests need Postgres via
 `cd admin && bun run typecheck` for types; `bun run test:e2e` runs the Playwright
 suite in `admin/e2e/` against a local server on port 3490. Docker:
 `docker build -f admin/Dockerfile -t shipwright-admin .` from the repo root.
+
+`member-id-backfill.ts` (run via `admin/scripts/backfill-member-id.ts`, ACM-1.2) fills the
+nullable `memberId` columns (UserNotificationPrefs, ChatThreadWatch, PushSubscription,
+AgentMember) by email match against AccountMember. It needs
+`DATABASE_URL_SHIPWRIGHT_ADMIN` and takes `--dry-run`, `--overrides <file>` and
+`--report <file>`.
 
 `admin-spec.ts` references `scripts/generate-admin-spec.ts` as the generator of
 the composed `openapi.json`; that script is not present in this repo tree, so
