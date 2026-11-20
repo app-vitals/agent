@@ -744,3 +744,65 @@ model GitHubReconcileAudit {
 
   @@index([agentId, createdAt])
 }
+
+// ─── GitHub repo/access cache (GLC-1.1) ──────────────────────────────────────
+// Per-org crawl snapshot, the repos seen by it, and per-user push access.
+// accountId/appRef are plain columns (no relations): cache rows are disposable.
+// Debug detail (lastError, attempts, timestamps) is stored as plain columns so
+// any existing view can show it.
+
+model GitHubRepoSnapshot {
+  id               String             @id @default(cuid())
+  accountId        String
+  appKind          String // 'lookup' | 'agent'
+  appRef           String // app id (lookup) or agent id (agent)
+  org              String
+  crawlPage        Int                @default(0)
+  crawlStartedAt   DateTime?
+  completedAt      DateTime?
+  totalCount       Int?
+  lastError        String?
+  attempts         Int                @default(0)
+  nextAttemptAt    DateTime?
+  rateLimitResetAt DateTime?
+  leaseHolder      String?
+  leasedUntil      DateTime?
+  lastTickAt       DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  repos            GitHubCachedRepo[]
+
+  @@unique([accountId, appKind, appRef, org])
+  @@index([accountId, appKind, org])
+}
+
+model GitHubCachedRepo {
+  id         String             @id @default(cuid())
+  snapshotId String
+  snapshot   GitHubRepoSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  githubId   BigInt
+  fullName   String
+  archived   Boolean            @default(false)
+  seenAt     DateTime
+
+  @@unique([snapshotId, githubId])
+  @@index([snapshotId, seenAt])
+}
+
+model GitHubRepoAccess {
+  id            String    @id @default(cuid())
+  accountId     String
+  org           String
+  repo          String
+  username      String
+  canPush       Boolean   @default(false)
+  level         String?
+  checkedAt     DateTime
+  status        String // 'ok' | 'error' | 'terminal'
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime?
+  lastError     String?
+
+  @@unique([accountId, org, repo, username])
+  @@index([accountId, org, username, nextAttemptAt])
+}
