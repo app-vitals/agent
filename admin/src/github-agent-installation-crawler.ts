@@ -176,9 +176,7 @@ export async function crawlAgentInstallation(
       clock,
       ...(opts.maxPages === undefined ? {} : { maxPages: opts.maxPages }),
       ...(opts.backoffMs === undefined ? {} : { backoffMs: opts.backoffMs }),
-      ...(opts.shouldStop === undefined
-        ? {}
-        : { shouldStop: opts.shouldStop }),
+      ...(opts.shouldStop === undefined ? {} : { shouldStop: opts.shouldStop }),
     };
   }
 }
