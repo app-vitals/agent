@@ -174,6 +174,14 @@ export interface AccessibleRepository {
   fullName: string;
 }
 
+/** One page of an installation's repositories. */
+export interface InstallationRepositoriesPage {
+  repos: (AccessibleRepository & { archived?: boolean })[];
+  hasNext: boolean;
+  /** The page size requested; every page but the last is full. */
+  perPage: number;
+}
+
 export interface SetRepositorySelectionInput {
   repositorySelection: "all" | "selected";
   /** Simple repo names (max 50); required when repositorySelection is "selected". */
@@ -365,6 +373,43 @@ export class GithubEnterpriseClient {
     return rows.map(toRepository);
   }
 
+  /**
+   * One page (1-based) of the repositories an installation can access. The
+   * endpoint returns a bare array with no total_count, so callers that need a
+   * total derive it from the page position (see GLC-1.5).
+   */
+  async listInstallationRepositoriesPage(
+    org: string,
+    installationId: number,
+    page: number,
+  ): Promise<InstallationRepositoriesPage> {
+    if (!Number.isInteger(page) || page < 1) {
+      throw new GithubEnterpriseError("validation", "page must be a positive integer");
+    }
+    const context = "GitHub installation repositories";
+    const path = this.repositoriesPath(org, installationId);
+    const { token } = await this.getInstallationToken();
+    const res = await this.request<RawRepository[]>(
+      "GET",
+      `${path}?per_page=${PER_PAGE}&page=${page}`,
+      token,
+      context,
+    );
+    if (!Array.isArray(res.data)) {
+      throw new GithubEnterpriseError("unexpected", `${context}: response is not a list`);
+    }
+    const link = res.headers.get("link");
+    const hasNext = link !== null ? /rel="next"/.test(link) : res.data.length >= PER_PAGE;
+    return {
+      repos: res.data.map((r) => ({
+        ...toRepository(r),
+        ...(typeof r.archived === "boolean" ? { archived: r.archived } : {}),
+      })),
+      hasNext,
+      perPage: PER_PAGE,
+    };
+  }
+
   /** Grant an installation access to repositories, in batches of at most 50. */
   async addRepositories(
     org: string,
@@ -520,6 +565,7 @@ interface RawRepository {
   id: number;
   name: string;
   full_name: string;
+  archived?: boolean;
 }
 
 function toRepository(r: RawRepository): AccessibleRepository {

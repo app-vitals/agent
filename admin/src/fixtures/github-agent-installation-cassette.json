@@ -1,0 +1,29 @@
+{
+  "_comment": "Hand-authored from GitHub's enterprise organization-installations OpenAPI description (nothing recorded live). Repo list pages are generated in the test: only the routes, headers and status codes live here.",
+  "enterprise_installation": {
+    "status": 200,
+    "body": { "id": 4242, "app_id": 12345, "app_slug": "shipwright-installer", "repository_selection": "all", "target_type": "Enterprise" }
+  },
+  "installer_token": {
+    "status": 201,
+    "body": { "token": "ghs_cassetteInstallationToken0000000000", "expires_at": "2026-11-20T13:00:00Z" }
+  },
+  "org_installations_agent": {
+    "status": 200,
+    "body": [
+      { "id": 900, "client_id": "Iv1.other", "app_id": 111, "app_slug": "other-app", "account": { "login": "acme-eng" }, "repository_selection": "all" },
+      { "id": 501, "client_id": "Iv1.agentapp0001", "app_id": 777, "app_slug": "doc-agent", "account": { "login": "acme-eng" }, "repository_selection": "selected" }
+    ]
+  },
+  "org_installations_no_agent": {
+    "status": 200,
+    "body": [
+      { "id": 900, "client_id": "Iv1.other", "app_id": 111, "app_slug": "other-app", "account": { "login": "beta-eng" }, "repository_selection": "all" }
+    ]
+  },
+  "repos_rate_limited": {
+    "status": 429,
+    "headers": { "retry-after": "30" },
+    "body": { "message": "API rate limit exceeded" }
+  }
+}

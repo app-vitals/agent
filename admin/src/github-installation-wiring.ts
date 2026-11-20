@@ -40,12 +40,14 @@ export interface GithubInstallationWiringDeps {
 }
 
 /** Builds the installer client per call so key rotations are picked up. */
-function lazyInstallerClient(
+export function lazyInstallerClient(
   deps: Pick<
     GithubInstallationWiringDeps,
     "appService" | "fetchFn" | "apiBase" | "now"
   >,
-): InstallationRepoClient & InstalledOrgsClient {
+): InstallationRepoClient &
+  InstalledOrgsClient &
+  Required<Pick<InstallationRepoClient, "listInstallationRepositoriesPage">> {
   const client = async (
     accountId?: string | null,
   ): Promise<GithubEnterpriseClient> => {
@@ -72,6 +74,8 @@ function lazyInstallerClient(
       (await client(accountId)).listOrgInstallations(org),
     listInstallationRepositories: async (org, id, accountId) =>
       (await client(accountId)).listInstallationRepositories(org, id),
+    listInstallationRepositoriesPage: async (org, id, page, accountId) =>
+      (await client(accountId)).listInstallationRepositoriesPage(org, id, page),
     addRepositories: async (org, id, names, accountId) =>
       (await client(accountId)).addRepositories(org, id, names),
     removeRepositories: async (org, id, names, accountId) =>
