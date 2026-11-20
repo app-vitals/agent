@@ -345,6 +345,17 @@ export class GithubLookupClient {
     repo: string,
     username: string,
   ): Promise<RepoRole> {
+    return (
+      await this.getCollaboratorPermissionWithRateLimit(owner, repo, username)
+    ).role;
+  }
+
+  /** getCollaboratorPermission plus the quota GitHub reported with the answer. */
+  async getCollaboratorPermissionWithRateLimit(
+    owner: string,
+    repo: string,
+    username: string,
+  ): Promise<{ role: RepoRole; rateLimit: LookupRateLimit }> {
     const { token } = await this.getOrgToken(owner);
     const res = await this.request<{
       permission?: unknown;
@@ -355,7 +366,10 @@ export class GithubLookupClient {
       token,
       "GitHub collaborator permission",
     );
-    return mapRepoRole(res.data?.role_name ?? res.data?.permission);
+    return {
+      role: mapRepoRole(res.data?.role_name ?? res.data?.permission),
+      rateLimit: readRateLimit(res.headers),
+    };
   }
 
   /** Look up a user. A nonexistent login throws kind "not_found". */

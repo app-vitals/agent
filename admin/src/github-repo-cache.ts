@@ -301,4 +301,25 @@ export class GitHubRepoCacheService {
     }
     return query.repos.filter((r) => !settled.has(r));
   }
+
+  /** Existing access rows for the user over `repos` (any status). */
+  async getAccessRows(query: {
+    accountId: string;
+    org: string;
+    username: string;
+    repos: string[];
+  }) {
+    requireNonEmpty("accountId", query.accountId);
+    requireNonEmpty("org", query.org);
+    requireNonEmpty("username", query.username);
+    if (query.repos.length === 0) return [];
+    return this.prisma.gitHubRepoAccess.findMany({
+      where: {
+        accountId: query.accountId,
+        org: query.org,
+        username: query.username,
+        repo: { in: query.repos },
+      },
+    });
+  }
 }
