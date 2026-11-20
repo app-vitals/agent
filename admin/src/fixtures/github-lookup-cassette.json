@@ -513,5 +513,70 @@
       "message": "Service Unavailable",
       "documentation_url": "https://docs.github.com/rest"
     }
+  },
+  "repos_page_1_rate_limit_exhausted": {
+    "status": 200,
+    "headers": {
+      "link": "<https://ghe.test/installation/repositories?per_page=100&page=2>; rel=\"next\"",
+      "x-ratelimit-limit": "5000",
+      "x-ratelimit-remaining": "0",
+      "x-ratelimit-reset": "1794226500"
+    },
+    "body": {
+      "total_count": 3,
+      "repositories": [
+        {
+          "id": 1,
+          "name": "api",
+          "full_name": "acme-eng/api",
+          "private": false,
+          "archived": false
+        },
+        {
+          "id": 2,
+          "name": "web",
+          "full_name": "acme-eng/web",
+          "private": true,
+          "archived": false
+        }
+      ]
+    }
+  },
+  "repos_page_2_total_mismatch": {
+    "status": 200,
+    "body": {
+      "total_count": 4,
+      "repositories": [
+        {
+          "id": 3,
+          "name": "infra",
+          "full_name": "acme-eng/infra",
+          "private": false,
+          "archived": false
+        }
+      ]
+    }
+  },
+  "repos_403_rate_limited": {
+    "status": 403,
+    "headers": {
+      "x-ratelimit-limit": "5000",
+      "x-ratelimit-remaining": "0",
+      "x-ratelimit-reset": "1794226500"
+    },
+    "body": {
+      "message": "API rate limit exceeded for installation ID 7001.",
+      "documentation_url": "https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting"
+    }
+  },
+  "repos_403_secondary_retry_after": {
+    "status": 403,
+    "headers": {
+      "retry-after": "120"
+    },
+    "body": {
+      "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      "documentation_url": "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
+    }
   }
 }

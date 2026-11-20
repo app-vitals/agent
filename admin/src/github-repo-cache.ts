@@ -168,6 +168,14 @@ export class GitHubRepoCacheService {
     return repos.length;
   }
 
+  /** Number of the snapshot's repos with `seenAt >= since` (distinct rows). */
+  async countReposSeenSince(snapshotId: string, since: Date): Promise<number> {
+    requireNonEmpty("snapshotId", snapshotId);
+    return this.prisma.gitHubCachedRepo.count({
+      where: { snapshotId, seenAt: { gte: since } },
+    });
+  }
+
   /**
    * Delete repos last seen before the snapshot's crawlStartedAt. Returns the
    * number deleted; 0 (and deletes nothing) when no crawl has started.
