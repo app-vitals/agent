@@ -5,7 +5,7 @@
  * A PageSource over the installer client's single-page installation listing,
  * fed through the same resumable engine (crawlRepos) and completeness check as
  * the lookup crawl, under appKind "agent" and appRef = the agent's GH_APP_ID.
- * Scheduling is not here (GLC-1.4).
+ * Scheduling lives in github-repo-refresher.ts (GLC-1.4).
  */
 
 import type { Clock } from "./clock.ts";
@@ -121,6 +121,8 @@ export interface CrawlAgentInstallationOptions {
   clock: Clock;
   maxPages?: number;
   backoffMs?: (attempts: number) => number;
+  /** Passed to the engine: checked before every page after the first. */
+  shouldStop?: () => boolean;
 }
 
 /** Crawl one agent App's installation repos on one org into the cache. */
@@ -174,6 +176,9 @@ export async function crawlAgentInstallation(
       clock,
       ...(opts.maxPages === undefined ? {} : { maxPages: opts.maxPages }),
       ...(opts.backoffMs === undefined ? {} : { backoffMs: opts.backoffMs }),
+      ...(opts.shouldStop === undefined
+        ? {}
+        : { shouldStop: opts.shouldStop }),
     };
   }
 }
