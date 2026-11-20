@@ -186,6 +186,20 @@ export interface InstallationRepoClient {
     installationId: number,
     accountId?: string | null,
   ): Promise<{ fullName: string }[]>;
+  /**
+   * One page of an installation's repositories (GLC-1.5 crawl). Optional so
+   * existing implementations stay valid; the crawl requires it.
+   */
+  listInstallationRepositoriesPage?(
+    org: string,
+    installationId: number,
+    page: number,
+    accountId?: string | null,
+  ): Promise<{
+    repos: { id: number; fullName: string; archived?: boolean }[];
+    hasNext: boolean;
+    perPage: number;
+  }>;
   addRepositories(
     org: string,
     installationId: number,
