@@ -53,10 +53,9 @@ import { resolveValidation } from "./github-enterprise-warnings.ts";
 import { GithubLookupClient } from "./github-lookup-client.ts";
 import {
   type GithubLookupService,
-  type LookupInstallerPort,
-  type LookupRepositoriesPort,
-  listLookupRepositories,
+  summarizeLookupSnapshots,
 } from "./github-lookup-repositories.ts";
+import type { GitHubRepoCacheService } from "./github-repo-cache.ts";
 import { CLIENT_ID_RE, SLUG_RE } from "./installation-ports.ts";
 import { ErrorSchema } from "./openapi-schemas.ts";
 import { UserRepoAccessResolver } from "./user-repo-access-resolver.ts";
@@ -509,67 +508,41 @@ export function createGithubAccessPreview(
   };
 }
 
-/** Backs AdminPlatformServices.githubLookup (SCR-1.7). */
+/** Backs AdminPlatformServices.githubLookup: reads the repo cache, never GitHub. */
 export function createGithubLookupService(
-  deps: Pick<
-    GithubEnterpriseApiDeps,
-    "appService" | "fetchFn" | "apiBase" | "now"
-  > & {
-    /** Test seam: replaces the clients built from the stored Apps. */
-    clients?: {
-      installer?: LookupInstallerPort;
-      lookup: LookupRepositoriesPort;
-    };
+  deps: Pick<GithubEnterpriseApiDeps, "appService" | "now"> & {
+    cache: Pick<GitHubRepoCacheService, "listLookupSnapshots">;
+    /** Age past which a completed crawl reads as stale. */
+    ttlMs?: number;
   },
 ): GithubLookupService {
   return {
     async listRepositories(accountId) {
-      let clients = deps.clients;
-      if (!clients) {
-        const [installer, lookup] = await Promise.all([
-          deps.appService.get("installer", accountId),
-          deps.appService.get("lookup", accountId),
-        ]);
-        if (!lookup) return { configured: false, repos: [] };
-        const lookupKey = await deps.appService.getPrivateKey(
-          "lookup",
-          accountId,
-        );
-        if (!lookupKey) return { configured: false, repos: [] };
-        const common = {
-          apiBase: deps.apiBase,
-          fetchFn: deps.fetchFn,
-          now: deps.now,
-        };
-        // An installer with an enterprise slug supplies the org list; without
-        // one the lookup App lists the orgs it is installed on.
-        const installerKey = installer?.enterpriseSlug
-          ? await deps.appService.getPrivateKey("installer", accountId)
-          : null;
-        if (installer?.enterpriseSlug && !installerKey) {
-          return { configured: false, repos: [] };
-        }
-        clients = {
-          installer:
-            installer?.enterpriseSlug && installerKey
-              ? new GithubEnterpriseClient({
-                  appId: installer.appId,
-                  enterprise: installer.enterpriseSlug,
-                  privateKey: installerKey,
-                  ...common,
-                })
-              : undefined,
-          lookup: new GithubLookupClient({
-            appId: lookup.appId,
-            privateKey: lookupKey,
-            ...common,
-          }),
-        };
+      const [installer, lookup] = await Promise.all([
+        deps.appService.get("installer", accountId),
+        deps.appService.get("lookup", accountId),
+      ]);
+      if (!lookup) return { configured: false, repos: [] };
+      const [lookupKey, installerKey] = await Promise.all([
+        deps.appService.getPrivateKey("lookup", accountId),
+        installer?.enterpriseSlug
+          ? deps.appService.getPrivateKey("installer", accountId)
+          : null,
+      ]);
+      if (!lookupKey || (installer?.enterpriseSlug && !installerKey)) {
+        return { configured: false, repos: [] };
       }
-      return {
-        configured: true,
-        repos: await listLookupRepositories(clients.installer, clients.lookup),
-      };
+      // The crawler files a deployment-wide App's snapshots under accountId "".
+      const accountIds = accountId ? [accountId, ""] : [""];
+      const snapshots = await deps.cache.listLookupSnapshots(
+        accountIds,
+        lookup.appId,
+      );
+      return summarizeLookupSnapshots(
+        snapshots,
+        (deps.now ?? (() => new Date()))(),
+        deps.ttlMs,
+      );
     },
   };
 }

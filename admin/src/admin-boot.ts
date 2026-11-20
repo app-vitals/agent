@@ -115,6 +115,7 @@ import {
   createGithubSync,
 } from "./github-installation-wiring.ts";
 
+import { GitHubRepoCacheService } from "./github-repo-cache.ts";
 import { PrincipalLookupService } from "./principal-lookup.ts";
 import { createPrincipalsApp } from "./principals-api.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
@@ -422,6 +423,7 @@ export async function startAdmin(
       provisioner,
       githubLookup: createGithubLookupService({
         appService: githubEnterpriseAppService,
+        cache: new GitHubRepoCacheService(prisma),
       }),
     },
   };
