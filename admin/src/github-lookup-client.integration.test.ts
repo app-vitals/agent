@@ -12,7 +12,11 @@ import { describe, expect, it } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { GithubEnterpriseErrorKind } from "./github-enterprise-client.ts";
-import { GithubLookupClient, type RepoRole } from "./github-lookup-client.ts";
+import {
+  GithubLookupClient,
+  GithubLookupRateLimitError,
+  type RepoRole,
+} from "./github-lookup-client.ts";
 
 interface CassetteEntry {
   status: number;
@@ -226,6 +230,91 @@ describe("listInstallationRepositories", () => {
       expectNoSecrets(e);
     });
   }
+});
+
+describe("listInstallationRepositoriesPage", () => {
+  const RESET = new Date("2026-11-09T12:15:00Z");
+
+  it("returns one page's rows, total_count and Link-driven hasNext", async () => {
+    const { client, calls } = makeClient({
+      [`${REPOS}?page=1`]: "repos_page_1",
+      [`${REPOS}?page=2`]: "repos_page_2",
+    });
+    const p1 = await client.listInstallationRepositoriesPage("acme-eng", 1);
+    expect(p1.repositories.map((r) => r.fullName)).toEqual([
+      "acme-eng/api",
+      "acme-eng/web",
+    ]);
+    expect(p1.totalCount).toBe(3);
+    expect(p1.hasNext).toBe(true);
+    const p2 = await client.listInstallationRepositoriesPage("acme-eng", 2);
+    expect(p2.repositories.map((r) => r.id)).toEqual([3]);
+    expect(p2.hasNext).toBe(false);
+    const pages = calls.filter((c) =>
+      c.path.startsWith("/installation/repositories"),
+    );
+    expect(pages.map((c) => c.path)).toEqual([
+      "/installation/repositories?per_page=100&page=1",
+      "/installation/repositories?per_page=100&page=2",
+    ]);
+  });
+
+  it("reports the rate-limit headers of a successful page", async () => {
+    const { client } = makeClient({
+      [REPOS]: "repos_page_1_rate_limit_exhausted",
+    });
+    const page = await client.listInstallationRepositoriesPage("acme-eng", 1);
+    expect(page.repositories).toHaveLength(2);
+    expect(page.rateLimit).toEqual({
+      remaining: 0,
+      resetAt: RESET,
+      retryAfterSeconds: null,
+    });
+  });
+
+  it("raises a rate-limit error carrying Retry-After as resetAt on 429", async () => {
+    const { client } = makeClient({ [REPOS]: "repos_429" });
+    const e = await errOf(
+      client.listInstallationRepositoriesPage("acme-eng", 1),
+    );
+    expect(e).toBeInstanceOf(GithubLookupRateLimitError);
+    expect(e.kind).toBe("rate_limit");
+    expect((e as GithubLookupRateLimitError).resetAt).toEqual(
+      new Date(NOW.getTime() + 30_000),
+    );
+    expectNoSecrets(e);
+  });
+
+  it("raises a rate-limit error carrying X-RateLimit-Reset on a primary-limit 403", async () => {
+    const { client } = makeClient({ [REPOS]: "repos_403_rate_limited" });
+    const e = await errOf(
+      client.listInstallationRepositoriesPage("acme-eng", 1),
+    );
+    expect(e).toBeInstanceOf(GithubLookupRateLimitError);
+    expect((e as GithubLookupRateLimitError).resetAt).toEqual(RESET);
+  });
+
+  it("raises a rate-limit error on a secondary-limit 403 with Retry-After", async () => {
+    const { client } = makeClient({
+      [REPOS]: "repos_403_secondary_retry_after",
+    });
+    const e = await errOf(
+      client.listInstallationRepositoriesPage("acme-eng", 1),
+    );
+    expect(e).toBeInstanceOf(GithubLookupRateLimitError);
+    expect((e as GithubLookupRateLimitError).resetAt).toEqual(
+      new Date(NOW.getTime() + 120_000),
+    );
+  });
+
+  it("keeps a plain permission 403 a permission error", async () => {
+    const { client } = makeClient({ [REPOS]: "repos_403" });
+    const e = await errOf(
+      client.listInstallationRepositoriesPage("acme-eng", 1),
+    );
+    expect(e.kind).toBe("permission");
+    expect(e).not.toBeInstanceOf(GithubLookupRateLimitError);
+  });
 });
 
 describe("getCollaboratorPermission", () => {

@@ -87,16 +87,58 @@ export interface LookupInstallation {
   login: string;
 }
 
+/** Rate-limit state GitHub reported on a response; null when a header was absent. */
+export interface LookupRateLimit {
+  /** X-RateLimit-Remaining. */
+  remaining: number | null;
+  /** X-RateLimit-Reset (epoch seconds) as a Date. */
+  resetAt: Date | null;
+  /** Retry-After, in seconds. */
+  retryAfterSeconds: number | null;
+}
+
+/** One page of GET /installation/repositories. */
+export interface LookupRepositoryPage {
+  repositories: LookupRepository[];
+  /** GitHub's total_count for the whole listing (not this page). */
+  totalCount: number;
+  /** A further page exists (Link rel="next", or a full page when no Link). */
+  hasNext: boolean;
+  rateLimit: LookupRateLimit;
+}
+
+/**
+ * A rate-limit response (429, or a 403 GitHub marks as rate limited). Still a
+ * GithubEnterpriseError of kind "rate_limit"; adds when to try again.
+ */
+export class GithubLookupRateLimitError extends GithubEnterpriseError {
+  readonly resetAt: Date;
+
+  constructor(base: GithubEnterpriseError, resetAt: Date) {
+    super("rate_limit", base.message, {
+      status: base.status,
+      retryAfterSeconds: base.retryAfterSeconds,
+    });
+    this.name = "GithubLookupRateLimitError";
+    this.resetAt = resetAt;
+  }
+}
+
 export interface GithubLookupClientOptions {
   appId: string;
   privateKey: string;
   apiBase?: string;
   fetchFn?: typeof fetch;
   now?: () => Date;
+  /** Abort any single GitHub request after this long. Default 30s. */
+  requestTimeoutMs?: number;
 }
 
 const PER_PAGE = 100;
 const MAX_PAGES = 100;
+export const DEFAULT_LOOKUP_REQUEST_TIMEOUT_MS = 30_000;
+/** When a rate-limit response carries no reset hint, wait this long. */
+const DEFAULT_RATE_LIMIT_WAIT_MS = 60_000;
 /** Refresh a cached installation token this long before it expires. */
 const TOKEN_REFRESH_SKEW_MS = 60_000;
 
@@ -106,6 +148,7 @@ export class GithubLookupClient {
   private readonly apiBase: string;
   private readonly fetchFn: typeof fetch;
   private readonly now: () => Date;
+  private readonly requestTimeoutMs: number;
   private readonly cached = new Map<string, LookupToken>();
 
   constructor(opts: GithubLookupClientOptions) {
@@ -114,6 +157,8 @@ export class GithubLookupClient {
     this.apiBase = opts.apiBase ?? "https://api.github.com";
     this.fetchFn = opts.fetchFn ?? fetch;
     this.now = opts.now ?? (() => new Date());
+    this.requestTimeoutMs =
+      opts.requestTimeoutMs ?? DEFAULT_LOOKUP_REQUEST_TIMEOUT_MS;
   }
 
   /** Mint (or reuse a still-fresh) installation token for the lookup App on `org`. */
@@ -242,6 +287,56 @@ export class GithubLookupClient {
   }
 
   /**
+   * Fetch a single page of the repositories the lookup App can see on `org`,
+   * with GitHub's total_count and the response's rate-limit headers. A rate
+   * limit throws GithubLookupRateLimitError (kind "rate_limit") with resetAt.
+   * Makes no assumption about the order GitHub returns rows in.
+   */
+  async listInstallationRepositoriesPage(
+    org: string,
+    page: number,
+  ): Promise<LookupRepositoryPage> {
+    if (!Number.isInteger(page) || page < 1) {
+      throw new GithubEnterpriseError(
+        "validation",
+        "GitHub installation repositories: page must be an integer >= 1",
+      );
+    }
+    const { token } = await this.getOrgToken(org);
+    const res = await this.request<{
+      total_count?: unknown;
+      repositories?: RawRepository[];
+    }>(
+      "GET",
+      `/installation/repositories?per_page=${PER_PAGE}&page=${page}`,
+      token,
+      "GitHub installation repositories",
+    );
+    const rows = res.data?.repositories;
+    if (!Array.isArray(rows)) {
+      throw new GithubEnterpriseError(
+        "unexpected",
+        "GitHub installation repositories: response is not a repository list",
+      );
+    }
+    const total = res.data?.total_count;
+    if (typeof total !== "number" || !Number.isInteger(total) || total < 0) {
+      throw new GithubEnterpriseError(
+        "unexpected",
+        "GitHub installation repositories: response missing total_count",
+      );
+    }
+    const link = res.headers.get("link");
+    return {
+      repositories: rows.map(toRepository),
+      totalCount: total,
+      hasNext:
+        link !== null ? /rel="next"/.test(link) : rows.length >= PER_PAGE,
+      rateLimit: readRateLimit(res.headers),
+    };
+  }
+
+  /**
    * A user's role on `owner/repo`. Prefers `role_name` (carries maintain and
    * triage), falling back to the legacy `permission` field.
    */
@@ -325,15 +420,21 @@ export class GithubLookupClient {
       resp = await this.fetchFn(`${this.apiBase}${path}`, {
         method,
         redirect: "manual",
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
         headers: {
           Accept: "application/vnd.github+json",
           Authorization: `Bearer ${bearer}`,
           "X-GitHub-Api-Version": "2022-11-28",
         },
       });
-    } catch {
+    } catch (err) {
       // The underlying error is dropped on purpose: it must never echo headers.
-      throw new GithubEnterpriseError("network", `${context}: network error`);
+      throw new GithubEnterpriseError(
+        "network",
+        isTimeout(err)
+          ? `${context}: request timed out`
+          : `${context}: network error`,
+      );
     }
     let data: unknown;
     try {
@@ -342,13 +443,62 @@ export class GithubLookupClient {
       data = undefined;
     }
     if (!resp.ok) {
-      throw mapGithubEnterpriseError(resp.status, resp.headers, data, context, [
-        bearer,
-        this.privateKey,
-      ]);
+      const mapped = mapGithubEnterpriseError(
+        resp.status,
+        resp.headers,
+        data,
+        context,
+        [bearer, this.privateKey],
+      );
+      if (mapped.kind === "rate_limit") {
+        throw new GithubLookupRateLimitError(
+          mapped,
+          rateLimitResetAt(readRateLimit(resp.headers), this.now()),
+        );
+      }
+      throw mapped;
     }
     return { status: resp.status, headers: resp.headers, data: data as T };
   }
+}
+
+function isTimeout(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.name === "TimeoutError" || err.name === "AbortError")
+  );
+}
+
+function headerNumber(headers: Headers, name: string): number | null {
+  const raw = headers.get(name);
+  if (raw === null || raw.trim() === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function readRateLimit(headers: Headers): LookupRateLimit {
+  const reset = headerNumber(headers, "x-ratelimit-reset");
+  return {
+    remaining: headerNumber(headers, "x-ratelimit-remaining"),
+    resetAt: reset === null ? null : new Date(reset * 1000),
+    retryAfterSeconds: headerNumber(headers, "retry-after"),
+  };
+}
+
+/**
+ * When to try again after a rate limit: the later of Retry-After and
+ * X-RateLimit-Reset, or a default wait when GitHub gave neither.
+ */
+export function rateLimitResetAt(rl: LookupRateLimit, now: Date): Date {
+  const candidates: number[] = [];
+  if (rl.retryAfterSeconds !== null && rl.retryAfterSeconds > 0) {
+    candidates.push(now.getTime() + rl.retryAfterSeconds * 1000);
+  }
+  if (rl.resetAt !== null) candidates.push(rl.resetAt.getTime());
+  const at = candidates.length
+    ? Math.max(...candidates)
+    : now.getTime() + DEFAULT_RATE_LIMIT_WAIT_MS;
+  return new Date(Math.max(at, now.getTime()));
 }
 
 interface RawInstallation {
