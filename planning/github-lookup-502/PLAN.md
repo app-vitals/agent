@@ -36,7 +36,7 @@ Home repo: `app-vitals/agent`. Targets: `app-vitals/agent`, `app-vitals/shipwrig
 | GLC-2.3 | agent | feat: gate manual sync and preview on complete, fresh cache | 1.3, 2.2 | sonnet | |
 | GLC-2.4 | agent | feat: fire-and-forget Refresh action | 1.4 | sonnet | |
 | GLC-2.5 | agent | feat: show cache debug detail in existing repo views | 1.4 | sonnet | |
-| GLC-3.1 | shipwright | chore: wait for @app-vitals/agent >= 1.76.0 in shipwright | 2.1, 2.2 | haiku | |
+| GLC-3.1 | shipwright | chore: wait for the @app-vitals/agent release carrying GLC-2.1 and GLC-2.2 in shipwright | 2.1, 2.2 | haiku | |
 | GLC-3.2 | shipwright | feat: show syncing, stale and failed states on the System crons page | 3.1 | sonnet | |
 | GLC-3.3 | shipwright | fix: scheduler tick tolerates an unsynced or stale lookup | 3.1 | sonnet | |
 
@@ -54,7 +54,7 @@ Home repo: `app-vitals/agent`. Targets: `app-vitals/agent`, `app-vitals/shipwrig
                     ├─ GLC-2.4 Refresh action            │
                     └─ GLC-2.5 debug detail              │
         GLC-1.3 + GLC-1.5 ─ GLC-2.2 agent page ─ GLC-2.3 sync gate
-        GLC-2.1 + GLC-2.2 ─ GLC-3.1 release gate (shipwright)
+        GLC-2.1 + GLC-2.2 ─ GLC-3.1 release gate (shipwright; derives the version from those two tasks)
               ├─ GLC-3.2 System crons states
               └─ GLC-3.3 scheduler tolerance
 ```
@@ -75,3 +75,4 @@ Everything on the platform side is additive: new tables, new optional return fie
 - Refresh is fire-and-forget; debug detail goes into existing views, no new table browser or status page: decided with Dan.
 - Interim "skip inline lookup" flag not planned: not requested.
 - Owner left empty: the initiative carried no owner.
+- Release gate GLC-3.1 names its producer tasks (GLC-2.1, GLC-2.2) and derives the version from their merge commits at completion time, instead of a hard-coded minimum version: decided with Dan, 2026-11-20.
