@@ -6,7 +6,7 @@
  * failure isolation.
  */
 
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, spyOn } from "bun:test";
 import type {
   AccessProbe,
   AccessRow,
@@ -403,6 +403,20 @@ describe("planOrgWork", () => {
     ]);
   });
 
+  it("labels capped work stale_cap even when nothing is missing", () => {
+    expect(
+      plan(snap({ completedAt: ago(CAP + 1) }), {
+        missing: 0,
+        expired: 3,
+        staleRepos: ["old"],
+      }),
+    ).toEqual([
+      { kind: "crawl", reason: "stale_cap" },
+      { kind: "access", reason: "stale_cap", repos: ["old"] },
+      { kind: "access", reason: "expired" },
+    ]);
+  });
+
   it("skips a crawl still backing off, which then does not hold expired access", () => {
     expect(
       plan(
@@ -481,6 +495,33 @@ describe("GithubRepoRefresher.tick", () => {
     clock.advance(CAP);
     await r.tick();
     expect(events[0]).toBe("crawl:acme");
+  });
+
+  it("an org past the cap with nothing missing is not starved by another org's backfill", async () => {
+    // "busy" never finishes its crawl and eats the whole budget each tick.
+    const busy = target("busy", {
+      crawlOpts: { outcome: "in_progress", costMs: BUDGET },
+    });
+    const capped = target("capped");
+    await seedCrawl(capped.key, ["capped/a"], T0);
+    clock.advance(CAP + 1);
+    const r = refresher([busy, capped]);
+
+    // Tick 1: busy has never ticked, so it goes first and spends the budget.
+    const first = await r.tick();
+    expect(events).toEqual(["crawl:busy"]);
+    expect(first.targets.find((s) => s.key.org === "capped")?.state).toBe(
+      "deferred",
+    );
+
+    // Tick 2: the capped org ranks with missing work and has waited longest.
+    events = [];
+    clock.advance(MIN);
+    const second = await r.tick();
+    expect(events[0]).toBe("crawl:capped");
+    expect(
+      second.targets.find((s) => s.key.org === "capped")?.steps,
+    ).toEqual(["crawl:stale_cap"]);
   });
 
   it("skips an org whose lease another worker holds", async () => {
@@ -563,6 +604,20 @@ describe("GithubRepoRefresher.tick", () => {
     expect(byOrg.good?.state).toBe("worked");
     const badSnap = await store.getSnapshot(bad.key);
     expect(store.byId(badSnap?.id ?? "")?.leaseHolder).toBeNull();
+  });
+
+  it("logs a target error with its key and message", async () => {
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const bad = target("bad", { crawlOpts: { throws: new Error("boom") } });
+      await refresher([bad]).tick();
+      expect(errors).toHaveBeenCalledWith(
+        "[github-repo-refresher] target acc|lookup|555|bad failed:",
+        "boom",
+      );
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it("stops starting work once the time budget is spent", async () => {

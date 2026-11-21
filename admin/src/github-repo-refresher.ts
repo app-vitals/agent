@@ -26,8 +26,9 @@
  * Priority within a target (planOrgWork): forced refreshes past the
  * staleness cap, then missing work (never-crawled or incomplete list, access
  * pairs with no answer), then expired work (TTL passed) only when nothing is
- * missing. The cap guarantees an expired refresh is never starved by a long
- * backfill.
+ * missing. Capped work is labeled stale_cap whether or not anything is
+ * missing, and ranks with missing work across targets, so an expired refresh
+ * is never starved by a long backfill in this org or another.
  */
 
 import { randomUUID } from "node:crypto";
@@ -191,20 +192,24 @@ export function planOrgWork(args: {
   const accessMissing = (access?.missing ?? 0) > 0;
   const anyMissing = crawlMissing || accessMissing;
 
+  // Capped work is always labeled stale_cap, with or without missing work, so
+  // rank() puts it ahead of other orgs' expired-only work across targets.
   const steps: RefreshStep[] = [];
+  if (crawlCapped) steps.push({ kind: "crawl", reason: "stale_cap" });
+  if (access && access.staleRepos.length > 0) {
+    steps.push({
+      kind: "access",
+      reason: "stale_cap",
+      repos: access.staleRepos,
+    });
+  }
   if (anyMissing) {
-    if (crawlCapped) steps.push({ kind: "crawl", reason: "stale_cap" });
-    if (access && access.staleRepos.length > 0) {
-      steps.push({
-        kind: "access",
-        reason: "stale_cap",
-        repos: access.staleRepos,
-      });
-    }
     if (crawlMissing) steps.push({ kind: "crawl", reason: "missing" });
     if (accessMissing) steps.push({ kind: "access", reason: "missing" });
   } else {
-    if (crawlExpired) steps.push({ kind: "crawl", reason: "expired" });
+    if (crawlExpired && !crawlCapped) {
+      steps.push({ kind: "crawl", reason: "expired" });
+    }
     if ((access?.expired ?? 0) > 0) {
       steps.push({ kind: "access", reason: "expired" });
     }
@@ -597,6 +602,12 @@ export class GithubRepoRefresher {
       key: target.key,
       at: this.clock.now(),
     };
+    if (full.state === "error") {
+      console.error(
+        `[github-repo-refresher] target ${snapshotKeyString(target.key)} failed:`,
+        full.error,
+      );
+    }
     result.targets.push(full);
     this.state.targets[snapshotKeyString(target.key)] = full;
   }
