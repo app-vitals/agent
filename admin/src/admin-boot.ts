@@ -121,7 +121,6 @@ import {
   GithubRepoRefresher,
   resolveRefreshConfig,
 } from "./github-repo-refresher.ts";
-
 import { PrincipalLookupService } from "./principal-lookup.ts";
 import { createPrincipalsApp } from "./principals-api.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
@@ -200,6 +199,9 @@ export async function startAdmin(
     prisma,
     makeStrictTokenCrypto(),
   );
+  // One repo-snapshot cache shared by githubLookup (reads) and the background
+  // GithubRepoRefresher (writes) so both see the same store.
+  const githubRepoCache = new GitHubRepoCacheService(prisma);
 
   // Construct TokenCrypto — reads SHIPWRIGHT_ENCRYPTION_KEY at call time
   const crypto = makeTokenCrypto();
@@ -429,6 +431,7 @@ export async function startAdmin(
       provisioner,
       githubLookup: createGithubLookupService({
         appService: githubEnterpriseAppService,
+        cache: githubRepoCache,
       }),
     },
   };
@@ -858,7 +861,6 @@ export async function startAdmin(
   // nothing and every tick is idle.
   {
     const githubRefreshConfig = resolveRefreshConfig(process.env);
-    const githubRepoCache = new GitHubRepoCacheService(prisma);
     const githubRepoRefresher = new GithubRepoRefresher({
       discovery: createStoredAppRefreshDiscovery({
         prisma,

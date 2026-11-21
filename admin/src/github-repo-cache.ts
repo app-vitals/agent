@@ -128,6 +128,24 @@ export class GitHubRepoCacheService {
     });
   }
 
+  /** Lookup-App snapshots (with their repos) for the account scopes and App id. Reads only the cache. */
+  async listLookupSnapshots(accountIds: string[], appRef: string) {
+    requireNonEmpty("appRef", appRef);
+    const rows = await this.prisma.gitHubRepoSnapshot.findMany({
+      where: { accountId: { in: accountIds }, appKind: "lookup", appRef },
+      include: {
+        repos: { select: { fullName: true, archived: true } },
+      },
+      orderBy: { org: "asc" },
+    });
+    return rows.map((r) => ({
+      completedAt: r.completedAt,
+      totalCount: r.totalCount,
+      lastError: r.lastError,
+      repos: r.repos,
+    }));
+  }
+
   /** Upsert repos for a snapshot in batches, stamping each with `seenAt`. */
   async upsertRepos(
     snapshotId: string,
