@@ -216,9 +216,11 @@ export function renderGithubSyncCard(
   const loader = state.hasAppId
     ? `<div id="github-installation-body">Loading...</div>`
     : "";
+  const refresh = `<div style="margin:0 0 12px"><button type="button" class="btn btn-secondary" id="github-refresh-btn" data-url="/admin/agents/${id}/github-cache/refresh">Refresh</button> <span style="color:#6b7280;font-size:12px">Re-reads the cached repo lists in the background. Reload the page to see progress.</span></div>`;
   return `<div id="github-installation-card" data-base-url="${base}" style="margin-top:20px">
       <div class="form-label" style="font-weight:600;margin-bottom:6px">GitHub sync</div>
       <p style="color:#6b7280;font-size:12px;margin:0 0 12px">Brings this agent's App installation and its repos in line with what the bound GitHub user can push to.</p>
+      ${refresh}
       ${action}
       ${loader}
       <script>
@@ -234,6 +236,15 @@ export function renderGithubSyncCard(
               .then(function(r) { return r.text(); })
               .then(function(t) { body.innerHTML = t; })
               .catch(function() { body.textContent = 'The request failed.'; });
+          }
+          var refreshBtn = document.getElementById('github-refresh-btn');
+          if (refreshBtn) {
+            refreshBtn.addEventListener('click', function() {
+              refreshBtn.disabled = true;
+              fetch(refreshBtn.getAttribute('data-url'), { method: 'POST', credentials: 'same-origin' })
+                .then(function(r) { window.location.href = r.url; })
+                .catch(function() { refreshBtn.disabled = false; });
+            });
           }
           if (!out) return;
           card.addEventListener('click', function(e) {
