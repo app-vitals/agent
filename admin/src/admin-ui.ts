@@ -2138,6 +2138,35 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     );
   });
 
+  // GLC-2.4: fire-and-forget Refresh. Proxies the 202 API route and redirects
+  // at once; a reload of the page shows progress.
+  app.post("/admin/agents/:id/github-cache/refresh", requireAuth, async (c) => {
+    const agentId = c.req.param("id");
+    if (!c.var.isAdmin || !githubEnterpriseApi) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const res = await callApi(
+      c,
+      githubEnterpriseApi,
+      "/github-enterprise/refresh",
+      {
+        method: "POST",
+      },
+    );
+    if (!res?.ok) {
+      return c.redirect(
+        agentSectionPath(agentId, "access", {
+          error: await gheError(res, "Could not request a refresh."),
+        }),
+        302,
+      );
+    }
+    return c.redirect(
+      `${agentSectionPath(agentId, "access")}?success=github_refresh_requested`,
+      302,
+    );
+  });
+
   app.post(
     "/admin/agents/:id/github-orgs/:org/install",
     requireAuth,
@@ -2466,11 +2495,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             ? "GitHub username saved."
             : successParam === "github_username_cleared"
               ? "GitHub username cleared."
-              : successParam === "github_app_installed"
-                ? "Agent app installed."
-                : successParam === "github_app_already_installed"
-                  ? "The agent app was already installed on that organization."
-                  : undefined;
+              : successParam === "github_refresh_requested"
+                ? "Refresh requested. Reload the page to see progress."
+                : successParam === "github_app_installed"
+                  ? "Agent app installed."
+                  : successParam === "github_app_already_installed"
+                    ? "The agent app was already installed on that organization."
+                    : undefined;
     const warningParam = c.req.query("warning");
     const warning =
       warningParam === "restrict_slack_no_members"

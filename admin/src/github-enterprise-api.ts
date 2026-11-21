@@ -55,6 +55,7 @@ import {
   type GithubLookupService,
   summarizeLookupSnapshots,
 } from "./github-lookup-repositories.ts";
+import type { GithubRefreshAction } from "./github-refresh-action.ts";
 import type { GitHubRepoCacheService } from "./github-repo-cache.ts";
 import { CLIENT_ID_RE, SLUG_RE } from "./installation-ports.ts";
 import { ErrorSchema } from "./openapi-schemas.ts";
@@ -72,6 +73,11 @@ export interface GithubEnterpriseApiDeps {
   sessionSecret: string;
   adminApiKeys?: Map<string, AdminApiKey>;
   agentTokenService: Pick<AgentTokenService, "validate">;
+  /**
+   * GLC-2.4: marks the GitHub cache stale. Backs POST /github-enterprise/refresh
+   * and runs (best effort) after an App is saved or an agent App is installed.
+   */
+  refreshAction?: GithubRefreshAction;
   /** Test seams; default to the real GitHub API. */
   fetchFn?: typeof fetch;
   apiBase?: string;
@@ -348,6 +354,31 @@ const orgsRoute = createRoute({
       content: { "application/json": { schema: OrgsResultSchema } },
     },
     ...upstreamErrors,
+    ...errorResponses,
+  },
+});
+
+const refreshRoute = createRoute({
+  method: "post",
+  path: "/github-enterprise/refresh",
+  tags,
+  summary: "Request a refresh of the GitHub cache",
+  description:
+    "Admin-only. Marks the cached GitHub repo lists stale and clears retry waits so the background refresher works them next, then returns at once. It makes no GitHub call and does not wait for the refresher; reload the page to see progress. The refresher still honours its per-org lease and rate-limit window.",
+  responses: {
+    202: {
+      description: "Refresh requested",
+      content: {
+        "application/json": {
+          schema: z.object({
+            status: z.literal("accepted"),
+            snapshots: z.number().int(),
+            accessPairs: z.number().int(),
+          }),
+        },
+      },
+    },
+    503: { description: "Refresh is not available", ...jsonError },
     ...errorResponses,
   },
 });
@@ -721,7 +752,26 @@ export function createGithubEnterpriseApp(
       enterpriseSlug: body.enterpriseSlug ?? null,
       privateKey: body.privateKey,
     });
+    await markStaleQuietly();
     return c.json(serializeApp(saved), 200);
+  });
+
+  /** Best effort: a failed mark never fails the App change that caused it. */
+  const markStaleQuietly = async () => {
+    try {
+      await deps.refreshAction?.requestRefresh();
+    } catch (err) {
+      console.error("[github-enterprise] cache refresh mark failed:", err);
+    }
+  };
+
+  app.openapi(refreshRoute, async (c) => {
+    requireAdmin(c);
+    if (!deps.refreshAction) {
+      return c.json({ error: "GitHub cache refresh is not available" }, 503);
+    }
+    const res = await deps.refreshAction.requestRefresh();
+    return c.json({ status: "accepted" as const, ...res }, 202);
   });
 
   app.openapi(deleteRoute, async (c) => {
@@ -919,6 +969,7 @@ export function createGithubEnterpriseApp(
       repositorySelection: body.repositorySelection,
       ...(body.repositories ? { repositories: body.repositories } : {}),
     });
+    await markStaleQuietly();
     return c.json(
       {
         org,

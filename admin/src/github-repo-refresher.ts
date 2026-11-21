@@ -313,6 +313,11 @@ export class GithubRepoRefresher {
       deps.discoveryIntervalMs ?? DEFAULT_REFRESH_DISCOVERY_INTERVAL_MS;
   }
 
+  /** Make the next tick re-discover targets (new or changed GitHub Apps). */
+  invalidateDiscovery(): void {
+    this.discoveredAt = null;
+  }
+
   /** Debug snapshot of the last ticks (a copy). */
   status(): RefreshStatus {
     return {

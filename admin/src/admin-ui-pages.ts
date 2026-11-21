@@ -1037,6 +1037,7 @@ export function agentSectionPath(
 export const AGENT_POST_SECTIONS: Readonly<Record<string, AgentSection>> = {
   "/github-username": "access",
   "/github-sync/apply-confirmed": "access",
+  "/github-cache/refresh": "access",
   "/github-orgs/:org/install": "access",
   "/repos/remove-confirmed": "configuration",
   "/envs": "configuration",

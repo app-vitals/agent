@@ -116,18 +116,19 @@ import {
   createGithubSync,
   createStoredAppRefreshDiscovery,
 } from "./github-installation-wiring.ts";
+import { createGithubRefreshAction } from "./github-refresh-action.ts";
 import { GitHubRepoCacheService } from "./github-repo-cache.ts";
 import {
   GithubRepoRefresher,
   resolveRefreshConfig,
 } from "./github-repo-refresher.ts";
-import { PrincipalLookupService } from "./principal-lookup.ts";
-import { createPrincipalsApp } from "./principals-api.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";
 import { mountPlatformDoc } from "./platform-doc-route.ts";
 import { parsePodServiceAccountConfig } from "./pod-service-account-config.ts";
+import { PrincipalLookupService } from "./principal-lookup.ts";
+import { createPrincipalsApp } from "./principals-api.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
 import { isPushEnabled } from "./push-sender.ts";
 import { PushService } from "./push-service.ts";
@@ -649,7 +650,17 @@ export async function startAdmin(
   // 3b'. GitHub Enterprise Apps API — /github-enterprise/* — admin-only,
   //      optional (GHE-1.3). With no rows configured it reports unconfigured
   //      and does nothing else. Strict crypto: no plain-text key storage.
+  // GLC-2.4: the Refresh action marks the cache stale (DB only). It asks the
+  // refresher (created further down) to re-discover through this hook.
+  const githubRefreshConfig = resolveRefreshConfig(process.env);
+  let invalidateGithubDiscovery: () => void = () => {};
+  const githubRefreshAction = createGithubRefreshAction({
+    cache: githubRepoCache,
+    stalenessCapMs: githubRefreshConfig.stalenessCapMs,
+    onMarked: () => invalidateGithubDiscovery(),
+  });
   const githubEnterpriseApp = createGithubEnterpriseApp({
+    refreshAction: githubRefreshAction,
     appService: githubEnterpriseAppService,
     agentService,
     agentEnvService,
@@ -860,7 +871,6 @@ export async function startAdmin(
   // replica work an org at a time. Without stored GitHub Apps discovery finds
   // nothing and every tick is idle.
   {
-    const githubRefreshConfig = resolveRefreshConfig(process.env);
     const githubRepoRefresher = new GithubRepoRefresher({
       discovery: createStoredAppRefreshDiscovery({
         prisma,
@@ -872,6 +882,7 @@ export async function startAdmin(
       store: githubRepoCache,
       config: githubRefreshConfig,
     });
+    invalidateGithubDiscovery = () => githubRepoRefresher.invalidateDiscovery();
     setInterval(() => {
       githubRepoRefresher
         .tick()

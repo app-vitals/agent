@@ -223,6 +223,38 @@ export class GitHubRepoCacheService {
   }
 
   /**
+   * Refresh request (GLC-2.4): make every snapshot's work the next thing the
+   * refresher runs, without touching GitHub. A completed list is aged to
+   * `staleBefore` (callers pass a time past the staleness cap, so the planner
+   * ranks it ahead of expired-only work); any snapshot's crawl backoff
+   * (nextAttemptAt) is cleared, and so is the backoff on access pairs that
+   * are still pending (status error). Leases and rateLimitResetAt are left
+   * alone, so the lease and the rate-limit window still gate the work.
+   * Terminal and ok access rows are not touched.
+   */
+  async markStale(staleBefore: Date): Promise<{
+    snapshots: number;
+    accessPairs: number;
+  }> {
+    const aged = await this.prisma.gitHubRepoSnapshot.updateMany({
+      where: { completedAt: { gt: staleBefore } },
+      data: { completedAt: staleBefore },
+    });
+    const backoff = await this.prisma.gitHubRepoSnapshot.updateMany({
+      where: { nextAttemptAt: { not: null } },
+      data: { nextAttemptAt: null },
+    });
+    const access = await this.prisma.gitHubRepoAccess.updateMany({
+      where: { status: "error", nextAttemptAt: { not: null } },
+      data: { nextAttemptAt: null },
+    });
+    return {
+      snapshots: Math.max(aged.count, backoff.count),
+      accessPairs: access.count,
+    };
+  }
+
+  /**
    * Take the org's lease for `ttlMs`. True when this holder now owns it; false
    * when another holder's lease is still live or the snapshot does not exist.
    */
