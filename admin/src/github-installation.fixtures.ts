@@ -34,7 +34,11 @@ export const accessFor = (pushable: string[]): GithubAccessPreviewFn => {
 };
 
 export function fakePrisma(repos: string[]) {
-  const state = { repos: [...repos], audits: 0 };
+  const state = {
+    repos: [...repos],
+    audits: 0,
+    snapshotQueries: [] as unknown[],
+  };
   const prisma = {
     agent: {
       findUnique: async () => ({
@@ -46,6 +50,13 @@ export function fakePrisma(repos: string[]) {
         state.repos = args.data.repos;
       },
     },
+    gitHubRepoSnapshot: {
+      findMany: async (args: unknown) => {
+        state.snapshotQueries.push(args);
+        return [];
+      },
+    },
+    gitHubRepoAccess: { findMany: async () => [] },
     gitHubReconcileAudit: {
       create: async () => {
         state.audits += 1;

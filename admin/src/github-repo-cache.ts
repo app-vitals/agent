@@ -146,6 +146,25 @@ export class GitHubRepoCacheService {
     }));
   }
 
+  /** Agent-App installation snapshots (with their repos) for one account scope and App id. Reads only the cache. */
+  async listAgentSnapshots(accountId: string, appRef: string) {
+    requireNonEmpty("accountId", accountId);
+    requireNonEmpty("appRef", appRef);
+    const rows = await this.prisma.gitHubRepoSnapshot.findMany({
+      where: { accountId, appKind: "agent", appRef },
+      include: { repos: { select: { fullName: true } } },
+      orderBy: { org: "asc" },
+    });
+    return rows.map((r) => ({
+      org: r.org,
+      completedAt: r.completedAt,
+      totalCount: r.totalCount,
+      lastError: r.lastError,
+      rateLimitResetAt: r.rateLimitResetAt,
+      repos: r.repos,
+    }));
+  }
+
   /** Upsert repos for a snapshot in batches, stamping each with `seenAt`. */
   async upsertRepos(
     snapshotId: string,
