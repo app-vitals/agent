@@ -32,6 +32,10 @@ export interface InstallationSyncView {
   totalCount?: number;
   lastError?: string;
   rateLimitResetAt?: string;
+  attempts?: number;
+  nextAttemptAt?: string;
+  leaseHolder?: string;
+  lastTickAt?: string;
 }
 
 export interface InstallationReposView extends InstallationSyncView {
@@ -53,7 +57,14 @@ const hasSyncDetail = (v: InstallationSyncView): boolean =>
   v.syncedAt !== undefined ||
   v.reposSeen !== undefined ||
   v.lastError !== undefined ||
-  v.rateLimitResetAt !== undefined;
+  v.rateLimitResetAt !== undefined ||
+  v.attempts !== undefined ||
+  v.nextAttemptAt !== undefined ||
+  v.leaseHolder !== undefined ||
+  v.lastTickAt !== undefined;
+
+const utc = (iso: string): string =>
+  `${escapeHtml(iso.slice(0, 16).replace("T", " "))} UTC`;
 
 /**
  * One-line sync status: synced-at, "N of M repos", last error and the rate-limit
@@ -83,6 +94,14 @@ export function renderInstallationSyncStatus(v: InstallationSyncView): string {
       `GitHub rate limit resets ${escapeHtml(v.rateLimitResetAt.slice(0, 16).replace("T", " "))} UTC`,
     );
   }
+  if (v.attempts) {
+    parts.push(
+      `${v.attempts} failed ${v.attempts === 1 ? "attempt" : "attempts"}`,
+    );
+  }
+  if (v.nextAttemptAt) parts.push(`Next attempt ${utc(v.nextAttemptAt)}`);
+  if (v.leaseHolder) parts.push(`Refreshing (${escapeHtml(v.leaseHolder)})`);
+  if (v.lastTickAt) parts.push(`Last tick ${utc(v.lastTickAt)}`);
   const cls = v.lastError || v.rateLimitResetAt ? "alert alert-warning" : "";
   return `<div class="${cls}" data-installation-sync="${complete ? "complete" : "incomplete"}" style="color:#6b7280;font-size:12px;margin:8px 0">${parts.join(" &middot; ")}</div>`;
 }

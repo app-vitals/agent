@@ -2537,6 +2537,10 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             totalCount: view.totalCount,
             lastError: view.lastError,
             rateLimitResetAt: view.rateLimitResetAt,
+            attempts: view.attempts,
+            nextAttemptAt: view.nextAttemptAt,
+            leaseHolder: view.leaseHolder,
+            lastTickAt: view.lastTickAt,
           };
         } catch {
           // unknown: no coverage warning

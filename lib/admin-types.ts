@@ -5963,6 +5963,14 @@ export interface components {
             lastError?: string;
             /** @description When the GitHub rate limit resets (ISO 8601). */
             rateLimitResetAt?: string;
+            /** @description Failed refresh attempts; absent when zero. */
+            attempts?: number;
+            /** @description Next refresh attempt while backing off (ISO 8601). */
+            nextAttemptAt?: string;
+            /** @description Holder of a live refresh lease, if any. */
+            leaseHolder?: string;
+            /** @description Last refresh tick on the snapshot (ISO 8601). */
+            lastTickAt?: string;
             orgs: {
                 org: string;
                 /** @description Whether the cached crawl is complete. While false the list may be partial. */
@@ -5976,6 +5984,14 @@ export interface components {
                 lastError?: string;
                 /** @description When the GitHub rate limit resets (ISO 8601). */
                 rateLimitResetAt?: string;
+                /** @description Failed refresh attempts; absent when zero. */
+                attempts?: number;
+                /** @description Next refresh attempt while backing off (ISO 8601). */
+                nextAttemptAt?: string;
+                /** @description Holder of a live refresh lease, if any. */
+                leaseHolder?: string;
+                /** @description Last refresh tick on the snapshot (ISO 8601). */
+                lastTickAt?: string;
                 repos: {
                     fullName: string;
                     /** @description Whether the agent's bound GitHub user can push, from cached access rows. Omitted when no username is bound or the org's access data is incomplete (a missing or errored pair is never reported as false). */

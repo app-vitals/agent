@@ -303,3 +303,37 @@ describe("InstallationReposService.list (cache read)", () => {
     expect(r.status).toBe("no_app_id");
   });
 });
+
+describe("InstallationReposService.list debug detail", () => {
+  it("surfaces attempts, next attempt, live lease and last tick; drops an expired lease", async () => {
+    const future = new Date(Date.now() + 60_000);
+    const past = new Date(Date.now() - 60_000);
+    const live = build({
+      snapshots: [
+        snap({
+          attempts: 2,
+          nextAttemptAt: T0,
+          lastTickAt: T0,
+          leaseHolder: "w1",
+          leasedUntil: future,
+          lastError: "x",
+        }),
+      ],
+    });
+    const r = await live.svc.list("a1");
+    if (r.status !== "ok") throw new Error("expected ok");
+    expect(r.attempts).toBe(2);
+    expect(r.nextAttemptAt).toBe(T0.toISOString());
+    expect(r.lastTickAt).toBe(T0.toISOString());
+    expect(r.leaseHolder).toBe("w1");
+    expect(r.orgs[0]?.lastError).toBe("x");
+
+    const stale = build({
+      snapshots: [snap({ leaseHolder: "w1", leasedUntil: past })],
+    });
+    const r2 = await stale.svc.list("a1");
+    if (r2.status !== "ok") throw new Error("expected ok");
+    expect(r2.leaseHolder).toBeUndefined();
+    expect(r2.attempts).toBeUndefined();
+  });
+});

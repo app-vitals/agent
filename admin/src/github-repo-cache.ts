@@ -161,6 +161,11 @@ export class GitHubRepoCacheService {
       totalCount: r.totalCount,
       lastError: r.lastError,
       rateLimitResetAt: r.rateLimitResetAt,
+      attempts: r.attempts,
+      nextAttemptAt: r.nextAttemptAt,
+      leaseHolder: r.leaseHolder,
+      leasedUntil: r.leasedUntil,
+      lastTickAt: r.lastTickAt,
       repos: r.repos,
     }));
   }
