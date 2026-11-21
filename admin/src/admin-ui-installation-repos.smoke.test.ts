@@ -430,6 +430,77 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
       );
     });
 
+    describe("cached snapshot states (GLC-2.2)", () => {
+      const seeded = (over: Record<string, unknown>) => ({
+        appId: 123,
+        orgs: [
+          {
+            org: "acme",
+            repos: [{ fullName: "acme/api" }, { fullName: "acme/web" }],
+          },
+        ],
+        ...over,
+      });
+      const page = async (view: unknown) => {
+        const { app, calls } = setup({
+          repos: ["acme/api", "other/gone"],
+          agentsApi: () => json(view),
+        });
+        const html = await (await get(app, "/configuration")).text();
+        return { html, calls };
+      };
+
+      it("complete: shows synced-at and N of M, and the coverage warning", async () => {
+        const { html, calls } = await page(
+          seeded({
+            complete: true,
+            syncedAt: "2026-11-20T10:00:00.000Z",
+            reposSeen: 2,
+            totalCount: 2,
+          }),
+        );
+        expect(html).toContain('data-installation-sync="complete"');
+        expect(html).toContain("2 of 2 repos");
+        expect(html).toContain("2026-11-20");
+        expect(html).toContain('id="repos-uncovered-warning"');
+        // The page reads the cached view only: no GitHub-backed route.
+        expect(
+          calls.every((c) => c.path.endsWith("/github-installation/repos")),
+        ).toBe(true);
+      });
+
+      it("partial: shows N of M and suppresses the coverage warning", async () => {
+        const { html } = await page(
+          seeded({ complete: false, reposSeen: 1, totalCount: 3 }),
+        );
+        expect(html).toContain('data-installation-sync="incomplete"');
+        expect(html).toContain("1 of 3 repos");
+        expect(html).not.toContain("repos-uncovered-warning");
+        expect(html).not.toContain('data-uncovered="1"');
+      });
+
+      it("errored: shows the last error and rate-limit reset, no warning", async () => {
+        const { html } = await page(
+          seeded({
+            complete: false,
+            reposSeen: 0,
+            lastError: "GitHub said <no>",
+            rateLimitResetAt: "2026-11-20T11:00:00.000Z",
+          }),
+        );
+        expect(html).toContain("GitHub said &lt;no&gt;");
+        expect(html).toContain("rate limit resets");
+        expect(html).toContain("2026-11-20");
+        expect(html).not.toContain("repos-uncovered-warning");
+      });
+
+      it("a view with no sync fields (older API) still warns", async () => {
+        const { html } = await page(seeded({}));
+        expect(html).toContain('id="repos-uncovered-warning"');
+        expect(html).not.toContain("data-installation-sync");
+      });
+    });
+
     it("confirm step lists the affected open work", async () => {
       const { app, calls } = setup({ repos: ["acme/web"], agentsApi: api });
       const res = await get(app, "/repos/removal-confirm?repo=acme/web");

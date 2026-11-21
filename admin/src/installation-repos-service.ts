@@ -1,17 +1,20 @@
 /**
  * admin/src/installation-repos-service.ts
  * Read-only listing of the repos on an agent's own GitHub App installation
- * (IRM-1.2), with the bound user's push hint. Changes go through the Sync flow
- * (github-sync.ts, IRM-3.1). Uses the installer App through the installation port.
+ * (IRM-1.2), with the bound user's push hint. list() reads only the repo/access
+ * cache (GLC-2.2): no GitHub call, sync detail alongside. Changes go through
+ * the Sync flow (github-sync.ts, IRM-3.1), which still uses the installer App
+ * through the installation port.
  */
 
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
+import { DEPLOYMENT_WIDE_ACCOUNT_KEY } from "./github-agent-installation-crawler.ts";
 import {
-  AppNotInstalledError,
-  MISSING_APP_ID_REASON,
   type AppIdentity,
-  type InstallationAgentsPort,
   type AppInstallationPort,
+  AppNotInstalledError,
+  type InstallationAgentsPort,
+  MISSING_APP_ID_REASON,
 } from "./installation-ports.ts";
 import type {
   OrgAccessResult,
@@ -43,21 +46,74 @@ export interface InstallationRepoView {
   userCanPush?: boolean;
 }
 
-export interface InstallationOrgView {
+/** Sync detail for one org's cached snapshot (all optional, additive). */
+export interface InstallationSyncDetail {
+  /** True once the org's crawl completed. */
+  complete?: boolean;
+  /** ISO time of the completed crawl; absent until one completed. */
+  syncedAt?: string;
+  /** Repos in the cache for the org. */
+  reposSeen?: number;
+  /** GitHub's repo count for the org, when known ("N of M"). */
+  totalCount?: number;
+  lastError?: string;
+  /** ISO time the GitHub rate limit resets, while limited. */
+  rateLimitResetAt?: string;
+}
+
+export interface InstallationOrgView extends InstallationSyncDetail {
   org: string;
   repos: InstallationRepoView[];
+}
+
+/** One cached agent-App snapshot with its repos (GitHubRepoCacheService.listAgentSnapshots). */
+export interface InstallationSnapshotRow {
+  org: string;
+  completedAt: Date | null;
+  totalCount: number | null;
+  lastError: string | null;
+  rateLimitResetAt: Date | null;
+  repos: { fullName: string }[];
+}
+
+/** A cached per-user access row (repo is the name without the org). */
+export interface CachedAccessRow {
+  repo: string;
+  status: string;
+  canPush: boolean;
+}
+
+/** The slice of GitHubRepoCacheService the list reads; never calls GitHub. */
+export interface InstallationCachePort {
+  listAgentSnapshots(
+    accountId: string,
+    appRef: string,
+  ): Promise<InstallationSnapshotRow[]>;
+  getAccessRows(query: {
+    accountId: string;
+    org: string;
+    username: string;
+    repos: string[];
+  }): Promise<CachedAccessRow[]>;
 }
 
 export type InstallationListResult =
   | { status: "agent_not_found" }
   | { status: "no_app_id"; reason: string }
   | { status: "skipped"; appId: number; reason: string }
-  | { status: "ok"; appId: number; orgs: InstallationOrgView[] };
+  | ({
+      status: "ok";
+      appId: number;
+      orgs: InstallationOrgView[];
+    } & InstallationSyncDetail);
 
 export interface InstallationReposDeps {
   agents: Pick<InstallationAgentsPort, "get">;
+  /** Used by GitHub Sync, not by list(), which reads only the cache. */
   access: GithubAccessPreviewFn;
   installation: InstallationReposPort;
+  /** The repo/access cache list() reads. Without it list() reports nothing synced. */
+  cache?: InstallationCachePort;
 }
 
 /** The agent's App identity keys (client id, slug), when stored. */
@@ -75,31 +131,52 @@ export function identityOf(agent: {
 
 const orgKey = (org: string): string => org.toLowerCase();
 
+/** Cached access rows for one org and user, as read from the access cache. */
+export interface CachedAccessRows {
+  cachedRows: readonly CachedAccessRow[];
+}
+
 /**
  * The user-can-push hint for one org: true/false per repo only when the bound
- * user is verified and this org's lookup result is complete ("ok", nothing
- * unresolved). A repo the lookup did not list is unknown, so it gets no hint
- * (never false).
+ * user is verified and this org's access data is complete (a live "ok" lookup
+ * with nothing unresolved, or cached rows with an "ok" row for every listed
+ * repo). Anything else is unknown, so it gets no hint (never false).
  */
 export function userPushHints(
-  access: UserRepoAccessResult | undefined,
+  access: UserRepoAccessResult | CachedAccessRows | undefined,
   org: string,
   repos: readonly string[],
 ): InstallationRepoView[] {
-  const orgResult: OrgAccessResult | undefined = access?.orgs.find(
-    (o) => orgKey(o.org) === orgKey(org),
-  );
-  const complete =
-    access !== undefined &&
-    access.outcome === "ok" &&
-    access.userVerified &&
-    orgResult !== undefined &&
-    orgResult.status === "ok" &&
-    orgResult.unresolved === 0;
   const pushByName = new Map<string, boolean>();
-  if (complete) {
-    for (const r of orgResult.repos) {
-      pushByName.set(r.fullName.toLowerCase(), r.canPush);
+  if (access && "cachedRows" in access) {
+    const byRepo = new Map<string, CachedAccessRow>();
+    for (const r of access.cachedRows) byRepo.set(r.repo.toLowerCase(), r);
+    const nameOf = (fullName: string) =>
+      fullName.slice(fullName.indexOf("/") + 1).toLowerCase();
+    const complete = repos.every((f) => byRepo.get(nameOf(f))?.status === "ok");
+    if (complete) {
+      for (const f of repos) {
+        pushByName.set(
+          f.toLowerCase(),
+          byRepo.get(nameOf(f))?.canPush ?? false,
+        );
+      }
+    }
+  } else {
+    const orgResult: OrgAccessResult | undefined = access?.orgs.find(
+      (o) => orgKey(o.org) === orgKey(org),
+    );
+    const complete =
+      access !== undefined &&
+      access.outcome === "ok" &&
+      access.userVerified &&
+      orgResult !== undefined &&
+      orgResult.status === "ok" &&
+      orgResult.unresolved === 0;
+    if (complete) {
+      for (const r of orgResult.repos) {
+        pushByName.set(r.fullName.toLowerCase(), r.canPush);
+      }
     }
   }
   return repos.map((fullName) => {
@@ -108,44 +185,91 @@ export function userPushHints(
   });
 }
 
+const iso = (d: Date | null): string | undefined =>
+  d ? d.toISOString() : undefined;
+
+/** Folds per-org sync detail into the page-level detail. */
+function summarize(
+  orgs: readonly InstallationOrgView[],
+): InstallationSyncDetail {
+  const complete = orgs.length > 0 && orgs.every((o) => o.complete === true);
+  const synced = orgs
+    .map((o) => o.syncedAt)
+    .filter((d): d is string => d !== undefined)
+    .sort();
+  const totals = orgs.map((o) => o.totalCount);
+  const totalCount = totals.every((t) => t !== undefined)
+    ? totals.reduce<number>((a, t) => a + (t ?? 0), 0)
+    : undefined;
+  const lastError = orgs.find((o) => o.lastError)?.lastError;
+  const reset = orgs
+    .map((o) => o.rateLimitResetAt)
+    .filter((d): d is string => d !== undefined)
+    .sort()
+    .at(-1);
+  return {
+    complete,
+    reposSeen: orgs.reduce((a, o) => a + (o.reposSeen ?? 0), 0),
+    ...(complete && synced[0] ? { syncedAt: synced[0] } : {}),
+    ...(orgs.length > 0 && totalCount !== undefined ? { totalCount } : {}),
+    ...(lastError ? { lastError } : {}),
+    ...(reset ? { rateLimitResetAt: reset } : {}),
+  };
+}
+
 export class InstallationReposService {
   constructor(private readonly deps: InstallationReposDeps) {}
 
+  /**
+   * Reads the agent-installation cache (crawled in the background) and the
+   * cached access rows; it never calls GitHub. A hint appears only when the
+   * org's snapshot is complete and every repo has an ok access row.
+   */
   async list(agentId: string): Promise<InstallationListResult> {
     const agent = await this.deps.agents.get(agentId);
     if (!agent) return { status: "agent_not_found" };
     if (agent.appId === undefined) {
       return { status: "no_app_id", reason: MISSING_APP_ID_REASON };
     }
-    const installed = await this.deps.installation.listInstalled(
-      agent.appId,
-      identityOf(agent),
-    );
-    if (installed.status === "none") {
-      return {
-        status: "skipped",
-        appId: agent.appId,
-        reason: NO_INSTALLATION_REASON,
-      };
-    }
+    const cache = this.deps.cache;
+    const accountId = agent.accountId || DEPLOYMENT_WIDE_ACCOUNT_KEY;
+    const snapshots = cache
+      ? await cache.listAgentSnapshots(accountId, String(agent.appId))
+      : [];
     const username = agent.githubUsername?.trim();
-    let access: UserRepoAccessResult | undefined;
-    if (username) {
-      try {
-        const preview = await this.deps.access(username, agent.accountId);
-        if (preview.status === "ok") access = preview.access;
-      } catch {
-        // The hint is advisory: a failed lookup omits it.
+    const orgs: InstallationOrgView[] = [];
+    for (const s of snapshots) {
+      const names = s.repos.map((r) => r.fullName);
+      let repos: InstallationRepoView[] = names.map((fullName) => ({
+        fullName,
+      }));
+      if (cache && username && s.completedAt && names.length > 0) {
+        try {
+          const rows = await cache.getAccessRows({
+            accountId,
+            org: s.org,
+            username,
+            repos: names.map((f) => f.slice(f.indexOf("/") + 1)),
+          });
+          repos = userPushHints({ cachedRows: rows }, s.org, names);
+        } catch {
+          // The hint is advisory: a failed cache read omits it.
+        }
       }
+      orgs.push({
+        org: s.org,
+        repos,
+        complete: s.completedAt !== null,
+        reposSeen: names.length,
+        ...(s.completedAt ? { syncedAt: iso(s.completedAt) } : {}),
+        ...(s.totalCount !== null ? { totalCount: s.totalCount } : {}),
+        ...(s.lastError ? { lastError: s.lastError } : {}),
+        ...(s.rateLimitResetAt
+          ? { rateLimitResetAt: iso(s.rateLimitResetAt) }
+          : {}),
+      });
     }
-    return {
-      status: "ok",
-      appId: agent.appId,
-      orgs: installed.orgs.map(({ org, repos }) => ({
-        org,
-        repos: userPushHints(access, org, repos),
-      })),
-    };
+    return { status: "ok", appId: agent.appId, orgs, ...summarize(orgs) };
   }
 }
 

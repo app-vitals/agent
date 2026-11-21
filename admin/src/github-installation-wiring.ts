@@ -14,9 +14,11 @@ import type { Clock } from "./clock.ts";
 import type { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import { GithubEnterpriseClient } from "./github-enterprise-client.ts";
 import { GithubLookupClient } from "./github-lookup-client.ts";
+import { GitHubRepoCacheService } from "./github-repo-cache.ts";
 import type { CrawlStore } from "./github-repo-crawler.ts";
 import { createRefreshDiscovery } from "./github-repo-refresh-discovery.ts";
 import type { RefreshDiscovery } from "./github-repo-refresher.ts";
+import { GithubSyncService } from "./github-sync.ts";
 import {
   createInstallationPort,
   type InstallationAgentRecord,
@@ -26,11 +28,10 @@ import {
 } from "./installation-ports.ts";
 import {
   createInstallationReposPort,
-  type InstalledOrgsClient,
-  InstallationReposService,
   type InstallationReposPort,
+  InstallationReposService,
+  type InstalledOrgsClient,
 } from "./installation-repos-service.ts";
-import { GithubSyncService } from "./github-sync.ts";
 import type { OpenWorkPort } from "./reconcile-open-work.ts";
 
 export interface GithubInstallationWiringDeps {
@@ -110,6 +111,7 @@ export function createGithubInstallationRepos(
     installation:
       deps.installationRepos ??
       createInstallationReposPort(createInstallationPort(client), client),
+    cache: new GitHubRepoCacheService(deps.prisma),
   });
 }
 

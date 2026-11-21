@@ -3264,7 +3264,7 @@ export interface paths {
         };
         /**
          * List the repos on the agent App's installation
-         * @description Platform-admin only (session members, ops keys and agent keys get 403). Per org the agent's own GitHub App (its GH_APP_ID) is installed on, lists the installation's repos. When the agent has a bound githubUsername, each repo carries `userCanPush` from the access lookup only when that org's lookup result is complete; otherwise the field is omitted (never false). 404 for an unknown agent; 422 when the agent has no GH_APP_ID.
+         * @description Platform-admin only (session members, ops keys and agent keys get 403). Per org the agent's own GitHub App (its GH_APP_ID) is installed on, lists the installation's repos from the background-synced cache; it makes no GitHub call. Sync detail (`complete`, `syncedAt`, `reposSeen`, `totalCount`, `lastError`, `rateLimitResetAt`) is reported per org and overall. When the agent has a bound githubUsername, each repo carries `userCanPush` from cached access rows only when that org's snapshot is complete and every repo has an answer; otherwise the field is omitted (never false). 404 for an unknown agent; 422 when the agent has no GH_APP_ID.
          */
         get: {
             parameters: {
@@ -5952,11 +5952,33 @@ export interface components {
         };
         GithubInstallationReposList: {
             appId: number;
+            /** @description Whether the cached crawl is complete. While false the list may be partial. */
+            complete?: boolean;
+            /** @description When the completed crawl finished (ISO 8601). */
+            syncedAt?: string;
+            /** @description Repos in the cache (the N of 'N of M'). */
+            reposSeen?: number;
+            /** @description GitHub's repo count, when known (the M). */
+            totalCount?: number;
+            lastError?: string;
+            /** @description When the GitHub rate limit resets (ISO 8601). */
+            rateLimitResetAt?: string;
             orgs: {
                 org: string;
+                /** @description Whether the cached crawl is complete. While false the list may be partial. */
+                complete?: boolean;
+                /** @description When the completed crawl finished (ISO 8601). */
+                syncedAt?: string;
+                /** @description Repos in the cache (the N of 'N of M'). */
+                reposSeen?: number;
+                /** @description GitHub's repo count, when known (the M). */
+                totalCount?: number;
+                lastError?: string;
+                /** @description When the GitHub rate limit resets (ISO 8601). */
+                rateLimitResetAt?: string;
                 repos: {
                     fullName: string;
-                    /** @description Whether the agent's bound GitHub user can push. Omitted when no username is bound or the org's access lookup is incomplete; never reported as false for unknown. */
+                    /** @description Whether the agent's bound GitHub user can push, from cached access rows. Omitted when no username is bound or the org's access data is incomplete (a missing or errored pair is never reported as false). */
                     userCanPush?: boolean;
                 }[];
             }[];

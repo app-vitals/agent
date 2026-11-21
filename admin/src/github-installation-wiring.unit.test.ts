@@ -30,9 +30,9 @@ const portWith = (
 });
 
 describe("createGithubInstallationRepos", () => {
-  it("lists from the agent's own stored GH_APP_ID", async () => {
+  it("lists from the cache under the agent's own stored GH_APP_ID, without GitHub", async () => {
     const seen: number[] = [];
-    const { prisma } = fakePrisma(["acme/old"]);
+    const { prisma, state } = fakePrisma(["acme/old"]);
     const svc = createGithubInstallationRepos({
       prisma,
       appService: noApp,
@@ -41,8 +41,12 @@ describe("createGithubInstallationRepos", () => {
       installationRepos: portWith(seen),
     });
     const res = await svc.list("a1");
-    expect(seen).toEqual([77]);
-    expect(res.status).toBe("ok");
+    // The port (live GitHub) is never used; the cache is read for App 77.
+    expect(seen).toEqual([]);
+    expect(state.snapshotQueries).toMatchObject([
+      { where: { appKind: "agent", appRef: "77" } },
+    ]);
+    expect(res).toMatchObject({ status: "ok", appId: 77, complete: false });
   });
 
   it("reports an agent with no GH_APP_ID, naming the missing var", async () => {

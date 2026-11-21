@@ -62,6 +62,7 @@ import {
   type GithubSyncApplyView,
   type GithubSyncPreviewView,
   type InstallationReposView,
+  type InstallationSyncView,
   type OpenWorkView,
   type RepoRemovalPreviewView,
   renderInstallationReposBody,
@@ -2223,7 +2224,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     // No installation matched the numeric GH_APP_ID. If the agent still has an
     // installation by slug (the Installations card), the id is probably wrong.
     let appIdMismatch = false;
-    if (view.orgs.length === 0) {
+    if (view.orgs.every((o) => o.repos.length === 0)) {
       const snap = await callApi(
         c,
         agentsApi,
@@ -2512,6 +2513,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     // list's coverage warning. Best effort: unknown means no warning.
     const enterpriseConfigured = await githubEnterpriseConfigured(c);
     let installationRepos: string[] | undefined;
+    let installationSync: InstallationSyncView | undefined;
     if (
       enterpriseConfigured &&
       agentsApi &&
@@ -2524,9 +2526,18 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       );
       if (res?.ok) {
         try {
-          installationRepos = (
-            (await res.json()) as InstallationReposView
-          ).orgs.flatMap((o) => o.repos.map((r) => r.fullName));
+          const view = (await res.json()) as InstallationReposView;
+          installationRepos = view.orgs.flatMap((o) =>
+            o.repos.map((r) => r.fullName),
+          );
+          installationSync = {
+            complete: view.complete,
+            syncedAt: view.syncedAt,
+            reposSeen: view.reposSeen,
+            totalCount: view.totalCount,
+            lastError: view.lastError,
+            rateLimitResetAt: view.rateLimitResetAt,
+          };
         } catch {
           // unknown: no coverage warning
         }
@@ -2562,6 +2573,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             agent.accountId ?? null,
           ),
           ...(installationRepos ? { installationRepos } : {}),
+          ...(installationSync ? { installationSync } : {}),
           ...(agentsApi
             ? { template: { detached: agent.templateDetached === true } }
             : {}),

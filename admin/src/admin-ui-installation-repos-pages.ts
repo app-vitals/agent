@@ -24,12 +24,67 @@ export interface OpenWorkView {
 }
 
 /** JSON body of GET /agents/:id/github-installation/repos. */
-export interface InstallationReposView {
+export interface InstallationSyncView {
+  /** False while the cached crawl is incomplete. Absent (older API): treated as complete. */
+  complete?: boolean;
+  syncedAt?: string;
+  reposSeen?: number;
+  totalCount?: number;
+  lastError?: string;
+  rateLimitResetAt?: string;
+}
+
+export interface InstallationReposView extends InstallationSyncView {
   appId?: number;
-  orgs: {
+  orgs: ({
     org: string;
     repos: { fullName: string; userCanPush?: boolean }[];
-  }[];
+  } & InstallationSyncView)[];
+}
+
+/** True unless the view says its snapshot is incomplete. */
+export const installationSnapshotComplete = (
+  view: InstallationSyncView,
+): boolean => view.complete !== false;
+
+/** True when the view carries any sync detail worth showing. */
+const hasSyncDetail = (v: InstallationSyncView): boolean =>
+  v.complete !== undefined ||
+  v.syncedAt !== undefined ||
+  v.reposSeen !== undefined ||
+  v.lastError !== undefined ||
+  v.rateLimitResetAt !== undefined;
+
+/**
+ * One-line sync status: synced-at, "N of M repos", last error and the rate-limit
+ * reset. Empty when the view has no sync detail (older API).
+ */
+export function renderInstallationSyncStatus(v: InstallationSyncView): string {
+  if (!hasSyncDetail(v)) return "";
+  const complete = installationSnapshotComplete(v);
+  const parts: string[] = [];
+  parts.push(
+    v.syncedAt
+      ? `Synced ${escapeHtml(v.syncedAt.slice(0, 16).replace("T", " "))} UTC`
+      : complete
+        ? "Synced"
+        : "Sync in progress",
+  );
+  if (v.reposSeen !== undefined) {
+    parts.push(
+      v.totalCount !== undefined
+        ? `${v.reposSeen} of ${v.totalCount} repos`
+        : `${v.reposSeen} repos`,
+    );
+  }
+  if (v.lastError) parts.push(`Last error: ${escapeHtml(v.lastError)}`);
+  if (v.rateLimitResetAt) {
+    parts.push(
+      `GitHub rate limit resets ${escapeHtml(v.rateLimitResetAt.slice(0, 16).replace("T", " "))} UTC`,
+    );
+  }
+  const cls = v.lastError || v.rateLimitResetAt ? "alert alert-warning" : "";
+  return `<div class="${cls}" data-installation-sync="${complete ? "complete" : "incomplete"}" style="color:#6b7280;font-size:12px;margin:8px 0">${parts.join(" &middot; ")}</div>`;
 }
 
 /** JSON body of GET /agents/:id/repos/:owner/:name/removal-preview. */
@@ -198,31 +253,40 @@ export function renderInstallationReposBody(
   view: InstallationReposView,
   opts: { appIdMismatch?: boolean } = {},
 ): string {
-  if (view.orgs.length === 0) {
+  const sync = renderInstallationSyncStatus(view);
+  if (view.orgs.length === 0 || view.orgs.every((o) => o.repos.length === 0)) {
     if (opts.appIdMismatch) {
-      return `<div class="alert alert-warning" data-reason="app-id-mismatch">${escapeHtml(APP_ID_MISMATCH_MESSAGE)}</div>`;
+      return `${sync}<div class="alert alert-warning" data-reason="app-id-mismatch">${escapeHtml(APP_ID_MISMATCH_MESSAGE)}</div>`;
     }
-    return `<p class="empty-state">The agent App is not installed on any organization the installer can reach.</p>`;
+    if (!installationSnapshotComplete(view)) {
+      return `${sync}<p class="empty-state">The installation repos have not finished syncing yet.</p>`;
+    }
+    if (view.orgs.length === 0) {
+      return `${sync}<p class="empty-state">The agent App is not installed on any organization the installer can reach.</p>`;
+    }
   }
-  return view.orgs
-    .map((o) => {
-      const rows =
-        o.repos.length === 0
-          ? `<tr><td colspan="2" class="empty-state">No repos.</td></tr>`
-          : o.repos
-              .map((r) => {
-                const hint =
-                  r.userCanPush === undefined
-                    ? ""
-                    : r.userCanPush
-                      ? '<span class="badge badge-green" title="The bound user can push">user can push</span>'
-                      : '<span class="badge badge-warning" title="The bound user cannot push">user cannot push</span>';
-                return `<tr><td class="mono">${escapeHtml(r.fullName)}</td><td>${hint}</td></tr>`;
-              })
-              .join("");
-      return `<div class="github-installation-org" data-org="${escapeHtml(o.org)}" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:6px">${escapeHtml(o.org)}</div><table class="detail-table"><thead><tr><th>Repo</th><th>Bound user</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-    })
-    .join("");
+  return (
+    sync +
+    view.orgs
+      .map((o) => {
+        const rows =
+          o.repos.length === 0
+            ? `<tr><td colspan="2" class="empty-state">No repos.</td></tr>`
+            : o.repos
+                .map((r) => {
+                  const hint =
+                    r.userCanPush === undefined
+                      ? ""
+                      : r.userCanPush
+                        ? '<span class="badge badge-green" title="The bound user can push">user can push</span>'
+                        : '<span class="badge badge-warning" title="The bound user cannot push">user cannot push</span>';
+                  return `<tr><td class="mono">${escapeHtml(r.fullName)}</td><td>${hint}</td></tr>`;
+                })
+                .join("");
+        return `<div class="github-installation-org" data-org="${escapeHtml(o.org)}" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:6px">${escapeHtml(o.org)}</div>${renderInstallationSyncStatus(o)}<table class="detail-table"><thead><tr><th>Repo</th><th>Bound user</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      })
+      .join("")
+  );
 }
 
 /** Why the card body could not be shown, distinct per cause. */

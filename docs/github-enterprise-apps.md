@@ -73,11 +73,12 @@ Both need a `GH_APP_ID` in the agent's own stored env (the numeric id of that ag
 
 Platform-admin only: session members, ops keys and agent keys get `403`.
 
-- `GET /agents/{id}/github-installation/repos` lists, per org the agent App is installed on, the installation's repos. With a bound `githubUsername`, each repo carries `userCanPush` from the access lookup, but only when that org's lookup result is complete; otherwise the field is omitted (never `false`).
+- `GET /agents/{id}/github-installation/repos` lists, per org, the repos on the agent App's installation from the background-synced repo/access cache. It makes no GitHub call. Each org reports its sync detail (`complete`, `syncedAt`, `reposSeen`, `totalCount`, `lastError`, `rateLimitResetAt`), and the page carries the same fields overall.
+- With a bound `githubUsername`, each repo carries `userCanPush` from the cached access rows, but only when that org's snapshot is complete and every repo has an `ok` access row; otherwise the field is omitted (never `false`).
 
-When no installation matches the agent App (by the order above), the list comes back with `orgs: []` and no reason field; the reason is surfaced by Sync preview/apply and the Sync card.
+When no org has been synced yet, the list comes back with `orgs: []` and `complete: false`; the Sync card and Sync preview/apply surface the reason.
 
-Errors: unknown agent `404`; no `GH_APP_ID` `422`; GitHub unavailable `502`.
+Errors: unknown agent `404`; no `GH_APP_ID` `422`.
 
 ### Sync
 
