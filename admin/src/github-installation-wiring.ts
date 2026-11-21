@@ -18,7 +18,8 @@ import { GitHubRepoCacheService } from "./github-repo-cache.ts";
 import type { CrawlStore } from "./github-repo-crawler.ts";
 import { createRefreshDiscovery } from "./github-repo-refresh-discovery.ts";
 import type { RefreshDiscovery } from "./github-repo-refresher.ts";
-import { GithubSyncService } from "./github-sync.ts";
+import { canPushForRole } from "./user-repo-access-resolver.ts";
+import { type GithubSyncDeps, GithubSyncService } from "./github-sync.ts";
 import {
   createInstallationPort,
   type InstallationAgentRecord,
@@ -95,6 +96,8 @@ export interface InstallationReposWiringDeps
   extends GithubInstallationWiringDeps {
   /** Test seam: replaces the installer-App-backed port. */
   installationRepos?: InstallationReposPort;
+  /** Test seam: replaces the lookup-App-backed sync cache source and re-check. */
+  syncOverrides?: Pick<GithubSyncDeps, "lookupRepos" | "verifyPush">;
 }
 
 /**
@@ -125,9 +128,66 @@ export function createGithubSync(
   deps: InstallationReposWiringDeps,
 ): GithubSyncService {
   const client = lazyInstallerClient(deps);
+  const cache = new GitHubRepoCacheService(deps.prisma);
+  const lookupClients = new Map<string, GithubLookupClient>();
+  // The lookup client per App (and key version), reused with its installation tokens.
+  const lookupClient = async (accountId?: string | null) => {
+    const meta = await deps.appService.get("lookup", accountId);
+    if (!meta) return null;
+    const privateKey = await deps.appService.getPrivateKey("lookup", accountId);
+    if (!privateKey) return null;
+    const cacheKey = `${meta.accountId ?? ""}|${meta.appId}|${meta.updatedAt.getTime()}`;
+    let c = lookupClients.get(cacheKey);
+    if (!c) {
+      c = new GithubLookupClient({
+        appId: meta.appId,
+        privateKey,
+        apiBase: deps.apiBase,
+        fetchFn: deps.fetchFn,
+        now: deps.now,
+      });
+      lookupClients.set(cacheKey, c);
+    }
+    return { client: c, appId: meta.appId };
+  };
   return new GithubSyncService({
     agents: new PrismaInstallationAgents(deps.prisma, deps.agentEnv),
     access: deps.access,
+    cache,
+    ...(deps.now ? { now: deps.now } : {}),
+    lookupRepos: async (accountId) => {
+      const lookup = await lookupClient(accountId);
+      if (!lookup) return [];
+      // The crawler files a deployment-wide App's snapshots under accountId "".
+      const snapshots = await cache.listLookupOrgSnapshots(
+        accountId ? [accountId, ""] : [""],
+        lookup.appId,
+      );
+      return snapshots.map((s) => ({
+        org: s.org,
+        completedAt: s.completedAt,
+        repos: s.repos.map((r) => r.fullName),
+      }));
+    },
+    // One permission call per removal candidate; undefined on any failure.
+    verifyPush: async (username, repo, accountId) => {
+      try {
+        const lookup = await lookupClient(accountId);
+        if (!lookup) return undefined;
+        const [owner, name] = repo.split("/");
+        if (!owner || !name) return undefined;
+        const { role } =
+          await lookup.client.getCollaboratorPermissionWithRateLimit(
+            owner,
+            name,
+            username,
+          );
+        return canPushForRole(role);
+      } catch {
+        return undefined;
+      }
+    },
+    ...deps.syncOverrides,
     installation:
       deps.installationRepos ??
       createInstallationReposPort(createInstallationPort(client), client),

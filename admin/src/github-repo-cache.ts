@@ -146,6 +146,21 @@ export class GitHubRepoCacheService {
     }));
   }
 
+  /** Lookup-App snapshots with their org and repos (GitHub Sync, GLC-2.3). Reads only the cache. */
+  async listLookupOrgSnapshots(accountIds: string[], appRef: string) {
+    requireNonEmpty("appRef", appRef);
+    const rows = await this.prisma.gitHubRepoSnapshot.findMany({
+      where: { accountId: { in: accountIds }, appKind: "lookup", appRef },
+      include: { repos: { select: { fullName: true } } },
+      orderBy: { org: "asc" },
+    });
+    return rows.map((r) => ({
+      org: r.org,
+      completedAt: r.completedAt,
+      repos: r.repos,
+    }));
+  }
+
   /** Agent-App installation snapshots (with their repos) for one account scope and App id. Reads only the cache. */
   async listAgentSnapshots(accountId: string, appRef: string) {
     requireNonEmpty("accountId", accountId);

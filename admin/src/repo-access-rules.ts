@@ -37,7 +37,9 @@ export function orgSkipReason(
   if (result.reason === SELECTED_REPOS_REASON) {
     return "lookup app is installed on selected repositories only";
   }
-  if (result.status === "partial") return "access listing is incomplete";
+  if (result.status === "partial") {
+    return result.reason ?? "access listing is incomplete";
+  }
   if (result.status !== "ok") return `access lookup failed: ${result.status}`;
   return undefined;
 }
@@ -55,4 +57,14 @@ export function accessSkipReason(
   if (access.outcome === "user_not_found") return "GitHub user not found";
   if (!access.userVerified) return "GitHub user could not be verified";
   return undefined;
+}
+
+/** Why cached access data cannot justify removals: a crawl or a repo answer is missing. */
+export const INCOMPLETE_ACCESS_REASON = "access data is incomplete";
+
+/** Why cached access data cannot justify removals: it is older than the freshness bound. */
+export function staleAccessReason(oldestChecked: Date | undefined): string {
+  return oldestChecked
+    ? `access data is stale (checked ${oldestChecked.toISOString()})`
+    : "access data is stale (check time unknown)";
 }

@@ -4,6 +4,7 @@ import {
   envWith,
   fakeOpenWork,
   fakePrisma,
+  freshCache,
 } from "./github-installation.fixtures.ts";
 import {
   createGithubInstallationRepos,
@@ -72,17 +73,35 @@ describe("createGithubInstallationRepos", () => {
 });
 
 describe("createGithubSync", () => {
-  const build = (openWork?: ReturnType<typeof fakeOpenWork>["port"]) => {
-    const { prisma, state } = fakePrisma(["acme/old", "acme/api"]);
+  const ALL = ["acme/old", "acme/api"];
+  const build = (
+    openWork?: ReturnType<typeof fakeOpenWork>["port"],
+    opts: { checkedAt?: Date; verify?: boolean | undefined } = {},
+  ) => {
+    const checkedAt = opts.checkedAt ?? new Date();
+    const { prisma, state } = fakePrisma(
+      ALL,
+      freshCache("acme", ALL, ["acme/api"], checkedAt),
+    );
+    const verified: string[] = [];
     const svc = createGithubSync({
       prisma,
       appService: noApp,
       access: accessFor(["acme/api"]),
       agentEnv: envWith({ GH_APP_ID: "42" }),
       installationRepos: portWith([]),
+      syncOverrides: {
+        lookupRepos: async () => [
+          { org: "acme", completedAt: checkedAt, repos: ALL },
+        ],
+        verifyPush: async (_u, repo) => {
+          verified.push(repo);
+          return "verify" in opts ? opts.verify : false;
+        },
+      },
       openWork,
     });
-    return { svc, state };
+    return { svc, state, verified };
   };
 
   it("with a port: preview lists affected open work and apply blocks it", async () => {
@@ -115,5 +134,38 @@ describe("createGithubSync", () => {
     });
     expect(res.status).toBe("applied");
     expect(state.repos).toEqual(["acme/api"]);
+  });
+
+  it("reads the cache: a stale org is skipped with the reason and nothing is removed", async () => {
+    const old = new Date(Date.now() - 24 * 3_600_000);
+    const { svc, state, verified } = build(undefined, { checkedAt: old });
+    const preview = await svc.preview("a1");
+    if (preview.status !== "previewed") throw new Error(preview.status);
+    expect(preview.plan.removedRepos).toEqual([]);
+    expect(preview.plan.skippedOrgs[0]?.reason).toContain("stale (checked");
+    const res = await svc.apply({
+      agentId: "a1",
+      caller: "root",
+      appAdds: [],
+      appRemoves: ["acme/old"],
+      agentRemoves: ["acme/old"],
+    });
+    expect(res.status).toBe("noop");
+    expect(verified).toEqual([]);
+    expect(state.repos).toEqual(ALL);
+  });
+
+  it("apply drops a candidate the live re-check still sees as pushable", async () => {
+    const { svc, state, verified } = build(undefined, { verify: true });
+    const res = await svc.apply({
+      agentId: "a1",
+      caller: "root",
+      appAdds: [],
+      appRemoves: [],
+      agentRemoves: ["acme/old"],
+    });
+    expect(res.status).toBe("noop");
+    expect(verified).toEqual(["acme/old"]);
+    expect(state.repos).toEqual(ALL);
   });
 });

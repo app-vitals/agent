@@ -670,12 +670,9 @@ const InstallationSyncDetailShape = {
     .int()
     .optional()
     .openapi({ description: "Failed refresh attempts; absent when zero." }),
-  nextAttemptAt: z
-    .string()
-    .optional()
-    .openapi({
-      description: "Next refresh attempt while backing off (ISO 8601).",
-    }),
+  nextAttemptAt: z.string().optional().openapi({
+    description: "Next refresh attempt while backing off (ISO 8601).",
+  }),
   leaseHolder: z
     .string()
     .optional()
@@ -700,6 +697,17 @@ const GithubInstallationReposListSchema = z
             userCanPush: z.boolean().optional().openapi({
               description:
                 "Whether the agent's bound GitHub user can push, from cached access rows. Omitted when no username is bound or the org's access data is incomplete (a missing or errored pair is never reported as false).",
+            }),
+            accessCheckedAt: z.string().optional().openapi({
+              description:
+                "When the bound user's access to this repo was last checked (ISO 8601), when a cached row exists.",
+            }),
+            accessAttempts: z.number().int().optional().openapi({
+              description:
+                "Failed access checks for this repo since the last success, when any.",
+            }),
+            accessError: z.string().optional().openapi({
+              description: "Last access-check error for this repo, when any.",
             }),
           }),
         ),
@@ -738,7 +746,7 @@ const GithubSyncPreviewSchema = z
     }),
     skippedOrgs: SkippedOrgsSchema.optional().openapi({
       description:
-        "Orgs whose access listing is missing, partial or failed, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed.",
+        "Orgs whose access listing is missing, partial or failed, whose cached access data is incomplete or stale, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed. `reason` says why (for stale data, when it was checked).",
     }),
     openWork: z.array(OpenWorkItemSchema).optional().openapi({
       description:

@@ -7363,6 +7363,36 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
         headers: { "Content-Type": "application/json" },
       });
     }) as typeof fetch;
+    // Sync reads the cache (GLC-2.3): unless a test seeds its own rows, serve a
+    // complete, fresh cache that mirrors `pushable` over the installed, agent
+    // and pushable repos.
+    const checkedAt = new Date();
+    const pushableRepos = opts.pushable ?? [
+      "acme-eng/repo-1",
+      "acme-eng/repo-3",
+    ];
+    const universe = [
+      ...new Set([...state.installed, ...state.repos, ...pushableRepos]),
+    ];
+    const defaultSnapshots = [
+      {
+        org: "acme-eng",
+        completedAt: checkedAt,
+        totalCount: state.installed.length,
+        lastError: null,
+        rateLimitResetAt: null,
+        repos: state.installed.map((fullName) => ({ fullName })),
+      },
+    ];
+    const defaultAccess = universe.map((f) => ({
+      repo: f.split("/")[1],
+      status: "ok",
+      canPush: pushableRepos.includes(f),
+      level: pushableRepos.includes(f) ? "write" : "none",
+      checkedAt,
+      attempts: 0,
+      lastError: null,
+    }));
     const prisma = {
       agent: {
         findUnique: async () =>
@@ -7380,10 +7410,10 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
         },
       },
       gitHubRepoSnapshot: {
-        findMany: async () => opts.snapshots ?? [],
+        findMany: async () => opts.snapshots ?? defaultSnapshots,
       },
       gitHubRepoAccess: {
-        findMany: async () => opts.accessRows ?? [],
+        findMany: async () => opts.accessRows ?? defaultAccess,
       },
       gitHubReconcileAudit: {
         create: async (args: { data: Record<string, unknown> }) => {
@@ -7435,6 +7465,13 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
     const githubSync = createGithubSync({
       ...wiring,
       ...(openWork ? { openWork } : {}),
+      syncOverrides: {
+        lookupRepos: async () => [
+          { org: "acme-eng", completedAt: checkedAt, repos: universe },
+        ],
+        // The live permission call agrees with `pushable`.
+        verifyPush: async (_user, repo) => pushableRepos.includes(repo),
+      },
     });
     const base = makeMockDeps();
     const app = createAdminApp({
