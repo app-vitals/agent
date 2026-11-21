@@ -98,6 +98,11 @@ export interface BackfillOptions {
   lowRemaining?: number;
   /** Most probes in this run. Default 500. */
   maxProbes?: number;
+  /**
+   * Checked before every probe after the first; true ends the run as
+   * in_progress. Lets a caller bound a run by time.
+   */
+  shouldStop?: () => boolean;
 }
 
 export type BackfillOutcome = "complete" | "in_progress" | "rate_limited";
@@ -240,7 +245,10 @@ export async function backfillAccess(
   );
 
   for (const item of queue) {
-    if (result.probed >= maxProbes) {
+    if (
+      result.probed >= maxProbes ||
+      (result.probed > 0 && opts.shouldStop?.())
+    ) {
       result.outcome = "in_progress";
       return result;
     }

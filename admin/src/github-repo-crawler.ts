@@ -114,6 +114,11 @@ export interface CrawlOptions {
   maxPages?: number;
   /** Delay before retrying after the n-th consecutive failure. */
   backoffMs?: (attempts: number) => number;
+  /**
+   * Checked before every page after the first; true ends the run as
+   * in_progress (the next run resumes). Lets a caller bound a run by time.
+   */
+  shouldStop?: () => boolean;
 }
 
 const DEFAULT_MAX_PAGES = 1000;
@@ -158,6 +163,7 @@ export async function crawlRepos(opts: CrawlOptions): Promise<CrawlResult> {
 
   let pagesFetched = 0;
   for (let page = startPage; pagesFetched < maxPages; page++) {
+    if (pagesFetched > 0 && opts.shouldStop?.()) break;
     let result: RepoPage;
     try {
       result = await source.fetchPage(page);

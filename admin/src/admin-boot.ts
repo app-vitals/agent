@@ -99,6 +99,7 @@ import {
 } from "./caller-scope.ts";
 import { parseChatCredentialConfig } from "./chat-credential-config.ts";
 import { HttpChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
+import { SystemClock } from "./clock.ts";
 import { CronRunNowService } from "./cron-run-now.ts";
 import { parseCronRunNowConfig } from "./cron-run-now-config.ts";
 import { CronRunTranscriptService } from "./cron-run-transcripts.ts";
@@ -113,9 +114,13 @@ import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import {
   createGithubInstallationRepos,
   createGithubSync,
+  createStoredAppRefreshDiscovery,
 } from "./github-installation-wiring.ts";
-
 import { GitHubRepoCacheService } from "./github-repo-cache.ts";
+import {
+  GithubRepoRefresher,
+  resolveRefreshConfig,
+} from "./github-repo-refresher.ts";
 import { PrincipalLookupService } from "./principal-lookup.ts";
 import { createPrincipalsApp } from "./principals-api.ts";
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
@@ -194,6 +199,9 @@ export async function startAdmin(
     prisma,
     makeStrictTokenCrypto(),
   );
+  // One repo-snapshot cache shared by githubLookup (reads) and the background
+  // GithubRepoRefresher (writes) so both see the same store.
+  const githubRepoCache = new GitHubRepoCacheService(prisma);
 
   // Construct TokenCrypto — reads SHIPWRIGHT_ENCRYPTION_KEY at call time
   const crypto = makeTokenCrypto();
@@ -423,7 +431,7 @@ export async function startAdmin(
       provisioner,
       githubLookup: createGithubLookupService({
         appService: githubEnterpriseAppService,
-        cache: new GitHubRepoCacheService(prisma),
+        cache: githubRepoCache,
       }),
     },
   };
@@ -841,6 +849,38 @@ export async function startAdmin(
     }, accountTrialExpiryIntervalMs);
     console.log(
       `[admin] account trial sweepers started (warning: ${DEFAULT_TRIAL_EXPIRY_WARNING_SWEEP_INTERVAL_MS}ms, expiry: ${accountTrialExpiryIntervalMs}ms)`,
+    );
+  }
+
+  // GitHub repo/access cache refresher (GLC-1.4) — keeps the repo cache and
+  // per-user access rows current in the background so no request path calls
+  // GitHub. Registered HERE, never inside an app factory, like the sweepers
+  // above. Each tick is bounded by its time budget, a tick still running makes
+  // the next a no-op, and the per-org snapshot lease lets only one admin
+  // replica work an org at a time. Without stored GitHub Apps discovery finds
+  // nothing and every tick is idle.
+  {
+    const githubRefreshConfig = resolveRefreshConfig(process.env);
+    const githubRepoRefresher = new GithubRepoRefresher({
+      discovery: createStoredAppRefreshDiscovery({
+        prisma,
+        appService: githubEnterpriseAppService,
+        agentEnv: agentEnvService,
+        store: githubRepoCache,
+        clock: SystemClock(),
+      }),
+      store: githubRepoCache,
+      config: githubRefreshConfig,
+    });
+    setInterval(() => {
+      githubRepoRefresher
+        .tick()
+        .catch((err) =>
+          console.error("[github-repo-refresher] tick error:", err),
+        );
+    }, githubRefreshConfig.intervalMs);
+    console.log(
+      `[admin] github repo refresher started (interval: ${githubRefreshConfig.intervalMs}ms, ttl: ${githubRefreshConfig.ttlMs}ms, staleness cap: ${githubRefreshConfig.stalenessCapMs}ms, budget: ${githubRefreshConfig.timeBudgetMs}ms)`,
     );
   }
 

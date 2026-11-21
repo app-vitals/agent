@@ -68,6 +68,20 @@ describeOrSkip("GitHubRepoCacheService (integration)", () => {
     expect(r.archived).toBe(true);
   });
 
+  it("lists a snapshot's repo full names, sorted, and no other snapshot's", async () => {
+    const snap = await svc.upsertSnapshot(key);
+    const other = await svc.upsertSnapshot({ ...key, org: "other" });
+    await svc.upsertRepos(snap.id, [
+      { githubId: 2, fullName: "acme/web" },
+      { githubId: 1, fullName: "acme/api" },
+    ]);
+    await svc.upsertRepos(other.id, [{ githubId: 3, fullName: "other/x" }]);
+    expect(await svc.listRepoFullNames(snap.id)).toEqual([
+      "acme/api",
+      "acme/web",
+    ]);
+  });
+
   it("sweep deletes only rows seen before crawlStartedAt", async () => {
     const snap = await svc.upsertSnapshot(key, { crawlStartedAt: min(10) });
     await svc.upsertRepos(

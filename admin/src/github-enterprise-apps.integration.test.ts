@@ -181,6 +181,17 @@ describeOrSkip("GitHubEnterpriseAppService (integration)", () => {
       expect((await service.get("lookup"))?.appId).toBe("900");
     });
 
+    it("listAccountIds returns each account with Apps of its own once, never the deployment scope", async () => {
+      await service.save(lookup);
+      expect(await service.listAccountIds()).toEqual([]);
+      await service.save({ ...lookup, accountId: acctA });
+      await service.save({ ...installer, accountId: acctA });
+      await service.save({ ...installer, accountId: acctB });
+      expect((await service.listAccountIds()).sort()).toEqual(
+        [acctA, acctB].sort(),
+      );
+    });
+
     it("get(role) without accountId never sees an account row", async () => {
       await service.save({ ...lookup, accountId: acctA });
       expect(await service.get("lookup")).toBeNull();
