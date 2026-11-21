@@ -17,16 +17,10 @@
  * scripts/generate-admin-spec.ts to produce the composed admin/openapi.json.
  */
 
+import { Hono } from "hono";
 import { NoopAgentProvisioner } from "./agent-provisioner.ts";
-import { createAgentTemplatesApp } from "./agent-templates-api.ts";
-import {
-  type AdminDeps,
-  createAdminApp,
-  parseAdminApiKeys,
-} from "./agents-api.ts";
-import { createAgentRuntimeApp } from "./api.ts";
-import { createGithubEnterpriseApp } from "./github-enterprise-api.ts";
-import { createPrincipalsApp } from "./principals-api.ts";
+import { type AdminDeps, parseAdminApiKeys } from "./agents-api.ts";
+import { mountPlatformApis } from "./platform-routes.ts";
 
 /** The admin OpenAPI document shape the spec builders and generators share. */
 export interface AdminOpenApiDocument {
@@ -43,86 +37,115 @@ export function buildPlatformAdminSpec(): AdminOpenApiDocument {
   const SESSION_SECRET = "dummy-secret-32chars-for-spec-gen";
   const adminApiKeys = parseAdminApiKeys("codegen:codegen-key:*");
 
-  const runtimeApp = createAgentRuntimeApp({
-    agentEnvService: {
-      async getConfigBundle() {
-        return null;
+  const { mounted } = mountPlatformApis(new Hono(), {
+    runtime: {
+      agentEnvService: {
+        async getConfigBundle() {
+          return null;
+        },
       },
-    },
-    agentCronJobService: {
-      async list() {
-        return [];
+      agentCronJobService: {
+        async list() {
+          return [];
+        },
       },
-    },
-    agentService: {
-      async getById() {
-        return null;
+      agentService: {
+        async getById() {
+          return null;
+        },
       },
-    },
-    agentPluginService: {
-      async listEnabled() {
-        return [];
+      agentPluginService: {
+        async listEnabled() {
+          return [];
+        },
       },
+      adminApiKeys,
+      agentTokenService: { validate: async () => null },
+      sessionSecret: SESSION_SECRET,
     },
-    adminApiKeys,
-    agentTokenService: { validate: async () => null },
-    sessionSecret: SESSION_SECRET,
-  });
-
-  const adminApp = createAdminApp({
-    agentEnvService: {
-      upsert: async () => {},
-      patch: async () => {},
-      getByAgentId: async () => null,
-      deleteKey: async () => {},
-    },
-    agentCronJobService: {
-      list: async () => [],
-      listWithRunSummary: async () => [],
-      create: async () => ({}) as never,
-      update: async () => ({}) as never,
-      delete: async () => {},
-      get: async () => ({}) as never,
-      setEnabled: async () => ({}) as never,
-      updatePreCheck: async () => ({}) as never,
-      reconcileSystemCrons: async () => ({
-        created: 0,
-        updated: 0,
-        deleted: 0,
-      }),
-    },
-    agentToolService: {
-      list: async () => [],
-      add: async () => ({}) as never,
-      remove: async () => {},
-      toggle: async () => ({}) as never,
-    },
-    agentTokenService: {
-      create: async () => ({}) as never,
-      listForAgent: async () => [],
-      revoke: async () => ({}) as never,
-      validate: async () => null,
-    },
-    agentPluginService: {
-      list: async () => [],
-      add: async () => ({}) as never,
-      remove: async () => {},
-      removeByName: async () => {},
-    },
-    prisma: {
-      agent: {
+    adminApi: {
+      agentEnvService: {
+        upsert: async () => {},
+        patch: async () => {},
+        getByAgentId: async () => null,
+        deleteKey: async () => {},
+      },
+      agentCronJobService: {
+        list: async () => [],
+        listWithRunSummary: async () => [],
         create: async () => ({}) as never,
-        findUnique: async () => null,
-        findMany: async () => [],
-        delete: async () => ({}) as never,
+        update: async () => ({}) as never,
+        delete: async () => {},
+        get: async () => ({}) as never,
+        setEnabled: async () => ({}) as never,
+        updatePreCheck: async () => ({}) as never,
+        reconcileSystemCrons: async () => ({
+          created: 0,
+          updated: 0,
+          deleted: 0,
+        }),
       },
-    } as never,
-    provisioner: new NoopAgentProvisioner(),
-    sessionSecret: SESSION_SECRET,
-    adminApiKeys,
-    // Partial on purpose: route registration never calls the services, so only
-    // the deps a factory reads at construction time are stubbed.
-  } as unknown as AdminDeps);
+      agentToolService: {
+        list: async () => [],
+        add: async () => ({}) as never,
+        remove: async () => {},
+        toggle: async () => ({}) as never,
+      },
+      agentTokenService: {
+        create: async () => ({}) as never,
+        listForAgent: async () => [],
+        revoke: async () => ({}) as never,
+        validate: async () => null,
+      },
+      agentPluginService: {
+        list: async () => [],
+        add: async () => ({}) as never,
+        remove: async () => {},
+        removeByName: async () => {},
+      },
+      prisma: {
+        agent: {
+          create: async () => ({}) as never,
+          findUnique: async () => null,
+          findMany: async () => [],
+          delete: async () => ({}) as never,
+        },
+      } as never,
+      provisioner: new NoopAgentProvisioner(),
+      sessionSecret: SESSION_SECRET,
+      adminApiKeys,
+      // Partial on purpose: route registration never calls the services, so
+      // only the deps a factory reads at construction time are stubbed.
+    } as unknown as AdminDeps,
+    accounts: {
+      accountService: {} as never,
+      accountLifecycle: {} as never,
+      sessionSecret: SESSION_SECRET,
+      adminApiKeys,
+      agentTokenService: { validate: async () => null },
+    },
+    principals: {
+      lookup: {} as never,
+      sessionSecret: SESSION_SECRET,
+      adminApiKeys,
+      agentTokenService: { validate: async () => null },
+    },
+    templates: {
+      templateService: {} as never,
+      callerScopeResolver: async () => ({ kind: "all" }),
+      sessionSecret: SESSION_SECRET,
+      adminApiKeys,
+      agentTokenService: { validate: async () => null },
+    },
+    githubEnterprise: {
+      appService: {} as never,
+      agentService: {} as never,
+      agentEnvService: {} as never,
+      sessionSecret: SESSION_SECRET,
+      adminApiKeys,
+      agentTokenService: { validate: async () => null },
+    },
+  });
 
   const docInfo = {
     openapi: "3.1.0" as const,
@@ -135,92 +158,39 @@ export function buildPlatformAdminSpec(): AdminOpenApiDocument {
     servers: [{ url: "http://localhost:3457", description: "Local dev" }],
   };
 
-  // Admin app spec (uses OpenAPI {id} path notation)
-  const adminSpec = adminApp.getOpenAPI31Document(docInfo);
+  // The admin app is the base document (it carries info/servers); every other
+  // spec'd app is folded in on top of it. Admin goes first so its paths lead.
+  const specApps = mounted.filter((m) => m.inSpec);
+  const adminEntry = specApps.find((m) => m.name === "admin");
+  if (!adminEntry) throw new Error("platform admin app is not mounted");
+  const adminSpec = adminEntry.app.getOpenAPI31Document(docInfo);
 
-  // Runtime app spec (uses Hono :id notation — paths are relative to sub-app root)
-  const runtimeSpec = runtimeApp.getOpenAPI31Document({
-    openapi: "3.1.0",
-    info: { title: "runtime (internal)", version: "0.1.0" },
-  });
-
-  // The runtime app's routes are defined as `/:id/config` and `/:id/crons`.
-  // When the spec is generated standalone, these appear as `/:id/config` etc.
-  // We rewrite Hono colon params to OpenAPI curly brace params, then prefix
-  // with `/agents` to match the root-mounted path.
-
-  // Build runtime paths with OpenAPI notation and /agents prefix.
-  // Merge at the method level so paths shared between admin and runtime
-  // (e.g. /agents/{id}/crons has both POST from admin and GET from runtime)
-  // keep all their HTTP methods.
-  const adminPaths = (adminSpec.paths ?? {}) as Record<
-    string,
-    Record<string, unknown>
-  >;
   const mergedPaths: Record<string, Record<string, unknown>> = {
-    ...adminPaths,
+    ...((adminSpec.paths ?? {}) as Record<string, Record<string, unknown>>),
+  };
+  const schemas: Record<string, unknown> = {
+    ...(adminSpec.components?.schemas ?? {}),
   };
 
-  for (const [path, def] of Object.entries(runtimeSpec.paths ?? {})) {
-    const openApiPath = `/agents${path.replace(/:(\w+)/g, "{$1}")}`;
-    if (mergedPaths[openApiPath]) {
-      // Merge methods — runtime GET on /agents/{id}/crons must coexist with
-      // admin POST on the same path.
+  for (const entry of specApps) {
+    if (entry === adminEntry) continue;
+    const spec = entry.app.getOpenAPI31Document({
+      openapi: "3.1.0",
+      info: { title: `${entry.name} (internal)`, version: "0.1.0" },
+    });
+    // A sub-app's paths are relative to its mount prefix and use Hono `:id`
+    // params; rewrite to OpenAPI `{id}` and prefix them (runtime -> /agents).
+    // Merge at the method level so paths shared between apps (e.g.
+    // /agents/{id}/crons: admin POST + runtime GET) keep all their methods.
+    const prefix = entry.prefix === "/" ? "" : entry.prefix;
+    for (const [path, def] of Object.entries(spec.paths ?? {})) {
+      const openApiPath = `${prefix}${path.replace(/:(\w+)/g, "{$1}")}`;
       mergedPaths[openApiPath] = {
         ...mergedPaths[openApiPath],
         ...(def as Record<string, unknown>),
       };
-    } else {
-      mergedPaths[openApiPath] = def as Record<string, unknown>;
     }
-  }
-
-  // GHE-1.3: the /github-enterprise routes live in their own app (mounted at
-  // the root in admin-boot.ts); fold their paths and schemas in.
-  const gheSpec = createGithubEnterpriseApp({
-    appService: {} as never,
-    agentService: {} as never,
-    agentEnvService: {} as never,
-    sessionSecret: SESSION_SECRET,
-    adminApiKeys,
-    agentTokenService: { validate: async () => null },
-  }).getOpenAPI31Document({
-    openapi: "3.1.0",
-    info: { title: "github-enterprise (internal)", version: "0.1.0" },
-  });
-  for (const [path, def] of Object.entries(gheSpec.paths ?? {})) {
-    mergedPaths[path] = def as Record<string, unknown>;
-  }
-
-  // ATP-1.3: the /templates routes live in their own app (mounted at the root
-  // in admin-boot.ts); fold their paths and schemas in.
-  const templatesSpec = createAgentTemplatesApp({
-    templateService: {} as never,
-    callerScopeResolver: async () => ({ kind: "all" }),
-    sessionSecret: SESSION_SECRET,
-    adminApiKeys,
-    agentTokenService: { validate: async () => null },
-  }).getOpenAPI31Document({
-    openapi: "3.1.0",
-    info: { title: "templates (internal)", version: "0.1.0" },
-  });
-  for (const [path, def] of Object.entries(templatesSpec.paths ?? {})) {
-    mergedPaths[path] = def as Record<string, unknown>;
-  }
-
-  // ACM-1.1: the /principals lookup routes live in their own app (mounted at
-  // the root in admin-boot.ts); fold their paths and schemas in.
-  const principalsSpec = createPrincipalsApp({
-    lookup: {} as never,
-    sessionSecret: SESSION_SECRET,
-    adminApiKeys,
-    agentTokenService: { validate: async () => null },
-  }).getOpenAPI31Document({
-    openapi: "3.1.0",
-    info: { title: "principals (internal)", version: "0.1.0" },
-  });
-  for (const [path, def] of Object.entries(principalsSpec.paths ?? {})) {
-    mergedPaths[path] = def as Record<string, unknown>;
+    Object.assign(schemas, spec.components?.schemas ?? {});
   }
 
   return {
@@ -228,13 +198,7 @@ export function buildPlatformAdminSpec(): AdminOpenApiDocument {
     paths: mergedPaths,
     components: {
       ...(adminSpec.components ?? {}),
-      schemas: {
-        ...(adminSpec.components?.schemas ?? {}),
-        ...(runtimeSpec.components?.schemas ?? {}),
-        ...(gheSpec.components?.schemas ?? {}),
-        ...(templatesSpec.components?.schemas ?? {}),
-        ...(principalsSpec.components?.schemas ?? {}),
-      },
+      schemas,
     },
   };
 }

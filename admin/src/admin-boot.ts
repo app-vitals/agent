@@ -51,7 +51,6 @@ import { AccountOnboardingService } from "./account-onboarding.ts";
 import { AccountTrialExpirySweeper } from "./account-trial-expiry-sweeper.ts";
 import { AccountTrialWarningSweeper } from "./account-trial-warning-sweeper.ts";
 import { AccountService } from "./accounts.ts";
-import { createAccountsApp } from "./accounts-api.ts";
 import {
   buildDeletionClients,
   buildProvisioner,
@@ -86,12 +85,10 @@ import { AgentMemberService } from "./agent-members.ts";
 import { AgentPluginService } from "./agent-plugins.ts";
 import { AgentTemplateReconcileService } from "./agent-template-reconcile.ts";
 import { AgentTemplateService } from "./agent-templates.ts";
-import { createAgentTemplatesApp } from "./agent-templates-api.ts";
 import { AgentTokenService } from "./agent-tokens.ts";
 import { AgentToolService } from "./agent-tools.ts";
 import { AgentService } from "./agents.ts";
-import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
-import { createAgentRuntimeApp } from "./api.ts";
+import { parseAdminApiKeys } from "./agents-api.ts";
 import { createAdminAuthMiddleware } from "./api-auth.ts";
 import {
   callerScopeDepsFromServices,
@@ -107,7 +104,6 @@ import { isDevAuthAllowed } from "./dev-auth-guard.ts";
 import { HttpGithubAppProvisioningClient } from "./github-app-provisioning-client.ts";
 import {
   createGithubAccessPreview,
-  createGithubEnterpriseApp,
   createGithubLookupService,
 } from "./github-enterprise-api.ts";
 import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
@@ -125,10 +121,9 @@ import {
 import { HttpGoogleAuthClient } from "./google-auth-client.ts";
 import { HttpChatClient } from "./http-chat-client.ts";
 import { HttpOktaAuthClient } from "./okta-auth-client.ts";
-import { mountPlatformDoc } from "./platform-doc-route.ts";
+import { mountPlatformApis } from "./platform-routes.ts";
 import { parsePodServiceAccountConfig } from "./pod-service-account-config.ts";
 import { PrincipalLookupService } from "./principal-lookup.ts";
-import { createPrincipalsApp } from "./principals-api.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
 import { isPushEnabled } from "./push-sender.ts";
 import { PushService } from "./push-service.ts";
@@ -486,37 +481,15 @@ export async function startAdmin(
   // Redirect bare root to the login page — no handler exists at "/" otherwise.
   root.get("/", (c) => c.redirect("/admin/login", 302));
 
-  // 2. Runtime API — admin key | per-agent bearer | session JWT
-  //    Mounted via root.route("/agents", runtimeApp). Hono v4 strips the prefix
-  //    before dispatching, so runtimeApp routes are registered as /:id/config
-  //    and /:id/crons (without the /agents prefix) and resolve correctly at
+  // 2.-3b. Platform APIs, mounted in one place (platform-routes.ts):
+  //    runtime API — root.route("/agents", runtimeApp) — then the admin CRUD API
+  //    (root.route("/", adminApiApp)), flag-gated GET /doc, accounts
+  //    (createAccountsApp(...)), principals, templates and github-enterprise.
+  //    Runtime API: admin key | per-agent bearer | session JWT. Hono v4 strips
+  //    the /agents prefix before dispatching, so its routes resolve at
   //    GET /agents/:id/config and GET /agents/:id/crons from root.
-  const runtimeApp = createAgentRuntimeApp({
-    agentEnvService,
-    agentCronJobService,
-    agentService,
-    agentPluginService,
-    agentMarketplaceService,
-    ...(resolvedExtensions.agentPhaseMethodologyService
-      ? {
-          agentPhaseMethodologyService:
-            resolvedExtensions.agentPhaseMethodologyService,
-        }
-      : {}),
-    sessionSecret,
-    adminApiKeys,
-    agentTokenService,
-    anthropicFederationEnabled,
-    transcriptUploadEnabled: transcriptConfig.enabled,
-    loopTranscriptAgentIds: transcriptConfig.loopAgentIds,
-    repoAccessCheckEnabled: repoAccessConfig.enabled,
-  });
-
-  root.route("/agents", runtimeApp);
-
-  // 3. Admin CRUD API — /agents/:id/* — admin key | per-agent bearer | session JWT
-  //    Routes are now at /agents/:id/* (same prefix as runtime, different sub-paths).
-  //    MUST be mounted before admin-ui (/admin/*) to avoid shadowing.
+  //    Admin CRUD API (/agents/:id/*) MUST be mounted before admin-ui (/admin/*)
+  //    to avoid shadowing.
   // Built before the admin API: GHE-2.4's access preview reads the same Apps.
   // Strict crypto: no plain-text key storage.
   const githubAccessPreview = createGithubAccessPreview({
@@ -535,123 +508,15 @@ export async function startAdmin(
     agentEnv: agentEnvService,
     openWork: resolvedExtensions.openWork,
   });
-  const adminApiApp = createAdminApp({
-    githubAccessPreview,
-    ...(resolvedExtensions.openWork
-      ? { openWork: resolvedExtensions.openWork }
-      : {}),
-    githubInstallationRepos,
-    githubSync,
-    agentService,
-    agentEnvService,
-    agentCronJobService,
-    agentCronRunService,
-    agentCronRunStatsService,
-    agentToolService,
-    agentTokenService,
-    agentPluginService,
-    agentMarketplaceService,
-    agentMemberService,
-    callerScopeResolver,
-    specialtyRegistry,
-    specialtyDefaults,
-    agentChatTokenService,
-    agentGitHubInstallationsService,
-    prisma,
-    provisioner,
-    serviceIntegrations,
-    chatService: deletionChatService,
-    slack: slackClient,
-    decrypt: crypto.decrypt,
-    slackConfigTokens,
-    agentTemplateReconcileService: templateReconcileService,
-    sessionSecret,
-    adminApiKeys,
-    sentryClient: process.env.SENTRY_DSN ? Sentry : undefined,
-    pool: adminPool,
-    selfServe,
-    anthropicFederationEnabled,
-    podServiceAccountEnabled: parsePodServiceAccountConfig(process.env).enabled,
-    chatCredentialsEnabled: parseChatCredentialConfig(process.env).enabled,
-    ...(chatCredentialsClient
-      ? { chatCredentials: chatCredentialsClient }
-      : {}),
-    agentAsk: {
-      config: agentAskConfig,
-      store: new AgentAskService(prisma),
-    },
-    cronRunNow: {
-      config: cronRunNowConfig,
-      store: new CronRunNowService(prisma),
-    },
-    ...(chatClient ? { chatClient } : {}),
-    transcripts: {
-      config: transcriptConfig,
-      store: new CronRunTranscriptService(prisma),
-    },
-    ...resolvedExtensions.apiDeps,
-  });
-  root.route("/", adminApiApp);
-
-  // 3a. Platform OpenAPI document — GET /doc, flag-gated (not mounted when off)
-  mountPlatformDoc(root, {
-    env: process.env,
-    auth: createAdminAuthMiddleware({
-      sessionSecret,
-      agentTokenService,
-      adminApiKeys,
-      agentMemberService,
-      callerScopeResolver,
-    }),
-  });
-
-  // 3b. Accounts API — /accounts/* — admin-only, flag-gated (SSP-5.1)
-  root.route(
-    "/",
-    createAccountsApp({
-      accountService: new AccountService(prisma),
-      accountLifecycle,
-      selfServe,
-      sessionSecret,
-      adminApiKeys,
-      agentTokenService,
-    }),
-  );
-
-  // 3b'. Principals lookup API — /principals/* — admin-only (ACM-1.1)
-  root.route(
-    "/",
-    createPrincipalsApp({
-      lookup: new PrincipalLookupService(prisma),
-      sessionSecret,
-      adminApiKeys,
-      agentTokenService,
-    }),
-  );
-
-  // 3b''. Agent templates API — /templates/* — admin or account-scoped (ATP-1.3)
   const templateService = new AgentTemplateService(
     prisma,
     crypto,
     specialtyRegistry,
     templateReconcileService,
   );
-  root.route(
-    "/",
-    createAgentTemplatesApp({
-      templateService,
-      callerScopeResolver,
-      sessionSecret,
-      adminApiKeys,
-      agentTokenService,
-    }),
-  );
-
-  // 3b'. GitHub Enterprise Apps API — /github-enterprise/* — admin-only,
-  //      optional (GHE-1.3). With no rows configured it reports unconfigured
-  //      and does nothing else. Strict crypto: no plain-text key storage.
-  // GLC-2.4: the Refresh action marks the cache stale (DB only). It asks the
-  // refresher (created further down) to re-discover through this hook.
+  // GLC-2.4: the github-enterprise Refresh action marks the cache stale (DB
+  // only). It asks the refresher (created further down) to re-discover through
+  // this hook.
   const githubRefreshConfig = resolveRefreshConfig(process.env);
   let invalidateGithubDiscovery: () => void = () => {};
   const githubRefreshAction = createGithubRefreshAction({
@@ -659,16 +524,125 @@ export async function startAdmin(
     stalenessCapMs: githubRefreshConfig.stalenessCapMs,
     onMarked: () => invalidateGithubDiscovery(),
   });
-  const githubEnterpriseApp = createGithubEnterpriseApp({
-    refreshAction: githubRefreshAction,
-    appService: githubEnterpriseAppService,
-    agentService,
-    agentEnvService,
-    sessionSecret,
-    adminApiKeys,
-    agentTokenService,
+  const { adminApiApp, githubEnterpriseApp } = mountPlatformApis(root, {
+    runtime: {
+      agentEnvService,
+      agentCronJobService,
+      agentService,
+      agentPluginService,
+      agentMarketplaceService,
+      ...(resolvedExtensions.agentPhaseMethodologyService
+        ? {
+            agentPhaseMethodologyService:
+              resolvedExtensions.agentPhaseMethodologyService,
+          }
+        : {}),
+      sessionSecret,
+      adminApiKeys,
+      agentTokenService,
+      anthropicFederationEnabled,
+      transcriptUploadEnabled: transcriptConfig.enabled,
+      loopTranscriptAgentIds: transcriptConfig.loopAgentIds,
+      repoAccessCheckEnabled: repoAccessConfig.enabled,
+    },
+    adminApi: {
+      githubAccessPreview,
+      ...(resolvedExtensions.openWork
+        ? { openWork: resolvedExtensions.openWork }
+        : {}),
+      githubInstallationRepos,
+      githubSync,
+      agentService,
+      agentEnvService,
+      agentCronJobService,
+      agentCronRunService,
+      agentCronRunStatsService,
+      agentToolService,
+      agentTokenService,
+      agentPluginService,
+      agentMarketplaceService,
+      agentMemberService,
+      callerScopeResolver,
+      specialtyRegistry,
+      specialtyDefaults,
+      agentChatTokenService,
+      agentGitHubInstallationsService,
+      prisma,
+      provisioner,
+      serviceIntegrations,
+      chatService: deletionChatService,
+      slack: slackClient,
+      decrypt: crypto.decrypt,
+      slackConfigTokens,
+      agentTemplateReconcileService: templateReconcileService,
+      sessionSecret,
+      adminApiKeys,
+      sentryClient: process.env.SENTRY_DSN ? Sentry : undefined,
+      pool: adminPool,
+      selfServe,
+      anthropicFederationEnabled,
+      podServiceAccountEnabled: parsePodServiceAccountConfig(process.env)
+        .enabled,
+      chatCredentialsEnabled: parseChatCredentialConfig(process.env).enabled,
+      ...(chatCredentialsClient
+        ? { chatCredentials: chatCredentialsClient }
+        : {}),
+      agentAsk: {
+        config: agentAskConfig,
+        store: new AgentAskService(prisma),
+      },
+      cronRunNow: {
+        config: cronRunNowConfig,
+        store: new CronRunNowService(prisma),
+      },
+      ...(chatClient ? { chatClient } : {}),
+      transcripts: {
+        config: transcriptConfig,
+        store: new CronRunTranscriptService(prisma),
+      },
+      ...resolvedExtensions.apiDeps,
+    },
+    doc: {
+      env: process.env,
+      auth: createAdminAuthMiddleware({
+        sessionSecret,
+        agentTokenService,
+        adminApiKeys,
+        agentMemberService,
+        callerScopeResolver,
+      }),
+    },
+    accounts: {
+      accountService: new AccountService(prisma),
+      accountLifecycle,
+      selfServe,
+      sessionSecret,
+      adminApiKeys,
+      agentTokenService,
+    },
+    principals: {
+      lookup: new PrincipalLookupService(prisma),
+      sessionSecret,
+      adminApiKeys,
+      agentTokenService,
+    },
+    templates: {
+      templateService,
+      callerScopeResolver,
+      sessionSecret,
+      adminApiKeys,
+      agentTokenService,
+    },
+    githubEnterprise: {
+      refreshAction: githubRefreshAction,
+      appService: githubEnterpriseAppService,
+      agentService,
+      agentEnvService,
+      sessionSecret,
+      adminApiKeys,
+      agentTokenService,
+    },
   });
-  root.route("/", githubEnterpriseApp);
 
   // 3c. Extension API routes — after every platform API, before the admin UI
   //     (same no-shadowing rule as the admin CRUD API above).

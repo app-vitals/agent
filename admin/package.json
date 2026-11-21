@@ -20,6 +20,7 @@
     "./admin-spec": "./src/admin-spec.ts",
     "./main": "./src/main.ts",
     "./openapi-schemas": "./src/openapi-schemas.ts",
+    "./platform-routes": "./src/platform-routes.ts",
     "./prisma-client": "./src/prisma-client.ts",
     "./specialty-types": "./src/specialty-types.ts",
     "./brand-tokens.json": "./src/brand-tokens.json",
