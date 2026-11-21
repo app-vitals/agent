@@ -349,3 +349,19 @@ describe("backfillAccess", () => {
     });
   });
 });
+
+describe("backfillAccess: shouldStop (GLC-1.4 time budget)", () => {
+  it("makes at least one probe, then stops in_progress when asked", async () => {
+    const h = makeStore();
+    const calls: string[] = [];
+    let n = 0;
+    const out = await run(
+      h,
+      probeOf(() => "write", calls),
+      { shouldStop: () => ++n > 1 },
+    );
+    expect(out.outcome).toBe("in_progress");
+    expect(calls).toEqual(["octocat/a", "octocat/b"]);
+    expect(out.missing).toBe(1);
+  });
+});

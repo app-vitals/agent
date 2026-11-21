@@ -2,17 +2,24 @@
  * admin/src/github-installation-wiring.ts
  * Composition of the installation repos list and GitHub Sync services for
  * admin boot, from the stored installer App and an optional host-supplied
- * OpenWorkPort. The agent App id comes from each agent's own stored
+ * OpenWorkPort, plus the GitHub cache refresher's target discovery over the
+ * stored Apps (GLC-1.4). The agent App id comes from each agent's own stored
  * GH_APP_ID; without an open-work port nothing is listed or blocked.
  */
 
 import type { PrismaClient } from "../prisma/client/client.ts";
 import type { AgentEnvService } from "./agent-envs.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
+import type { Clock } from "./clock.ts";
 import type { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import { GithubEnterpriseClient } from "./github-enterprise-client.ts";
+import { GithubLookupClient } from "./github-lookup-client.ts";
+import type { CrawlStore } from "./github-repo-crawler.ts";
+import { createRefreshDiscovery } from "./github-repo-refresh-discovery.ts";
+import type { RefreshDiscovery } from "./github-repo-refresher.ts";
 import {
   createInstallationPort,
+  type InstallationAgentRecord,
   type InstallationRepoClient,
   PrismaInstallationAgents,
   PrismaInstallationAudit,
@@ -124,5 +131,78 @@ export function createGithubSync(
       createInstallationReposPort(createInstallationPort(client), client),
     audit: new PrismaInstallationAudit(deps.prisma),
     ...(deps.openWork ? { openWork: deps.openWork } : {}),
+  });
+}
+
+export interface StoredAppDiscoveryDeps {
+  prisma: PrismaClient;
+  appService: Pick<
+    GitHubEnterpriseAppService,
+    "get" | "getPrivateKey" | "listAccountIds"
+  >;
+  /** Reads each agent's stored GH_APP_ID (its own GitHub App). */
+  agentEnv: Pick<AgentEnvService, "getConfigBundle">;
+  store: CrawlStore;
+  clock: Clock;
+  /** Test seams; default to the real GitHub API. */
+  fetchFn?: typeof fetch;
+  apiBase?: string;
+}
+
+/**
+ * The refresher's target discovery (GLC-1.4) over the stored Apps, the
+ * agents table and real GitHub clients. Lives here, beside the other
+ * key-bearing installation wiring, so the private key stays in the
+ * allowlisted modules.
+ */
+export function createStoredAppRefreshDiscovery(
+  deps: StoredAppDiscoveryDeps,
+): RefreshDiscovery {
+  const { prisma, appService, fetchFn, apiBase, clock } = deps;
+  const now = () => clock.now();
+  const installer = lazyInstallerClient({ appService, fetchFn, apiBase, now });
+  const agentsPort = new PrismaInstallationAgents(prisma, deps.agentEnv);
+  // Reuse a client (and its cached installation tokens) until the App changes.
+  const lookupClients = new Map<string, GithubLookupClient>();
+  return createRefreshDiscovery({
+    listAppScopes: () => appService.listAccountIds(),
+    async listAgents() {
+      const rows = await prisma.agent.findMany({ select: { id: true } });
+      const out: InstallationAgentRecord[] = [];
+      for (const { id } of rows) {
+        const rec = await agentsPort.get(id);
+        if (rec) out.push(rec);
+      }
+      return out;
+    },
+    async lookupApp(scope) {
+      const meta = await appService.get("lookup", scope);
+      if (!meta) return null;
+      const privateKey = await appService.getPrivateKey("lookup", scope);
+      if (!privateKey) return null;
+      const cacheKey = `${meta.accountId ?? ""}|${meta.appId}|${meta.updatedAt.getTime()}`;
+      let client = lookupClients.get(cacheKey);
+      if (!client) {
+        client = new GithubLookupClient({
+          appId: meta.appId,
+          privateKey,
+          apiBase,
+          fetchFn,
+          now,
+        });
+        lookupClients.set(cacheKey, client);
+      }
+      return { accountId: meta.accountId ?? null, appId: meta.appId, client };
+    },
+    async installerOrgs(scope) {
+      const meta = await appService.get("installer", scope);
+      if (!meta?.enterpriseSlug) return null;
+      return (await installer.listInstallableOrganizations(scope)).map(
+        (o) => o.login,
+      );
+    },
+    installer,
+    store: deps.store,
+    clock,
   });
 }

@@ -268,6 +268,20 @@ describe("crawlAgentInstallation", () => {
     expect(calls.pages).toEqual([1, 1, 2, 3]);
   });
 
+  it("passes shouldStop through to the engine", async () => {
+    const { client, calls } = fakeClient({ total: 5 });
+    const res = await crawlAgentInstallation({
+      agent: agent(),
+      org: "acme",
+      client,
+      store,
+      clock,
+      shouldStop: () => true,
+    });
+    expect(res.outcome).toBe("in_progress");
+    expect(calls.pages).toEqual([1]);
+  });
+
   it("records not-installed as a completed empty snapshot, not an error", async () => {
     store.rows.set(1, { fullName: "acme/stale", seenAt: new Date(0) });
     const { client, calls } = fakeClient({ installs: [] });

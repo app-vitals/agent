@@ -43,11 +43,22 @@ describe("admin-boot.ts boot sequence", () => {
       "new TrialExpirySweeper(",
       "new AccountTrialWarningSweeper(",
       "new AccountTrialExpirySweeper(",
+      "new GithubRepoRefresher(",
       "startBackgroundPasses(resolvedExtensions.backgroundPasses)",
       "const server = Bun.serve(",
       "const shutdown = registerGracefulShutdown(",
       "void runTemplateSeed(",
       "void runStartupPolicyReconcile(",
+    ]);
+  });
+
+  it("registers the GitHub repo refresher on its own interval, with env-driven config (GLC-1.4)", () => {
+    assertOrdered([
+      "resolveRefreshConfig(process.env)",
+      "new GithubRepoRefresher(",
+      "createStoredAppRefreshDiscovery(",
+      "[github-repo-refresher] tick error:",
+      "githubRefreshConfig.intervalMs",
     ]);
   });
 

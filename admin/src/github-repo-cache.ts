@@ -194,6 +194,17 @@ export class GitHubRepoCacheService {
     });
   }
 
+  /** Full names (owner/repo) of every repo cached for the snapshot, sorted. */
+  async listRepoFullNames(snapshotId: string): Promise<string[]> {
+    requireNonEmpty("snapshotId", snapshotId);
+    const rows = await this.prisma.gitHubCachedRepo.findMany({
+      where: { snapshotId },
+      select: { fullName: true },
+      orderBy: { fullName: "asc" },
+    });
+    return rows.map((r) => r.fullName);
+  }
+
   /**
    * Delete repos last seen before the snapshot's crawlStartedAt. Returns the
    * number deleted; 0 (and deletes nothing) when no crawl has started.

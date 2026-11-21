@@ -450,3 +450,39 @@ describe("crawlRepos: page budget", () => {
     expect(done.outcome).toBe("complete");
   });
 });
+
+describe("crawlRepos: shouldStop (GLC-1.4 time budget)", () => {
+  it("fetches at least one page, then stops in_progress when asked and resumes later", async () => {
+    const source = new FakeSource([1, 2, 3, 4, 5, 6]);
+    let calls = 0;
+    const out = await crawlRepos({
+      key: KEY,
+      source,
+      store,
+      clock,
+      shouldStop: () => ++calls > 1,
+    });
+    expect(out.outcome).toBe("in_progress");
+    expect(source.fetched).toEqual([1, 2]);
+    expect(store.snap?.crawlPage).toBe(2);
+    expect(store.snap?.completedAt).toBeNull();
+
+    source.fetched = [];
+    const done = await run(source);
+    expect(done.outcome).toBe("complete");
+    expect(source.fetched).toEqual([1, 2, 3]);
+  });
+
+  it("is not consulted before the first page", async () => {
+    const source = new FakeSource([1, 2]);
+    const out = await crawlRepos({
+      key: KEY,
+      source,
+      store,
+      clock,
+      shouldStop: () => true,
+    });
+    expect(out.outcome).toBe("complete");
+    expect(source.fetched).toEqual([1]);
+  });
+});
