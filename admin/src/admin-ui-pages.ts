@@ -18,7 +18,10 @@ import {
   renderGithubUsernameRow,
 } from "./admin-ui-github-identity-pages.ts";
 import {
+  type InstallationSyncView,
+  installationSnapshotComplete,
   renderGithubSyncCard,
+  renderInstallationSyncStatus,
   renderUncoveredBadge,
   uncoveredRepos,
 } from "./admin-ui-installation-repos-pages.ts";
@@ -1037,6 +1040,7 @@ export function agentSectionPath(
 export const AGENT_POST_SECTIONS: Readonly<Record<string, AgentSection>> = {
   "/github-username": "access",
   "/github-sync/apply-confirmed": "access",
+  "/github-cache/refresh": "access",
   "/github-orgs/:org/install": "access",
   "/repos/remove-confirmed": "configuration",
   "/envs": "configuration",
@@ -1156,6 +1160,12 @@ export function renderAgentDetailPage(
      * could be listed. Absent means unknown: no coverage warning is shown.
      */
     installationRepos?: readonly string[];
+    /**
+     * GLC-2.2: sync detail of the cached installation view (synced-at, N of M,
+     * last error, rate-limit reset). When `complete` is false the coverage
+     * warning is suppressed.
+     */
+    installationSync?: InstallationSyncView;
     /**
      * ATP-2.4: present when agent templates are available. Turns on the
      * inherited/custom badges, the detach/reattach toggle and the per-item
@@ -1723,7 +1733,9 @@ export function renderAgentDetailPage(
         })();
       </script>`;
   const uncovered = new Set(
-    opts?.installationRepos
+    opts?.installationRepos &&
+      (!opts.installationSync ||
+        installationSnapshotComplete(opts.installationSync))
       ? uncoveredRepos(agent.repos, opts.installationRepos)
       : [],
   );
@@ -1737,6 +1749,7 @@ export function renderAgentDetailPage(
           <button type="submit" class="btn btn-primary">Add</button>
         </div>
       </form>
+      ${opts?.installationSync ? renderInstallationSyncStatus(opts.installationSync) : ""}
       <div class="data-table-wrapper">
         <table class="data-table">
           <thead>

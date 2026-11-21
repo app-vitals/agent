@@ -197,6 +197,16 @@ export class GitHubEnterpriseAppService {
     return rows.map(toGitHubEnterpriseAppMetadata);
   }
 
+  /** Ids of the accounts with at least one App of their own (no key material). */
+  async listAccountIds(): Promise<string[]> {
+    const rows = await this.prisma.gitHubEnterpriseApp.findMany({
+      where: { accountId: { not: null } },
+      select: { accountId: true },
+      distinct: ["accountId"],
+    });
+    return rows.flatMap((r) => (r.accountId ? [r.accountId] : []));
+  }
+
   /** Delete the app at exactly this (accountId, role). No-ops if absent. */
   async delete(
     role: GitHubEnterpriseAppRole,

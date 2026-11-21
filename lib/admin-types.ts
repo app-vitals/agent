@@ -3264,7 +3264,7 @@ export interface paths {
         };
         /**
          * List the repos on the agent App's installation
-         * @description Platform-admin only (session members, ops keys and agent keys get 403). Per org the agent's own GitHub App (its GH_APP_ID) is installed on, lists the installation's repos. When the agent has a bound githubUsername, each repo carries `userCanPush` from the access lookup only when that org's lookup result is complete; otherwise the field is omitted (never false). 404 for an unknown agent; 422 when the agent has no GH_APP_ID.
+         * @description Platform-admin only (session members, ops keys and agent keys get 403). Per org the agent's own GitHub App (its GH_APP_ID) is installed on, lists the installation's repos from the background-synced cache; it makes no GitHub call. Sync detail (`complete`, `syncedAt`, `reposSeen`, `totalCount`, `lastError`, `rateLimitResetAt`) is reported per org and overall. When the agent has a bound githubUsername, each repo carries `userCanPush` from cached access rows only when that org's snapshot is complete and every repo has an answer; otherwise the field is omitted (never false). 404 for an unknown agent; 422 when the agent has no GH_APP_ID.
          */
         get: {
             parameters: {
@@ -3777,6 +3777,77 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/github-enterprise/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a refresh of the GitHub cache
+         * @description Admin-only. Marks the cached GitHub repo lists stale and clears retry waits so the background refresher works them next, then returns at once. It makes no GitHub call and does not wait for the refresher; reload the page to see progress. The refresher still honours its per-org lease and rate-limit window.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Refresh requested */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "accepted";
+                            snapshots: number;
+                            accessPairs: number;
+                        };
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (non-admin caller) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refresh is not available */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -5952,12 +6023,56 @@ export interface components {
         };
         GithubInstallationReposList: {
             appId: number;
+            /** @description Whether the cached crawl is complete. While false the list may be partial. */
+            complete?: boolean;
+            /** @description When the completed crawl finished (ISO 8601). */
+            syncedAt?: string;
+            /** @description Repos in the cache (the N of 'N of M'). */
+            reposSeen?: number;
+            /** @description GitHub's repo count, when known (the M). */
+            totalCount?: number;
+            lastError?: string;
+            /** @description When the GitHub rate limit resets (ISO 8601). */
+            rateLimitResetAt?: string;
+            /** @description Failed refresh attempts; absent when zero. */
+            attempts?: number;
+            /** @description Next refresh attempt while backing off (ISO 8601). */
+            nextAttemptAt?: string;
+            /** @description Holder of a live refresh lease, if any. */
+            leaseHolder?: string;
+            /** @description Last refresh tick on the snapshot (ISO 8601). */
+            lastTickAt?: string;
             orgs: {
                 org: string;
+                /** @description Whether the cached crawl is complete. While false the list may be partial. */
+                complete?: boolean;
+                /** @description When the completed crawl finished (ISO 8601). */
+                syncedAt?: string;
+                /** @description Repos in the cache (the N of 'N of M'). */
+                reposSeen?: number;
+                /** @description GitHub's repo count, when known (the M). */
+                totalCount?: number;
+                lastError?: string;
+                /** @description When the GitHub rate limit resets (ISO 8601). */
+                rateLimitResetAt?: string;
+                /** @description Failed refresh attempts; absent when zero. */
+                attempts?: number;
+                /** @description Next refresh attempt while backing off (ISO 8601). */
+                nextAttemptAt?: string;
+                /** @description Holder of a live refresh lease, if any. */
+                leaseHolder?: string;
+                /** @description Last refresh tick on the snapshot (ISO 8601). */
+                lastTickAt?: string;
                 repos: {
                     fullName: string;
-                    /** @description Whether the agent's bound GitHub user can push. Omitted when no username is bound or the org's access lookup is incomplete; never reported as false for unknown. */
+                    /** @description Whether the agent's bound GitHub user can push, from cached access rows. Omitted when no username is bound or the org's access data is incomplete (a missing or errored pair is never reported as false). */
                     userCanPush?: boolean;
+                    /** @description When the bound user's access to this repo was last checked (ISO 8601), when a cached row exists. */
+                    accessCheckedAt?: string;
+                    /** @description Failed access checks for this repo since the last success, when any. */
+                    accessAttempts?: number;
+                    /** @description Last access-check error for this repo, when any. */
+                    accessError?: string;
                 }[];
             }[];
         };
@@ -5974,7 +6089,7 @@ export interface components {
             appRemoves?: string[];
             /** @description Configured agent repos the bound user can no longer push to. The agent's repos are never added to. */
             agentRemoves?: string[];
-            /** @description Orgs whose access listing is missing, partial or failed, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed. */
+            /** @description Orgs whose access listing is missing, partial or failed, whose cached access data is incomplete or stale, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed. `reason` says why (for stale data, when it was checked). */
             skippedOrgs?: {
                 org: string;
                 reason: string;

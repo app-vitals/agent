@@ -15,6 +15,7 @@ import type {
   GitHubEnterpriseAppRole,
   SaveGitHubEnterpriseAppInput,
 } from "./github-enterprise-apps.ts";
+import type { GithubRefreshAction } from "./github-refresh-action.ts";
 
 interface CassetteEntry {
   status: number;
@@ -117,6 +118,7 @@ function build(
   opts: {
     routes?: Record<string, string>;
     agents?: Record<string, Record<string, string> | null>;
+    refreshAction?: GithubRefreshAction;
   } = {},
 ) {
   const appService = fakeAppService();
@@ -151,6 +153,7 @@ function build(
       "root:tok-admin:*,ro:tok-read:platform.read,bot:tok-agent:agent-1",
     ),
     agentTokenService: { validate: async () => null },
+    ...(opts.refreshAction ? { refreshAction: opts.refreshAction } : {}),
     fetchFn,
     apiBase: "https://ghe.test",
   });
@@ -175,6 +178,7 @@ describe("auth", () => {
     ["DELETE", "/github-enterprise/apps/installer", ""],
     ["POST", "/github-enterprise/apps/installer/validate", ""],
     ["GET", "/github-enterprise/orgs", ""],
+    ["POST", "/github-enterprise/refresh", ""],
     [
       "POST",
       "/github-enterprise/orgs/org-1/install",
@@ -914,5 +918,74 @@ describe("account-scoped routes", () => {
       headers: { Authorization: "Bearer tok-read" },
     });
     expect(res.status).toBe(403);
+  });
+});
+
+describe("refresh action (GLC-2.4)", () => {
+  const stub = () => {
+    const calls: string[] = [];
+    const action: GithubRefreshAction = {
+      requestRefresh: async () => {
+        calls.push("refresh");
+        return { snapshots: 2, accessPairs: 1 };
+      },
+    };
+    return { calls, action };
+  };
+
+  it("returns 202 for an admin and makes no GitHub call", async () => {
+    const { calls: marks, action } = stub();
+    const h = build({ refreshAction: action });
+    const res = await h.app.request("/github-enterprise/refresh", {
+      method: "POST",
+      headers: ADMIN,
+    });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({
+      status: "accepted",
+      snapshots: 2,
+      accessPairs: 1,
+    });
+    expect(marks).toEqual(["refresh"]);
+    expect(h.calls).toEqual([]);
+  });
+
+  it("is 503 when refresh is not wired", async () => {
+    const h = build();
+    const res = await h.app.request("/github-enterprise/refresh", {
+      method: "POST",
+      headers: ADMIN,
+    });
+    expect(res.status).toBe(503);
+    expect(h.calls).toEqual([]);
+  });
+
+  it("marks stale after an App is saved, and a failed mark does not fail the save", async () => {
+    const { calls: marks, action } = stub();
+    const h = build({ refreshAction: action });
+    const res = await h.app.request("/github-enterprise/apps/installer", {
+      method: "PUT",
+      headers: JSON_ADMIN,
+      body: JSON.stringify(installerBody),
+    });
+    expect(res.status).toBe(200);
+    expect(marks).toEqual(["refresh"]);
+
+    const failing = build({
+      refreshAction: {
+        requestRefresh: async () => {
+          throw new Error("db down");
+        },
+      },
+    });
+    const res2 = await failing.app.request(
+      "/github-enterprise/apps/installer",
+      {
+        method: "PUT",
+        headers: JSON_ADMIN,
+        body: JSON.stringify(installerBody),
+      },
+    );
+    expect(res2.status).toBe(200);
   });
 });

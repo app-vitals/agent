@@ -6,9 +6,10 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  type CachedAccessRow,
+  type InstallationCachePort,
   InstallationReposService,
-  NO_INSTALLATION_REASON,
-  type InstallationReposPort,
+  type InstallationSnapshotRow,
   userPushHints,
 } from "./installation-repos-service.ts";
 import type {
@@ -101,93 +102,197 @@ function noHint(r: { userCanPush?: boolean }): boolean {
   return r.userCanPush === undefined;
 }
 
+const row = (
+  repo: string,
+  status: string,
+  canPush = false,
+): CachedAccessRow => ({ repo, status, canPush });
+
+describe("userPushHints from cached access rows", () => {
+  const repos = ["acme/push", "acme/readonly"];
+
+  it("reports true/false per repo when every repo has an ok row", () => {
+    const out = userPushHints(
+      { cachedRows: [row("push", "ok", true), row("ReadOnly", "ok", false)] },
+      "acme",
+      repos,
+    );
+    expect(out).toEqual([
+      { fullName: "acme/push", userCanPush: true },
+      { fullName: "acme/readonly", userCanPush: false },
+    ]);
+  });
+
+  it("omits every hint when any pair is missing, errored or terminal (never false)", () => {
+    for (const second of [
+      undefined,
+      row("readonly", "error", false),
+      row("readonly", "terminal", false),
+    ]) {
+      const rows = [row("push", "ok", true), ...(second ? [second] : [])];
+      expect(
+        userPushHints({ cachedRows: rows }, "acme", repos).every(noHint),
+      ).toBe(true);
+    }
+  });
+
+  it("omits hints with no rows at all", () => {
+    expect(userPushHints({ cachedRows: [] }, "acme", repos).every(noHint)).toBe(
+      true,
+    );
+  });
+});
+
+const T0 = new Date("2026-11-20T10:00:00Z");
+const snap = (
+  over: Partial<InstallationSnapshotRow> = {},
+): InstallationSnapshotRow => ({
+  org: "acme",
+  completedAt: T0,
+  totalCount: 2,
+  lastError: null,
+  rateLimitResetAt: null,
+  repos: [{ fullName: "acme/push" }, { fullName: "acme/readonly" }],
+  ...over,
+});
+
 function build(
   opts: {
     agent?: { githubUsername: string | null; appId?: number } | null;
-    noInstallation?: boolean;
-    access?: () => Promise<
-      | { status: "unconfigured" }
-      | { status: "ok"; access: UserRepoAccessResult }
-    >;
+    snapshots?: InstallationSnapshotRow[];
+    rows?: CachedAccessRow[];
   } = {},
 ) {
-  const installation: InstallationReposPort = {
-    listInstalled: async () =>
-      opts.noInstallation
-        ? { status: "none" }
-        : {
-            status: "found",
-            orgs: [{ org: "acme", repos: ["acme/push", "acme/unlisted"] }],
-          },
-    listRepos: async () => ({}),
-    addRepos: async () => {},
-    removeRepos: async () => {},
+  const calls: string[] = [];
+  const cache: InstallationCachePort = {
+    listAgentSnapshots: async (accountId, appRef) => {
+      calls.push(`snapshots:${accountId}:${appRef}`);
+      return opts.snapshots ?? [snap()];
+    },
+    getAccessRows: async (q) => {
+      calls.push(`rows:${q.accountId}:${q.org}:${q.username}`);
+      return opts.rows ?? [row("push", "ok", true), row("readonly", "ok")];
+    },
   };
   const agent =
     opts.agent === undefined
       ? { id: "a1", repos: [], githubUsername: "dev", appId: 42 }
       : opts.agent && { id: "a1", repos: [], ...opts.agent };
+  const boom = () => {
+    throw new Error("GitHub must not be called");
+  };
   const svc = new InstallationReposService({
     agents: { get: async () => agent },
-    access:
-      opts.access ??
-      (async () => ({ status: "ok", access: accessOf([orgResult()]) })),
-    installation,
+    access: boom,
+    installation: {
+      listInstalled: boom,
+      listRepos: boom,
+      addRepos: boom,
+      removeRepos: boom,
+    },
+    cache,
   });
-  return { svc };
+  return { svc, calls };
 }
 
-describe("InstallationReposService.list", () => {
-  it("returns repos per org with hints for a bound user", async () => {
-    const { svc } = build();
-    expect(await svc.list("a1")).toEqual({
+describe("InstallationReposService.list (cache read)", () => {
+  it("returns cached repos with hints and sync detail for a complete snapshot", async () => {
+    const { svc, calls } = build();
+    const r = await svc.list("a1");
+    expect(r).toMatchObject({
       status: "ok",
       appId: 42,
+      complete: true,
+      syncedAt: T0.toISOString(),
+      reposSeen: 2,
+      totalCount: 2,
       orgs: [
         {
           org: "acme",
+          complete: true,
+          syncedAt: T0.toISOString(),
+          reposSeen: 2,
+          totalCount: 2,
           repos: [
             { fullName: "acme/push", userCanPush: true },
-            { fullName: "acme/unlisted" },
+            { fullName: "acme/readonly", userCanPush: false },
           ],
         },
       ],
     });
+    expect(calls[0]).toBe("snapshots:deployment:42");
   });
 
-  it("omits hints for an unbound agent without calling access", async () => {
-    let called = false;
-    const { svc } = build({
-      agent: { githubUsername: null, appId: 42 },
-      access: async () => {
-        called = true;
-        return { status: "unconfigured" };
-      },
-    });
-    const r = await svc.list("a1");
-    expect(called).toBe(false);
+  it("omits hints when an access pair is errored or missing", async () => {
+    const r = await build({
+      rows: [row("push", "ok", true), row("readonly", "error")],
+    }).svc.list("a1");
     expect(r.status === "ok" && r.orgs[0]?.repos.every(noHint)).toBe(true);
   });
 
-  it("omits hints when access is unconfigured or the lookup throws", async () => {
-    for (const access of [
-      async () => ({ status: "unconfigured" as const }),
-      async () => {
-        throw new Error("502");
-      },
-    ]) {
-      const r = await build({ access }).svc.list("a1");
-      expect(r.status === "ok" && r.orgs[0]?.repos.every(noHint)).toBe(true);
-    }
+  it("omits hints and skips the access read for an unbound agent", async () => {
+    const { svc, calls } = build({
+      agent: { githubUsername: null, appId: 42 },
+    });
+    const r = await svc.list("a1");
+    expect(calls.some((c) => c.startsWith("rows:"))).toBe(false);
+    expect(r.status === "ok" && r.orgs[0]?.repos.every(noHint)).toBe(true);
   });
 
-  it("is skipped with a reason when the App matches no installation", async () => {
-    const r = await build({ noInstallation: true }).svc.list("a1");
-    expect(r).toEqual({
-      status: "skipped",
-      appId: 42,
-      reason: NO_INSTALLATION_REASON,
+  it("an incomplete snapshot is not complete and carries error and rate-limit detail", async () => {
+    const reset = new Date("2026-11-20T11:00:00Z");
+    const r = await build({
+      snapshots: [
+        snap({
+          completedAt: null,
+          totalCount: 5,
+          lastError: "boom",
+          rateLimitResetAt: reset,
+          repos: [{ fullName: "acme/push" }],
+        }),
+      ],
+    }).svc.list("a1");
+    expect(r).toMatchObject({
+      status: "ok",
+      complete: false,
+      reposSeen: 1,
+      totalCount: 5,
+      lastError: "boom",
+      rateLimitResetAt: reset.toISOString(),
     });
+    expect(r.status === "ok" && r.syncedAt).toBeUndefined();
+    expect(r.status === "ok" && r.orgs[0]?.repos.every(noHint)).toBe(true);
+  });
+
+  it("no snapshots yet: ok, empty, not complete", async () => {
+    const r = await build({ snapshots: [] }).svc.list("a1");
+    expect(r).toMatchObject({ status: "ok", orgs: [], complete: false });
+  });
+
+  it("uses the agent's account for the cache scope", async () => {
+    const calls: string[] = [];
+    const svc = new InstallationReposService({
+      agents: {
+        get: async () => ({
+          id: "a1",
+          repos: [],
+          githubUsername: null,
+          appId: 7,
+          accountId: "acct-1",
+        }),
+      },
+      access: async () => ({ status: "unconfigured" }),
+      installation: {} as never,
+      cache: {
+        listAgentSnapshots: async (a, r) => {
+          calls.push(`${a}:${r}`);
+          return [];
+        },
+        getAccessRows: async () => [],
+      },
+    });
+    await svc.list("a1");
+    expect(calls).toEqual(["acct-1:7"]);
   });
 
   it("reports unknown agent and a missing GH_APP_ID distinctly", async () => {
@@ -196,5 +301,39 @@ describe("InstallationReposService.list", () => {
     });
     const r = await build({ agent: { githubUsername: "dev" } }).svc.list("a1");
     expect(r.status).toBe("no_app_id");
+  });
+});
+
+describe("InstallationReposService.list debug detail", () => {
+  it("surfaces attempts, next attempt, live lease and last tick; drops an expired lease", async () => {
+    const future = new Date(Date.now() + 60_000);
+    const past = new Date(Date.now() - 60_000);
+    const live = build({
+      snapshots: [
+        snap({
+          attempts: 2,
+          nextAttemptAt: T0,
+          lastTickAt: T0,
+          leaseHolder: "w1",
+          leasedUntil: future,
+          lastError: "x",
+        }),
+      ],
+    });
+    const r = await live.svc.list("a1");
+    if (r.status !== "ok") throw new Error("expected ok");
+    expect(r.attempts).toBe(2);
+    expect(r.nextAttemptAt).toBe(T0.toISOString());
+    expect(r.lastTickAt).toBe(T0.toISOString());
+    expect(r.leaseHolder).toBe("w1");
+    expect(r.orgs[0]?.lastError).toBe("x");
+
+    const stale = build({
+      snapshots: [snap({ leaseHolder: "w1", leasedUntil: past })],
+    });
+    const r2 = await stale.svc.list("a1");
+    if (r2.status !== "ok") throw new Error("expected ok");
+    expect(r2.leaseHolder).toBeUndefined();
+    expect(r2.attempts).toBeUndefined();
   });
 });

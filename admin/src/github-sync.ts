@@ -25,8 +25,15 @@
  */
 
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
+import { DEPLOYMENT_WIDE_ACCOUNT_KEY } from "./github-agent-installation-crawler.ts";
+import { DEFAULT_REFRESH_STALENESS_CAP_MS } from "./github-repo-refresher.ts";
+import {
+  buildCachedAccess,
+  type CachedOrgInput,
+} from "./github-sync-cached-access.ts";
 import {
   identityOf,
+  type InstallationCachePort,
   type InstallationReposPort,
   NO_INSTALLATION_REASON,
 } from "./installation-repos-service.ts";
@@ -60,6 +67,8 @@ export const NOT_ADDABLE_REASON = "the bound user cannot push to this repo";
 export const ALREADY_INSTALLED_REASON = "already on the agent installation";
 export const NOT_INSTALLED_ORG_REASON =
   "the agent App is not installed on this org";
+export const REVERIFY_FAILED_REASON =
+  "the live permission re-check failed, so the removal was dropped";
 export const NOT_PRESENT_REASON =
   "not on the agent installation or in the agent's repos";
 
@@ -230,9 +239,42 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
   };
 }
 
+/** One org's lookup-App crawl from the cache (adds are drawn from it). */
+export interface CachedLookupOrg {
+  org: string;
+  completedAt: Date | null;
+  repos: readonly string[];
+}
+
+/** Default freshness bound: the refresher's staleness cap (the longest data is left unrefreshed). */
+export const DEFAULT_SYNC_MAX_AGE_MS = DEFAULT_REFRESH_STALENESS_CAP_MS;
+
 export interface GithubSyncDeps {
   agents: InstallationAgentsPort;
+  /** Live resolver; used only when no `cache` is given. */
   access: GithubAccessPreviewFn;
+  /**
+   * The repo/access cache (GLC-2.3). When set, access is built from cached
+   * rows and an org is used only while its data is complete and fresh.
+   */
+  cache?: InstallationCachePort;
+  /** Cached lookup-App crawl per org, the source of installation adds. */
+  lookupRepos?: (
+    accountId: string | null | undefined,
+  ) => Promise<CachedLookupOrg[]>;
+  /** Freshness bound for cached data, ms. Default DEFAULT_SYNC_MAX_AGE_MS. */
+  maxAgeMs?: number;
+  now?: () => Date;
+  /**
+   * One live permission call for a removal candidate: true = the user can
+   * still push, false = definitively cannot, undefined = could not tell.
+   * Apply drops every candidate that is not definitively false.
+   */
+  verifyPush?: (
+    username: string,
+    repo: string,
+    accountId?: string | null,
+  ) => Promise<boolean | undefined>;
   installation: Pick<
     InstallationReposPort,
     "listInstalled" | "addRepos" | "removeRepos"
@@ -308,10 +350,11 @@ export class GithubSyncService {
   async apply(input: GithubSyncApplyInput): Promise<GithubSyncApplyResult> {
     const agent = await this.deps.agents.get(input.agentId);
     if (!agent) return { status: "agent_not_found" };
-    const plan = await this.planFor(agent, input);
+    let plan = await this.planFor(agent, input);
     if (plan.skipped) {
       return { status: "skipped", reason: plan.skipReason ?? "skipped" };
     }
+    plan = await this.reverifyRemovals(plan, agent);
     if (plan.appAdds.length + plan.removedRepos.length === 0) {
       return { status: "noop", plan };
     }
@@ -374,6 +417,123 @@ export class GithubSyncService {
     return { status: "applied", plan, auditId, warnings };
   }
 
+  /** Drops every removal the live permission call does not confirm (unknown is never none). */
+  private async reverifyRemovals(
+    plan: GithubSyncPlan,
+    agent: InstallationAgentRecord,
+  ): Promise<GithubSyncPlan> {
+    const verify = this.deps.verifyPush;
+    const username = agent.githubUsername?.trim();
+    if (!verify || !username || plan.removedRepos.length === 0) return plan;
+    const dropped = new Map<string, string>();
+    for (const repo of plan.removedRepos) {
+      let pushable: boolean | undefined;
+      try {
+        pushable = await verify(username, repo, agent.accountId);
+      } catch {
+        pushable = undefined;
+      }
+      if (pushable === false) continue;
+      dropped.set(
+        repo,
+        pushable === true ? STILL_PUSHABLE_REASON : REVERIFY_FAILED_REASON,
+      );
+    }
+    if (dropped.size === 0) return plan;
+    const keep = (repos: string[]) => repos.filter((r) => !dropped.has(r));
+    const appRemoves = keep(plan.appRemoves);
+    const agentRemoves = keep(plan.agentRemoves);
+    return {
+      ...plan,
+      appRemoves,
+      agentRemoves,
+      removedRepos: sorted(new Set([...appRemoves, ...agentRemoves])),
+      notApplied: [
+        ...plan.notApplied,
+        ...[...dropped].map(([repo, reason]) => ({ repo, reason })),
+      ].sort((a, b) => a.repo.localeCompare(b.repo)),
+    };
+  }
+
+  /** Access from the cache (complete and fresh orgs only), with the installed orgs. */
+  private async cachedAccess(
+    agent: InstallationAgentRecord,
+    username: string,
+    installed: { org: string; repos: string[] }[],
+  ): Promise<UserRepoAccessResult> {
+    const cache = this.deps.cache as InstallationCachePort;
+    const accountId = agent.accountId || DEPLOYMENT_WIDE_ACCOUNT_KEY;
+    const now = (this.deps.now ?? (() => new Date()))();
+    const maxAgeMs = this.deps.maxAgeMs ?? DEFAULT_SYNC_MAX_AGE_MS;
+    let agentSnaps: Awaited<
+      ReturnType<InstallationCachePort["listAgentSnapshots"]>
+    > = [];
+    let lookup: CachedLookupOrg[] = [];
+    let readFailed = false;
+    try {
+      agentSnaps = await cache.listAgentSnapshots(
+        accountId,
+        String(agent.appId),
+      );
+      if (this.deps.lookupRepos)
+        lookup = await this.deps.lookupRepos(agent.accountId);
+    } catch {
+      readFailed = true;
+    }
+    const key = (s: string) => s.toLowerCase();
+    const orgNames = new Map<string, string>();
+    for (const i of installed) orgNames.set(key(i.org), i.org);
+    for (const r of agent.repos) {
+      const o = repoOrg(r);
+      if (o && !orgNames.has(key(o))) orgNames.set(key(o), o);
+    }
+    const inputs: CachedOrgInput[] = [];
+    for (const [k, org] of orgNames) {
+      const inst = installed.find((i) => key(i.org) === k);
+      const snap = agentSnaps.find((s) => key(s.org) === k);
+      const lk = lookup.filter((l) => key(l.org) === k);
+      const repos = new Map<string, string>();
+      for (const r of [
+        ...(inst?.repos ?? []),
+        ...agent.repos.filter((r) => key(repoOrg(r)) === k),
+        ...lk.flatMap((l) => l.repos),
+      ]) {
+        repos.set(key(r), r);
+      }
+      const crawls = [
+        ...(inst && snap ? [{ completedAt: snap.completedAt }] : []),
+        ...lk.map((l) => ({ completedAt: l.completedAt })),
+      ];
+      let rows: Awaited<ReturnType<InstallationCachePort["getAccessRows"]>> =
+        [];
+      let failed = readFailed;
+      if (!failed && repos.size > 0) {
+        try {
+          rows = await cache.getAccessRows({
+            accountId,
+            org,
+            username,
+            repos: [...repos.values()].map((f) => f.slice(f.indexOf("/") + 1)),
+          });
+        } catch {
+          failed = true;
+        }
+      }
+      inputs.push({
+        org,
+        crawls,
+        // A read failure, an installed org with no crawl, or a lookup source with no crawl of this org.
+        crawlMissing:
+          failed ||
+          (inst !== undefined && !snap) ||
+          (this.deps.lookupRepos !== undefined && lk.length === 0),
+        repos: [...repos.values()],
+        rows,
+      });
+    }
+    return buildCachedAccess({ username, now, maxAgeMs, orgs: inputs });
+  }
+
   private async planFor(
     agent: InstallationAgentRecord,
     requested?: SyncLists,
@@ -382,22 +542,28 @@ export class GithubSyncService {
     if (!username) {
       return skippedPlan(accessSkipReason(username, null) as string);
     }
-    const preview = await this.deps.access(username, agent.accountId);
-    if (preview.status === "unconfigured") {
-      return skippedPlan("GitHub Apps are not configured");
+    let liveAccess: UserRepoAccessResult | null = null;
+    if (!this.deps.cache) {
+      const preview = await this.deps.access(username, agent.accountId);
+      if (preview.status === "unconfigured") {
+        return skippedPlan("GitHub Apps are not configured");
+      }
+      // Whole-call skips need no installation calls.
+      const skip = accessSkipReason(username, preview.access);
+      if (skip) return skippedPlan(skip);
+      liveAccess = preview.access;
     }
-    // Whole-call skips need no installation calls.
-    const skip = accessSkipReason(username, preview.access);
-    if (skip) return skippedPlan(skip);
     if (agent.appId === undefined) return skippedPlan(MISSING_APP_ID_REASON);
     const installed = await this.deps.installation.listInstalled(
       agent.appId,
       identityOf(agent),
     );
     if (installed.status === "none") return skippedPlan(NO_INSTALLATION_REASON);
+    const resolved =
+      liveAccess ?? (await this.cachedAccess(agent, username, installed.orgs));
     return planGithubSync({
       username,
-      access: preview.access,
+      access: resolved,
       agentRepos: agent.repos,
       installationRepos: Object.fromEntries(
         installed.orgs.map(({ org, repos }) => [org, repos]),

@@ -146,6 +146,45 @@ export class GitHubRepoCacheService {
     }));
   }
 
+  /** Lookup-App snapshots with their org and repos (GitHub Sync, GLC-2.3). Reads only the cache. */
+  async listLookupOrgSnapshots(accountIds: string[], appRef: string) {
+    requireNonEmpty("appRef", appRef);
+    const rows = await this.prisma.gitHubRepoSnapshot.findMany({
+      where: { accountId: { in: accountIds }, appKind: "lookup", appRef },
+      include: { repos: { select: { fullName: true } } },
+      orderBy: { org: "asc" },
+    });
+    return rows.map((r) => ({
+      org: r.org,
+      completedAt: r.completedAt,
+      repos: r.repos,
+    }));
+  }
+
+  /** Agent-App installation snapshots (with their repos) for one account scope and App id. Reads only the cache. */
+  async listAgentSnapshots(accountId: string, appRef: string) {
+    requireNonEmpty("accountId", accountId);
+    requireNonEmpty("appRef", appRef);
+    const rows = await this.prisma.gitHubRepoSnapshot.findMany({
+      where: { accountId, appKind: "agent", appRef },
+      include: { repos: { select: { fullName: true } } },
+      orderBy: { org: "asc" },
+    });
+    return rows.map((r) => ({
+      org: r.org,
+      completedAt: r.completedAt,
+      totalCount: r.totalCount,
+      lastError: r.lastError,
+      rateLimitResetAt: r.rateLimitResetAt,
+      attempts: r.attempts,
+      nextAttemptAt: r.nextAttemptAt,
+      leaseHolder: r.leaseHolder,
+      leasedUntil: r.leasedUntil,
+      lastTickAt: r.lastTickAt,
+      repos: r.repos,
+    }));
+  }
+
   /** Upsert repos for a snapshot in batches, stamping each with `seenAt`. */
   async upsertRepos(
     snapshotId: string,
@@ -194,6 +233,17 @@ export class GitHubRepoCacheService {
     });
   }
 
+  /** Full names (owner/repo) of every repo cached for the snapshot, sorted. */
+  async listRepoFullNames(snapshotId: string): Promise<string[]> {
+    requireNonEmpty("snapshotId", snapshotId);
+    const rows = await this.prisma.gitHubCachedRepo.findMany({
+      where: { snapshotId },
+      select: { fullName: true },
+      orderBy: { fullName: "asc" },
+    });
+    return rows.map((r) => r.fullName);
+  }
+
   /**
    * Delete repos last seen before the snapshot's crawlStartedAt. Returns the
    * number deleted; 0 (and deletes nothing) when no crawl has started.
@@ -209,6 +259,38 @@ export class GitHubRepoCacheService {
       where: { snapshotId, seenAt: { lt: snap.crawlStartedAt } },
     });
     return count;
+  }
+
+  /**
+   * Refresh request (GLC-2.4): make every snapshot's work the next thing the
+   * refresher runs, without touching GitHub. A completed list is aged to
+   * `staleBefore` (callers pass a time past the staleness cap, so the planner
+   * ranks it ahead of expired-only work); any snapshot's crawl backoff
+   * (nextAttemptAt) is cleared, and so is the backoff on access pairs that
+   * are still pending (status error). Leases and rateLimitResetAt are left
+   * alone, so the lease and the rate-limit window still gate the work.
+   * Terminal and ok access rows are not touched.
+   */
+  async markStale(staleBefore: Date): Promise<{
+    snapshots: number;
+    accessPairs: number;
+  }> {
+    const aged = await this.prisma.gitHubRepoSnapshot.updateMany({
+      where: { completedAt: { gt: staleBefore } },
+      data: { completedAt: staleBefore },
+    });
+    const backoff = await this.prisma.gitHubRepoSnapshot.updateMany({
+      where: { nextAttemptAt: { not: null } },
+      data: { nextAttemptAt: null },
+    });
+    const access = await this.prisma.gitHubRepoAccess.updateMany({
+      where: { status: "error", nextAttemptAt: { not: null } },
+      data: { nextAttemptAt: null },
+    });
+    return {
+      snapshots: Math.max(aged.count, backoff.count),
+      accessPairs: access.count,
+    };
   }
 
   /**

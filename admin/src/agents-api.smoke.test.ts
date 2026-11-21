@@ -7303,6 +7303,9 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
       agentRepos?: string[];
       pushable?: string[];
       openWork?: Partial<OpenWorkPort> | null;
+      /** Seeded GLC cache rows read by the list route. */
+      snapshots?: Array<Record<string, unknown>>;
+      accessRows?: Array<Record<string, unknown>>;
     } = {},
   ) {
     const audits: Array<Record<string, unknown>> = [];
@@ -7360,6 +7363,36 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
         headers: { "Content-Type": "application/json" },
       });
     }) as typeof fetch;
+    // Sync reads the cache (GLC-2.3): unless a test seeds its own rows, serve a
+    // complete, fresh cache that mirrors `pushable` over the installed, agent
+    // and pushable repos.
+    const checkedAt = new Date();
+    const pushableRepos = opts.pushable ?? [
+      "acme-eng/repo-1",
+      "acme-eng/repo-3",
+    ];
+    const universe = [
+      ...new Set([...state.installed, ...state.repos, ...pushableRepos]),
+    ];
+    const defaultSnapshots = [
+      {
+        org: "acme-eng",
+        completedAt: checkedAt,
+        totalCount: state.installed.length,
+        lastError: null,
+        rateLimitResetAt: null,
+        repos: state.installed.map((fullName) => ({ fullName })),
+      },
+    ];
+    const defaultAccess = universe.map((f) => ({
+      repo: f.split("/")[1],
+      status: "ok",
+      canPush: pushableRepos.includes(f),
+      level: pushableRepos.includes(f) ? "write" : "none",
+      checkedAt,
+      attempts: 0,
+      lastError: null,
+    }));
     const prisma = {
       agent: {
         findUnique: async () =>
@@ -7375,6 +7408,12 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
           events.push(["setRepos", args.data.repos]);
           state.repos = args.data.repos;
         },
+      },
+      gitHubRepoSnapshot: {
+        findMany: async () => opts.snapshots ?? defaultSnapshots,
+      },
+      gitHubRepoAccess: {
+        findMany: async () => opts.accessRows ?? defaultAccess,
       },
       gitHubReconcileAudit: {
         create: async (args: { data: Record<string, unknown> }) => {
@@ -7426,6 +7465,13 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
     const githubSync = createGithubSync({
       ...wiring,
       ...(openWork ? { openWork } : {}),
+      syncOverrides: {
+        lookupRepos: async () => [
+          { org: "acme-eng", completedAt: checkedAt, repos: universe },
+        ],
+        // The live permission call agrees with `pushable`.
+        verifyPush: async (_user, repo) => pushableRepos.includes(repo),
+      },
     });
     const base = makeMockDeps();
     const app = createAdminApp({
@@ -7459,26 +7505,96 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
       body: JSON.stringify(body),
     });
 
-  it("GET lists repos per org with push hints from the access lookup", async () => {
-    const { app } = setup();
+  const T0 = new Date("2026-11-20T10:00:00.000Z");
+  const seededSnapshot = (over: Record<string, unknown> = {}) => ({
+    org: "acme-eng",
+    completedAt: T0,
+    totalCount: 2,
+    lastError: null,
+    rateLimitResetAt: null,
+    repos: [{ fullName: "acme-eng/repo-1" }, { fullName: "acme-eng/repo-2" }],
+    ...over,
+  });
+  const accessRow = (repo: string, status: string, canPush = false) => ({
+    repo,
+    status,
+    canPush,
+  });
+
+  it("GET reads the cache: repos with push hints from cached access rows, no GitHub call", async () => {
+    const { app, gh } = setup({
+      snapshots: [seededSnapshot()],
+      accessRows: [
+        accessRow("repo-1", "ok", true),
+        accessRow("repo-2", "ok", false),
+      ],
+    });
     const res = await app.request(url(), { headers: asAdmin });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       appId: 777,
+      complete: true,
+      reposSeen: 2,
+      totalCount: 2,
+      syncedAt: T0.toISOString(),
       orgs: [
         {
           org: "acme-eng",
+          complete: true,
+          reposSeen: 2,
+          totalCount: 2,
+          syncedAt: T0.toISOString(),
           repos: [
             { fullName: "acme-eng/repo-1", userCanPush: true },
-            { fullName: "acme-eng/repo-2" },
+            { fullName: "acme-eng/repo-2", userCanPush: false },
           ],
         },
       ],
     });
+    expect(gh).toEqual([]);
   });
 
-  it("GET omits the hint entirely for an agent with no bound username", async () => {
-    const { app } = setup({ username: null });
+  it("GET omits hints for a partial or errored cache, never reporting false", async () => {
+    for (const snapshots of [
+      [seededSnapshot({ completedAt: null, totalCount: 5 })],
+      [seededSnapshot({ completedAt: null, lastError: "boom" })],
+    ]) {
+      const { app, gh } = setup({
+        snapshots,
+        accessRows: [accessRow("repo-1", "ok", true)],
+      });
+      const body = (await (
+        await app.request(url(), { headers: asAdmin })
+      ).json()) as {
+        complete: boolean;
+        orgs: { repos: Record<string, unknown>[] }[];
+      };
+      expect(body.complete).toBe(false);
+      expect(body.orgs[0]?.repos.map((r) => "userCanPush" in r)).toEqual([
+        false,
+        false,
+      ]);
+      expect(gh).toEqual([]);
+    }
+    const errored = setup({
+      snapshots: [seededSnapshot()],
+      accessRows: [
+        accessRow("repo-1", "ok", true),
+        accessRow("repo-2", "error"),
+      ],
+    });
+    const eb = (await (
+      await errored.app.request(url(), { headers: asAdmin })
+    ).json()) as { orgs: { repos: Record<string, unknown>[] }[] };
+    expect(eb.orgs[0]?.repos.some((r) => r.userCanPush === false)).toBe(false);
+  });
+
+  it("GET with no bound username omits hints and makes no GitHub call", async () => {
+    const { app, gh } = setup({
+      username: null,
+      snapshots: [seededSnapshot()],
+      accessRows: [accessRow("repo-1", "ok", true)],
+    });
     const body = (await (
       await app.request(url(), { headers: asAdmin })
     ).json()) as {
@@ -7488,6 +7604,7 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
       false,
       false,
     ]);
+    expect(gh).toEqual([]);
   });
 
   it("the direct add and remove routes are gone", async () => {

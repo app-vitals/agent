@@ -33,8 +33,53 @@ export const accessFor = (pushable: string[]): GithubAccessPreviewFn => {
   });
 };
 
-export function fakePrisma(repos: string[]) {
-  const state = { repos: [...repos], audits: 0 };
+/** Cached rows the fake prisma serves (GLC-2.3 sync reads them). */
+export interface FakeCache {
+  snapshots?: unknown[];
+  access?: unknown[];
+}
+
+/** A completed agent-App snapshot plus ok access rows for `repos` in `org`, all checked at `checkedAt`. */
+export function freshCache(
+  org: string,
+  repos: string[],
+  pushable: string[],
+  checkedAt: Date,
+): FakeCache {
+  return {
+    snapshots: [
+      {
+        org,
+        completedAt: checkedAt,
+        totalCount: repos.length,
+        lastError: null,
+        rateLimitResetAt: null,
+        attempts: 0,
+        nextAttemptAt: null,
+        leaseHolder: null,
+        leasedUntil: null,
+        lastTickAt: null,
+        repos: repos.map((fullName) => ({ fullName })),
+      },
+    ],
+    access: repos.map((f) => ({
+      repo: f.slice(f.indexOf("/") + 1),
+      status: "ok",
+      canPush: pushable.includes(f),
+      level: pushable.includes(f) ? "write" : "none",
+      checkedAt,
+      attempts: 0,
+      lastError: null,
+    })),
+  };
+}
+
+export function fakePrisma(repos: string[], cache: FakeCache = {}) {
+  const state = {
+    repos: [...repos],
+    audits: 0,
+    snapshotQueries: [] as unknown[],
+  };
   const prisma = {
     agent: {
       findUnique: async () => ({
@@ -46,6 +91,13 @@ export function fakePrisma(repos: string[]) {
         state.repos = args.data.repos;
       },
     },
+    gitHubRepoSnapshot: {
+      findMany: async (args: unknown) => {
+        state.snapshotQueries.push(args);
+        return cache.snapshots ?? [];
+      },
+    },
+    gitHubRepoAccess: { findMany: async () => cache.access ?? [] },
     gitHubReconcileAudit: {
       create: async () => {
         state.audits += 1;

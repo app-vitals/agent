@@ -62,6 +62,7 @@ import {
   type GithubSyncApplyView,
   type GithubSyncPreviewView,
   type InstallationReposView,
+  type InstallationSyncView,
   type OpenWorkView,
   type RepoRemovalPreviewView,
   renderInstallationReposBody,
@@ -2138,6 +2139,35 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     );
   });
 
+  // GLC-2.4: fire-and-forget Refresh. Proxies the 202 API route and redirects
+  // at once; a reload of the page shows progress.
+  app.post("/admin/agents/:id/github-cache/refresh", requireAuth, async (c) => {
+    const agentId = c.req.param("id");
+    if (!c.var.isAdmin || !githubEnterpriseApi) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const res = await callApi(
+      c,
+      githubEnterpriseApi,
+      "/github-enterprise/refresh",
+      {
+        method: "POST",
+      },
+    );
+    if (!res?.ok) {
+      return c.redirect(
+        agentSectionPath(agentId, "access", {
+          error: await gheError(res, "Could not request a refresh."),
+        }),
+        302,
+      );
+    }
+    return c.redirect(
+      `${agentSectionPath(agentId, "access")}?success=github_refresh_requested`,
+      302,
+    );
+  });
+
   app.post(
     "/admin/agents/:id/github-orgs/:org/install",
     requireAuth,
@@ -2223,7 +2253,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     // No installation matched the numeric GH_APP_ID. If the agent still has an
     // installation by slug (the Installations card), the id is probably wrong.
     let appIdMismatch = false;
-    if (view.orgs.length === 0) {
+    if (view.orgs.every((o) => o.repos.length === 0)) {
       const snap = await callApi(
         c,
         agentsApi,
@@ -2466,11 +2496,13 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             ? "GitHub username saved."
             : successParam === "github_username_cleared"
               ? "GitHub username cleared."
-              : successParam === "github_app_installed"
-                ? "Agent app installed."
-                : successParam === "github_app_already_installed"
-                  ? "The agent app was already installed on that organization."
-                  : undefined;
+              : successParam === "github_refresh_requested"
+                ? "Refresh requested. Reload the page to see progress."
+                : successParam === "github_app_installed"
+                  ? "Agent app installed."
+                  : successParam === "github_app_already_installed"
+                    ? "The agent app was already installed on that organization."
+                    : undefined;
     const warningParam = c.req.query("warning");
     const warning =
       warningParam === "restrict_slack_no_members"
@@ -2512,6 +2544,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     // list's coverage warning. Best effort: unknown means no warning.
     const enterpriseConfigured = await githubEnterpriseConfigured(c);
     let installationRepos: string[] | undefined;
+    let installationSync: InstallationSyncView | undefined;
     if (
       enterpriseConfigured &&
       agentsApi &&
@@ -2524,9 +2557,22 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       );
       if (res?.ok) {
         try {
-          installationRepos = (
-            (await res.json()) as InstallationReposView
-          ).orgs.flatMap((o) => o.repos.map((r) => r.fullName));
+          const view = (await res.json()) as InstallationReposView;
+          installationRepos = view.orgs.flatMap((o) =>
+            o.repos.map((r) => r.fullName),
+          );
+          installationSync = {
+            complete: view.complete,
+            syncedAt: view.syncedAt,
+            reposSeen: view.reposSeen,
+            totalCount: view.totalCount,
+            lastError: view.lastError,
+            rateLimitResetAt: view.rateLimitResetAt,
+            attempts: view.attempts,
+            nextAttemptAt: view.nextAttemptAt,
+            leaseHolder: view.leaseHolder,
+            lastTickAt: view.lastTickAt,
+          };
         } catch {
           // unknown: no coverage warning
         }
@@ -2562,6 +2608,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             agent.accountId ?? null,
           ),
           ...(installationRepos ? { installationRepos } : {}),
+          ...(installationSync ? { installationSync } : {}),
           ...(agentsApi
             ? { template: { detached: agent.templateDetached === true } }
             : {}),
