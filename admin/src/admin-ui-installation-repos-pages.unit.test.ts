@@ -5,11 +5,12 @@
 
 import { describe, expect, it } from "bun:test";
 import {
-  actuallyBlockedWork,
   APP_ID_MISMATCH_MESSAGE,
+  actuallyBlockedWork,
   NO_USERNAME_REASON,
   renderGithubSyncCard,
   renderInstallationReposBody,
+  renderInstallationSyncStatus,
   renderOpenWorkByRepo,
   renderSyncConfirm,
   renderSyncResult,
@@ -252,5 +253,52 @@ describe("renderSyncResult", () => {
     expect(
       renderSyncResult({ status: "skipped", reason: "no user" }, []),
     ).toContain("no user");
+  });
+});
+
+describe("renderInstallationSyncStatus debug detail", () => {
+  it("shows attempts, next attempt, lease holder and last tick on a failed snapshot, as an error", () => {
+    const html = renderInstallationSyncStatus({
+      complete: false,
+      reposSeen: 3,
+      totalCount: 10,
+      lastError: "boom <b>",
+      attempts: 3,
+      nextAttemptAt: "2026-11-21T10:30:00.000Z",
+      leaseHolder: "worker-1",
+      lastTickAt: "2026-11-21T10:00:00.000Z",
+    });
+    expect(html).toContain("alert alert-warning");
+    expect(html).toContain("Last error: boom &lt;b&gt;");
+    expect(html).toContain("3 failed attempts");
+    expect(html).toContain("Next attempt 2026-11-21 10:30 UTC");
+    expect(html).toContain("Refreshing (worker-1)");
+    expect(html).toContain("Last tick 2026-11-21 10:00 UTC");
+    expect(html).not.toContain("no access");
+  });
+
+  it("shows nothing misleading on a complete snapshot with unset fields", () => {
+    const html = renderInstallationSyncStatus({
+      complete: true,
+      syncedAt: "2026-11-21T10:00:00.000Z",
+      reposSeen: 2,
+      totalCount: 2,
+    });
+    expect(html).toContain("Synced 2026-11-21 10:00 UTC");
+    expect(html).toContain("2 of 2 repos");
+    expect(html).not.toMatch(/attempt|Refreshing|Last tick|error/i);
+  });
+
+  it("singularizes one attempt and ignores zero attempts", () => {
+    expect(
+      renderInstallationSyncStatus({ complete: true, attempts: 1 }),
+    ).toContain("1 failed attempt<");
+    expect(
+      renderInstallationSyncStatus({ complete: true, attempts: 0 }),
+    ).not.toContain("attempt");
+  });
+
+  it("renders nothing for an older API with no detail", () => {
+    expect(renderInstallationSyncStatus({})).toBe("");
   });
 });

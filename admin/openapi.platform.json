@@ -3551,6 +3551,22 @@
             "type": "string",
             "description": "When the GitHub rate limit resets (ISO 8601)."
           },
+          "attempts": {
+            "type": "integer",
+            "description": "Failed refresh attempts; absent when zero."
+          },
+          "nextAttemptAt": {
+            "type": "string",
+            "description": "Next refresh attempt while backing off (ISO 8601)."
+          },
+          "leaseHolder": {
+            "type": "string",
+            "description": "Holder of a live refresh lease, if any."
+          },
+          "lastTickAt": {
+            "type": "string",
+            "description": "Last refresh tick on the snapshot (ISO 8601)."
+          },
           "orgs": {
             "type": "array",
             "items": {
@@ -3581,6 +3597,22 @@
                 "rateLimitResetAt": {
                   "type": "string",
                   "description": "When the GitHub rate limit resets (ISO 8601)."
+                },
+                "attempts": {
+                  "type": "integer",
+                  "description": "Failed refresh attempts; absent when zero."
+                },
+                "nextAttemptAt": {
+                  "type": "string",
+                  "description": "Next refresh attempt while backing off (ISO 8601)."
+                },
+                "leaseHolder": {
+                  "type": "string",
+                  "description": "Holder of a live refresh lease, if any."
+                },
+                "lastTickAt": {
+                  "type": "string",
+                  "description": "Last refresh tick on the snapshot (ISO 8601)."
                 },
                 "repos": {
                   "type": "array",

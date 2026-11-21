@@ -59,6 +59,14 @@ export interface InstallationSyncDetail {
   lastError?: string;
   /** ISO time the GitHub rate limit resets, while limited. */
   rateLimitResetAt?: string;
+  /** Failed refresh attempts since the last success. */
+  attempts?: number;
+  /** ISO time of the next refresh attempt, while backing off. */
+  nextAttemptAt?: string;
+  /** Holder of a live refresh lease. */
+  leaseHolder?: string;
+  /** ISO time of the last refresh tick on this snapshot. */
+  lastTickAt?: string;
 }
 
 export interface InstallationOrgView extends InstallationSyncDetail {
@@ -73,6 +81,11 @@ export interface InstallationSnapshotRow {
   totalCount: number | null;
   lastError: string | null;
   rateLimitResetAt: Date | null;
+  attempts?: number;
+  nextAttemptAt?: Date | null;
+  leaseHolder?: string | null;
+  leasedUntil?: Date | null;
+  lastTickAt?: Date | null;
   repos: { fullName: string }[];
 }
 
@@ -207,8 +220,23 @@ function summarize(
     .filter((d): d is string => d !== undefined)
     .sort()
     .at(-1);
+  const attempts = Math.max(0, ...orgs.map((o) => o.attempts ?? 0));
+  const next = orgs
+    .map((o) => o.nextAttemptAt)
+    .filter((d): d is string => d !== undefined)
+    .sort()[0];
+  const tick = orgs
+    .map((o) => o.lastTickAt)
+    .filter((d): d is string => d !== undefined)
+    .sort()
+    .at(-1);
+  const holder = orgs.find((o) => o.leaseHolder)?.leaseHolder;
   return {
     complete,
+    ...(attempts > 0 ? { attempts } : {}),
+    ...(next ? { nextAttemptAt: next } : {}),
+    ...(holder ? { leaseHolder: holder } : {}),
+    ...(tick ? { lastTickAt: tick } : {}),
     reposSeen: orgs.reduce((a, o) => a + (o.reposSeen ?? 0), 0),
     ...(complete && synced[0] ? { syncedAt: synced[0] } : {}),
     ...(orgs.length > 0 && totalCount !== undefined ? { totalCount } : {}),
@@ -267,6 +295,12 @@ export class InstallationReposService {
         ...(s.rateLimitResetAt
           ? { rateLimitResetAt: iso(s.rateLimitResetAt) }
           : {}),
+        ...(s.attempts ? { attempts: s.attempts } : {}),
+        ...(s.nextAttemptAt ? { nextAttemptAt: iso(s.nextAttemptAt) } : {}),
+        ...(s.leaseHolder && s.leasedUntil && s.leasedUntil > new Date()
+          ? { leaseHolder: s.leaseHolder }
+          : {}),
+        ...(s.lastTickAt ? { lastTickAt: iso(s.lastTickAt) } : {}),
       });
     }
     return { status: "ok", appId: agent.appId, orgs, ...summarize(orgs) };

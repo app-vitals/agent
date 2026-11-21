@@ -665,6 +665,25 @@ const InstallationSyncDetailShape = {
     .string()
     .optional()
     .openapi({ description: "When the GitHub rate limit resets (ISO 8601)." }),
+  attempts: z
+    .number()
+    .int()
+    .optional()
+    .openapi({ description: "Failed refresh attempts; absent when zero." }),
+  nextAttemptAt: z
+    .string()
+    .optional()
+    .openapi({
+      description: "Next refresh attempt while backing off (ISO 8601).",
+    }),
+  leaseHolder: z
+    .string()
+    .optional()
+    .openapi({ description: "Holder of a live refresh lease, if any." }),
+  lastTickAt: z
+    .string()
+    .optional()
+    .openapi({ description: "Last refresh tick on the snapshot (ISO 8601)." }),
 };
 
 const GithubInstallationReposListSchema = z
