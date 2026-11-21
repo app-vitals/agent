@@ -6067,6 +6067,12 @@ export interface components {
                     fullName: string;
                     /** @description Whether the agent's bound GitHub user can push, from cached access rows. Omitted when no username is bound or the org's access data is incomplete (a missing or errored pair is never reported as false). */
                     userCanPush?: boolean;
+                    /** @description When the bound user's access to this repo was last checked (ISO 8601), when a cached row exists. */
+                    accessCheckedAt?: string;
+                    /** @description Failed access checks for this repo since the last success, when any. */
+                    accessAttempts?: number;
+                    /** @description Last access-check error for this repo, when any. */
+                    accessError?: string;
                 }[];
             }[];
         };
@@ -6083,7 +6089,7 @@ export interface components {
             appRemoves?: string[];
             /** @description Configured agent repos the bound user can no longer push to. The agent's repos are never added to. */
             agentRemoves?: string[];
-            /** @description Orgs whose access listing is missing, partial or failed, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed. */
+            /** @description Orgs whose access listing is missing, partial or failed, whose cached access data is incomplete or stale, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed. `reason` says why (for stale data, when it was checked). */
             skippedOrgs?: {
                 org: string;
                 reason: string;

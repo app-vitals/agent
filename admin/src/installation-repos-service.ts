@@ -44,6 +44,12 @@ export interface InstallationRepoView {
   fullName: string;
   /** Present only when the bound user's access to this repo is known. */
   userCanPush?: boolean;
+  /** ISO time the bound user's access to this repo was last checked, when a row exists. */
+  accessCheckedAt?: string;
+  /** Failed access checks for this repo since the last success, when any. */
+  accessAttempts?: number;
+  /** Last access-check error for this repo, when any. */
+  accessError?: string;
 }
 
 /** Sync detail for one org's cached snapshot (all optional, additive). */
@@ -94,6 +100,10 @@ export interface CachedAccessRow {
   repo: string;
   status: string;
   canPush: boolean;
+  level?: string | null;
+  checkedAt?: Date;
+  attempts?: number;
+  lastError?: string | null;
 }
 
 /** The slice of GitHubRepoCacheService the list reads; never calls GitHub. */
@@ -198,6 +208,28 @@ export function userPushHints(
   });
 }
 
+/** Adds per-repo checkedAt / attempts / last error from the cached rows (additive). */
+function withAccessDetail(
+  views: InstallationRepoView[],
+  rows: readonly CachedAccessRow[],
+): InstallationRepoView[] {
+  const byRepo = new Map(rows.map((r) => [r.repo.toLowerCase(), r]));
+  return views.map((v) => {
+    const row = byRepo.get(
+      v.fullName.slice(v.fullName.indexOf("/") + 1).toLowerCase(),
+    );
+    if (!row) return v;
+    return {
+      ...v,
+      ...(row.checkedAt
+        ? { accessCheckedAt: row.checkedAt.toISOString() }
+        : {}),
+      ...(row.attempts ? { accessAttempts: row.attempts } : {}),
+      ...(row.lastError ? { accessError: row.lastError } : {}),
+    };
+  });
+}
+
 const iso = (d: Date | null): string | undefined =>
   d ? d.toISOString() : undefined;
 
@@ -279,7 +311,10 @@ export class InstallationReposService {
             username,
             repos: names.map((f) => f.slice(f.indexOf("/") + 1)),
           });
-          repos = userPushHints({ cachedRows: rows }, s.org, names);
+          repos = withAccessDetail(
+            userPushHints({ cachedRows: rows }, s.org, names),
+            rows,
+          );
         } catch {
           // The hint is advisory: a failed cache read omits it.
         }

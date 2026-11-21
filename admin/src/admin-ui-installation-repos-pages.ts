@@ -42,7 +42,13 @@ export interface InstallationReposView extends InstallationSyncView {
   appId?: number;
   orgs: ({
     org: string;
-    repos: { fullName: string; userCanPush?: boolean }[];
+    repos: {
+      fullName: string;
+      userCanPush?: boolean;
+      accessCheckedAt?: string;
+      accessAttempts?: number;
+      accessError?: string;
+    }[];
   } & InstallationSyncView)[];
 }
 
@@ -310,7 +316,19 @@ export function renderInstallationReposBody(
                       : r.userCanPush
                         ? '<span class="badge badge-green" title="The bound user can push">user can push</span>'
                         : '<span class="badge badge-warning" title="The bound user cannot push">user cannot push</span>';
-                  return `<tr><td class="mono">${escapeHtml(r.fullName)}</td><td>${hint}</td></tr>`;
+                  const detail = [
+                    r.accessCheckedAt
+                      ? `checked ${escapeHtml(r.accessCheckedAt)}`
+                      : "",
+                    r.accessAttempts
+                      ? `${r.accessAttempts} failed attempts`
+                      : "",
+                    r.accessError ? `error: ${escapeHtml(r.accessError)}` : "",
+                  ].filter(Boolean);
+                  const meta = detail.length
+                    ? ` <span style="color:#6b7280;font-size:12px">${detail.join("; ")}</span>`
+                    : "";
+                  return `<tr><td class="mono">${escapeHtml(r.fullName)}</td><td>${hint}${meta}</td></tr>`;
                 })
                 .join("");
         return `<div class="github-installation-org" data-org="${escapeHtml(o.org)}" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:6px">${escapeHtml(o.org)}</div>${renderInstallationSyncStatus(o)}<table class="detail-table"><thead><tr><th>Repo</th><th>Bound user</th></tr></thead><tbody>${rows}</tbody></table></div>`;
