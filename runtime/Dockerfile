@@ -31,7 +31,7 @@ FROM node:26-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df
 
 # ─── Base: system tooling installed as root ───────────────────────────────────
 
-FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS base
+FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS base
 
 # Install system dependencies:
 #   - git          — required by Claude Code and mise
@@ -138,7 +138,7 @@ COPY --from=node-source /usr/local/lib/node_modules/npm /usr/local/lib/node_modu
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.2.2
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.325
+ARG CLAUDE_CODE_VERSION=2.1.330
 # The trailing check fails the build if the installed CLI doesn't report exactly
 # the pinned version (e.g. a registry/tag mismatch), so a drifted image can't ship.
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
