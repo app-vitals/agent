@@ -11,11 +11,14 @@
  * dynamic value is escaped. Inputs carry repo names and ids only.
  */
 
+import type { components } from "@app-vitals/agent-lib/admin-types";
 import { escapeHtml } from "./admin-ui-styles.ts";
 import {
   MAX_UNCONFIRMED_REMOVALS,
   MISSING_APP_ID_REASON,
 } from "./installation-ports.ts";
+
+type SkipDetail = components["schemas"]["GithubSyncOrgSkipDetail"];
 
 export interface OpenWorkView {
   id: string;
@@ -177,7 +180,7 @@ export interface GithubSyncPreviewView {
   appAdds?: string[];
   appRemoves?: string[];
   agentRemoves?: string[];
-  skippedOrgs?: { org: string; reason: string }[];
+  skippedOrgs?: { org: string; reason: string; detail?: SkipDetail }[];
   openWork?: OpenWorkView[];
   warnings?: string[];
 }
@@ -190,7 +193,7 @@ export interface GithubSyncApplyView {
   appRemoves?: string[];
   agentRemoves?: string[];
   notApplied?: { repo: string; reason: string }[];
-  skippedOrgs?: { org: string; reason: string }[];
+  skippedOrgs?: { org: string; reason: string; detail?: SkipDetail }[];
   warnings?: string[];
 }
 
@@ -415,12 +418,59 @@ const repoList = (kind: string, title: string, repos: readonly string[]) =>
     ? ""
     : `<div data-list="${kind}" style="margin-top:8px"><div style="font-weight:600">${escapeHtml(title)} (${repos.length})</div><ul style="margin:4px 0 0 18px">${repos.map((r) => `<li class="mono">${escapeHtml(r)}</li>`).join("")}</ul></div>`;
 
+const plural = (n: number, one: string, many: string) =>
+  `${n} ${n === 1 ? one : many}`;
+
+/** One readable sentence-list describing why an org's cached access was skipped. */
+function skipDetailText(d: SkipDetail): string {
+  const out: string[] = [];
+  const crawls = d.crawls ?? [];
+  const failed = crawls.filter((c) => c.lastError);
+  if (d.lookupSnapshotFound === false) {
+    out.push("Lookup crawl not found for this App");
+  } else if (failed.length > 0) {
+    for (const c of failed) {
+      out.push(
+        `Lookup crawl failed: ${c.lastError}${c.rateLimitResetAt ? `; next attempt ${c.rateLimitResetAt}` : ""}`,
+      );
+    }
+  } else if (crawls.some((c) => c.completedAt === null)) {
+    out.push("Lookup crawl not complete yet");
+  } else if (crawls.length > 0) {
+    out.push(
+      `Lookup crawl complete${d.totalRepos === undefined ? "" : ` (${plural(d.totalRepos, "repo", "repos")})`}`,
+    );
+  }
+  if (d.reposMissingAnswer) {
+    out.push(
+      `${plural(d.reposMissingAnswer, "repo has", "repos have")} no access answer yet`,
+    );
+  }
+  if (d.errorRows) out.push(`${plural(d.errorRows, "repo", "repos")} errored`);
+  if (d.terminalRows) {
+    out.push(
+      `${plural(d.terminalRows, "repo", "repos")} gave up${d.maxAttempts ? ` (max ${d.maxAttempts} attempts)` : ""}`,
+    );
+  }
+  if (d.rowErrors?.length) out.push(`Row errors: ${d.rowErrors.join("; ")}`);
+  if (d.oldestCheckedAt) out.push(`Oldest check ${d.oldestCheckedAt}`);
+  return out
+    .map((x) => `${x}.`)
+    .join(" ")
+    .replace(/\.\.$/, ".");
+}
+
 const skippedOrgsHtml = (
-  skipped: readonly { org: string; reason: string }[],
+  skipped: readonly { org: string; reason: string; detail?: SkipDetail }[],
 ) =>
   skipped.length === 0
     ? ""
-    : `<div class="alert alert-warning" data-skipped-orgs="1"><div style="font-weight:600">Skipped orgs (nothing added or removed there)</div>${skipped.map((s) => `<div><span class="mono">${escapeHtml(s.org)}</span>: ${escapeHtml(s.reason)}</div>`).join("")}</div>`;
+    : `<div class="alert alert-warning" data-skipped-orgs="1"><div style="font-weight:600">Skipped orgs (nothing added or removed there)</div>${skipped
+        .map((s) => {
+          const text = s.detail ? skipDetailText(s.detail) : "";
+          return `<div><span class="mono">${escapeHtml(s.org)}</span>: ${escapeHtml(s.reason)}${text ? `<div class="muted" data-skip-detail="1" style="font-size:0.9em">${escapeHtml(text)}</div>` : ""}</div>`;
+        })
+        .join("")}</div>`;
 
 /**
  * The single confirm step of Sync: the installation adds, installation

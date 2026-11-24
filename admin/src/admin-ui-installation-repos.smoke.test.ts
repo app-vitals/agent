@@ -305,6 +305,30 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
       expect(html.match(/id="github-sync-confirm-btn"/g)?.length).toBe(1);
     });
 
+    it("renders skipped-org detail in the preview", async () => {
+      const { app } = setup({
+        agentsApi: () =>
+          json({
+            ...PREVIEW,
+            skippedOrgs: [
+              {
+                org: "zed",
+                reason: "access listing is incomplete",
+                detail: {
+                  lookupSnapshotFound: true,
+                  crawls: [{ completedAt: "2026-01-01T00:00:00.000Z" }],
+                  totalRepos: 31,
+                  reposMissingAnswer: 30,
+                },
+              },
+            ],
+          }),
+      });
+      const html = await (await get(app, "/github-sync/confirm")).text();
+      expect(html).toContain("Lookup crawl complete (31 repos).");
+      expect(html).toContain("30 repos have no access answer yet.");
+    });
+
     it("shows the reason for a skipped preview", async () => {
       const { app } = setup({
         agentsApi: () => json({ status: "skipped", reason: "user not found" }),
