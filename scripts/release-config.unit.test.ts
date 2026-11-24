@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+// @ts-expect-error -- the analyzer ships no type declarations
+import { analyzeCommits } from "@semantic-release/commit-analyzer";
 
 const root = join(import.meta.dir, "..");
 const lock = readFileSync(join(root, "bun.lock"), "utf8");
@@ -44,4 +46,43 @@ describe("release changelog preset", () => {
       releasedLabels: false,
     });
   });
+});
+
+describe("release rules", () => {
+  const rc = JSON.parse(readFileSync(join(root, ".releaserc.json"), "utf8"));
+  const analyzer = rc.plugins.find(
+    (p: unknown) =>
+      Array.isArray(p) && p[0] === "@semantic-release/commit-analyzer",
+  )[1];
+
+  const releaseFor = async (message: string) => {
+    return analyzeCommits(analyzer, {
+      cwd: root,
+      commits: [{ hash: "abc123", message }],
+      logger: { log() {} },
+    });
+  };
+
+  test.each([
+    ["feat: add a thing", "minor"],
+    ["fix: repair a thing", "patch"],
+    ["perf: speed up a thing", "patch"],
+    ["refactor(admin): mount routes from one function", "patch"],
+    ["build: bump the base image", "patch"],
+    ['revert: revert "feat: add a thing"', "patch"],
+    ["feat!: drop the old api", "major"],
+    ["fix: change a thing\n\nBREAKING CHANGE: the shape changed", "major"],
+    ["docs: refresh docs", null],
+    ["test: cover a thing", null],
+    ["ci: tweak a workflow", null],
+    ["style: format", null],
+    ["chore: tidy", null],
+    ["chore(deps): bump a dep", null],
+  ])(
+    "%s -> %s",
+    async (message, expected) => {
+      expect(await releaseFor(message)).toBe(expected);
+    },
+    30_000,
+  );
 });

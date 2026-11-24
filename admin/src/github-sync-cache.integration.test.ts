@@ -4,11 +4,13 @@ import {
   envWith,
   fakePrisma,
   freshCache,
+  withLookupSnapshots,
 } from "./github-installation.fixtures.ts";
 import {
   createGithubInstallationRepos,
   createGithubSync,
 } from "./github-installation-wiring.ts";
+import type { GitHubEnterpriseAppMetadata } from "./github-enterprise-apps.ts";
 import type { InstallationReposPort } from "./installation-repos-service.ts";
 
 // Sync preview over the real cache service (fake prisma): complete, partial, stale.
@@ -130,5 +132,59 @@ describe("installation list access detail", () => {
       accessError: "boom",
     });
     expect(repos[1]?.userCanPush).toBeUndefined();
+  });
+});
+
+// A null-account agent: the lookup App's crawl is filed under the deployment-wide key.
+describe("sync preview for a null-account agent over the real lookup read", () => {
+  it("is not skipped and proposes the expected adds from a complete, fresh cache", async () => {
+    const now = new Date();
+    const pushable = ["acme/a", "acme/b"];
+    const cache = freshCache("acme", REPOS, pushable, now);
+    const { prisma, state } = fakePrisma(REPOS, cache);
+    withLookupSnapshots(prisma, [
+      {
+        accountId: "deployment",
+        appRef: "77",
+        org: "acme",
+        completedAt: new Date(now.getTime() - 1000),
+        repos: REPOS.map((fullName) => ({ fullName })),
+      },
+    ]);
+    const svc = createGithubSync({
+      prisma,
+      appService: {
+        get: async () =>
+          ({
+            accountId: null,
+            appId: "77",
+            updatedAt: now,
+          }) as unknown as GitHubEnterpriseAppMetadata,
+        getPrivateKey: async () => "test-key",
+      },
+      access: accessFor([]), // the live resolver must not be consulted
+      agentEnv: envWith({ GH_APP_ID: "42" }),
+      // The agent App has only acme/a installed; acme/b is pushable but not added yet.
+      installationRepos: {
+        listRepos: async () => ({ acme: ["acme/a"] }),
+        listInstalled: async () => ({
+          status: "found",
+          orgs: [{ org: "acme", repos: ["acme/a"] }],
+        }),
+        addRepos: async () => {},
+        removeRepos: async () => {},
+      },
+      now: () => now,
+    });
+    const r = await svc.preview("a1");
+    if (r.status !== "previewed") throw new Error(r.status);
+    expect(r.plan.skippedOrgs).toEqual([]);
+    expect(r.plan.appAdds).toEqual(["acme/b"]);
+    const lookupQueries = state.snapshotQueries.filter(
+      (q) => (q as { where: { appKind?: string } }).where.appKind === "lookup",
+    );
+    expect(lookupQueries).toMatchObject([
+      { where: { accountId: { in: ["deployment"] } } },
+    ]);
   });
 });
