@@ -188,3 +188,64 @@ describe("sync preview for a null-account agent over the real lookup read", () =
     ]);
   });
 });
+
+// The refresher checks no access for an archived repo nobody configured, so the
+// sync must neither require a row for it nor treat the missing row as no access.
+describe("sync preview with archived repos over the real lookup read", () => {
+  it("leaves archived repos alone and still uses the org", async () => {
+    const now = new Date();
+    // Access rows exist only for the two non-archived repos.
+    const cache = freshCache(
+      "acme",
+      ["acme/a", "acme/b"],
+      ["acme/a", "acme/b"],
+      now,
+    );
+    const { prisma } = fakePrisma(["acme/a"], cache);
+    withLookupSnapshots(prisma, [
+      {
+        accountId: "deployment",
+        appRef: "77",
+        org: "acme",
+        completedAt: new Date(now.getTime() - 1000),
+        repos: [
+          { fullName: "acme/a" },
+          { fullName: "acme/b" },
+          { fullName: "acme/old", archived: true },
+          { fullName: "acme/frozen", archived: true },
+        ],
+      },
+    ]);
+    const svc = createGithubSync({
+      prisma,
+      appService: {
+        get: async () =>
+          ({
+            accountId: null,
+            appId: "77",
+            updatedAt: now,
+          }) as unknown as GitHubEnterpriseAppMetadata,
+        getPrivateKey: async () => "test-key",
+      },
+      access: accessFor([]), // the live resolver must not be consulted
+      agentEnv: envWith({ GH_APP_ID: "42" }),
+      // acme/old is archived and already on the installation.
+      installationRepos: {
+        listRepos: async () => ({ acme: ["acme/a", "acme/old"] }),
+        listInstalled: async () => ({
+          status: "found",
+          orgs: [{ org: "acme", repos: ["acme/a", "acme/old"] }],
+        }),
+        addRepos: async () => {},
+        removeRepos: async () => {},
+      },
+      now: () => now,
+    });
+    const r = await svc.preview("a1");
+    if (r.status !== "previewed") throw new Error(r.status);
+    expect(r.plan.skippedOrgs).toEqual([]);
+    expect(r.plan.appAdds).toEqual(["acme/b"]);
+    expect(r.plan.appRemoves).toEqual([]);
+    expect(r.plan.removedRepos).toEqual([]);
+  });
+});

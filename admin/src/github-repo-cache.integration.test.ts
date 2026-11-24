@@ -82,6 +82,38 @@ describeOrSkip("GitHubRepoCacheService (integration)", () => {
     ]);
   });
 
+  it("excludeArchived leaves archived repos out of the list", async () => {
+    const snap = await svc.upsertSnapshot(key);
+    await svc.upsertRepos(snap.id, [
+      { githubId: 1, fullName: "acme/api" },
+      { githubId: 2, fullName: "acme/old", archived: true },
+    ]);
+    expect(await svc.listRepoFullNames(snap.id)).toEqual([
+      "acme/api",
+      "acme/old",
+    ]);
+    expect(
+      await svc.listRepoFullNames(snap.id, { excludeArchived: true }),
+    ).toEqual(["acme/api"]);
+  });
+
+  it("lookup org snapshots carry each repo's archived flag", async () => {
+    const snap = await svc.upsertSnapshot(key);
+    await svc.upsertRepos(snap.id, [
+      { githubId: 1, fullName: "acme/api" },
+      { githubId: 2, fullName: "acme/old", archived: true },
+    ]);
+    const [org] = await svc.listLookupOrgSnapshots([key.accountId], key.appRef);
+    expect(
+      [...(org?.repos ?? [])].sort((a, b) =>
+        a.fullName.localeCompare(b.fullName),
+      ),
+    ).toEqual([
+      { fullName: "acme/api", archived: false },
+      { fullName: "acme/old", archived: true },
+    ]);
+  });
+
   it("sweep deletes only rows seen before crawlStartedAt", async () => {
     const snap = await svc.upsertSnapshot(key, { crawlStartedAt: min(10) });
     await svc.upsertRepos(

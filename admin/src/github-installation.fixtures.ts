@@ -133,7 +133,7 @@ export interface FakeLookupSnapshot {
   appRef: string;
   org: string;
   completedAt: Date;
-  repos: { fullName: string }[];
+  repos: { fullName: string; archived?: boolean }[];
 }
 
 /**

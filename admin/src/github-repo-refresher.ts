@@ -127,7 +127,10 @@ export interface RefreshStore extends AccessBackfillStore {
     ttlMs: number,
   ): Promise<boolean>;
   releaseLease(snapshotId: string, holder: string): Promise<void>;
-  listRepoFullNames(snapshotId: string): Promise<string[]>;
+  listRepoFullNames(
+    snapshotId: string,
+    opts?: { excludeArchived?: boolean },
+  ): Promise<string[]>;
 }
 
 /** What a crawl or backfill step reported. */
@@ -441,9 +444,33 @@ export class GithubRepoRefresher {
     return { target, snapshot, steps };
   }
 
+  /**
+   * The repos whose access the backfill checks: the snapshot's non-archived
+   * repos, plus any archived repo an agent bound to one of the target's users
+   * has configured (GitHub Sync still needs an answer for those). Archived
+   * repos are read-only, so checking every one of them is wasted calls.
+   */
   private async repoNames(target: RefreshTarget, snapshotId: string) {
     const prefix = `${target.key.org.toLowerCase()}/`;
-    return (await this.deps.store.listRepoFullNames(snapshotId))
+    const { store } = this.deps;
+    const configured = new Set(
+      (target.access?.users ?? []).flatMap((u) =>
+        (u.configuredRepos ?? []).map((r) => r.toLowerCase()),
+      ),
+    );
+    const active = await store.listRepoFullNames(snapshotId, {
+      excludeArchived: true,
+    });
+    let names = active;
+    if (configured.size > 0) {
+      const activeSet = new Set(active);
+      names = (await store.listRepoFullNames(snapshotId)).filter(
+        (n) =>
+          activeSet.has(n) ||
+          configured.has(n.slice(n.indexOf("/") + 1).toLowerCase()),
+      );
+    }
+    return names
       .filter((n) => n.toLowerCase().startsWith(prefix))
       .map((n) => n.slice(prefix.length));
   }
