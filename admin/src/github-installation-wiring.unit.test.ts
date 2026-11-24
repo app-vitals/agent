@@ -5,11 +5,13 @@ import {
   fakeOpenWork,
   fakePrisma,
   freshCache,
+  withLookupSnapshots,
 } from "./github-installation.fixtures.ts";
 import {
   createGithubInstallationRepos,
   createGithubSync,
 } from "./github-installation-wiring.ts";
+import type { GitHubEnterpriseAppMetadata } from "./github-enterprise-apps.ts";
 import type { InstallationReposPort } from "./installation-repos-service.ts";
 
 const noApp = { get: async () => null, getPrivateKey: async () => null };
@@ -167,5 +169,93 @@ describe("createGithubSync", () => {
     expect(res.status).toBe("noop");
     expect(verified).toEqual(["acme/old"]);
     expect(state.repos).toEqual(ALL);
+  });
+});
+
+describe("createGithubSync lookup snapshot read", () => {
+  const ALL = ["acme/old", "acme/api"];
+  const now = new Date();
+  // A real lookupRepos (no syncOverrides): the lookup App's snapshots are read
+  // from the cache under the agent's account key, plus the deployment-wide key.
+  const build = (
+    lookupAccountId: string | null,
+    lookupRows: Parameters<typeof withLookupSnapshots>[1],
+    agentAccountId?: string,
+  ) => {
+    const { prisma, state } = fakePrisma(
+      ALL,
+      freshCache("acme", ALL, ["acme/api"], now),
+    );
+    if (agentAccountId !== undefined) {
+      (
+        prisma.agent as unknown as { findUnique: () => Promise<unknown> }
+      ).findUnique = async () => ({
+        id: "a1",
+        repos: state.repos,
+        githubUsername: "dev",
+        accountId: agentAccountId,
+      });
+    }
+    withLookupSnapshots(prisma, lookupRows);
+    const svc = createGithubSync({
+      prisma,
+      appService: {
+        get: async () =>
+          ({
+            accountId: lookupAccountId,
+            appId: "99",
+            updatedAt: now,
+          }) as unknown as GitHubEnterpriseAppMetadata,
+        getPrivateKey: async () => "test-key",
+      },
+      access: accessFor(["acme/api"]),
+      agentEnv: envWith({ GH_APP_ID: "42" }),
+      installationRepos: portWith([], ALL),
+      now: () => now,
+    });
+    return { svc, state };
+  };
+  const lookupAcme = (accountId: string) => ({
+    accountId,
+    appRef: "99",
+    org: "acme",
+    completedAt: now,
+    repos: ALL.map((fullName) => ({ fullName })),
+  });
+
+  it('a null-account agent finds the lookup snapshot filed under "deployment"', async () => {
+    const { svc, state } = build(null, [lookupAcme("deployment")]);
+    const preview = await svc.preview("a1");
+    if (preview.status !== "previewed") throw new Error(preview.status);
+    // The org is complete and fresh, so it is not skipped for missing lookup data.
+    expect(preview.plan.skippedOrgs).toEqual([]);
+    const lookupQueries = state.snapshotQueries.filter(
+      (q) => (q as { where: { appKind?: string } }).where.appKind === "lookup",
+    );
+    expect(lookupQueries).toMatchObject([
+      { where: { accountId: { in: ["deployment"] }, appRef: "99" } },
+    ]);
+  });
+
+  it("an account-scoped agent reads its own account's and the deployment-wide lookup snapshots", async () => {
+    const { svc, state } = build("acct-1", [lookupAcme("acct-1")], "acct-1");
+    const preview = await svc.preview("a1");
+    if (preview.status !== "previewed") throw new Error(preview.status);
+    expect(preview.plan.skippedOrgs).toEqual([]);
+    const lookupQueries = state.snapshotQueries.filter(
+      (q) => (q as { where: { appKind?: string } }).where.appKind === "lookup",
+    );
+    expect(lookupQueries).toMatchObject([
+      { where: { accountId: { in: ["acct-1", "deployment"] }, appRef: "99" } },
+    ]);
+  });
+
+  it("with no lookup snapshot under the agent's key, the org is skipped as incomplete", async () => {
+    const { svc } = build(null, [lookupAcme("some-other-account")]);
+    const preview = await svc.preview("a1");
+    if (preview.status !== "previewed") throw new Error(preview.status);
+    expect(preview.plan.skippedOrgs).toEqual([
+      { org: "acme", reason: "access data is incomplete" },
+    ]);
   });
 });

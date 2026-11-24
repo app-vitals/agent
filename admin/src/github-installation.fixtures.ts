@@ -126,3 +126,45 @@ export const envWith = (env?: Record<string, string>) => ({
   getConfigBundle: async (agentId: string) =>
     env ? { env, agentId, allowedTools: [] } : null,
 });
+
+/** A lookup-App snapshot row as the crawler files it, keyed by its SnapshotKey accountId. */
+export interface FakeLookupSnapshot {
+  accountId: string;
+  appRef: string;
+  org: string;
+  completedAt: Date;
+  repos: { fullName: string }[];
+}
+
+/**
+ * Serves `appKind: "lookup"` reads from `rows` honouring the `accountId.in`
+ * and `appRef` filters, so a wrong account key returns nothing. Other reads
+ * fall through to the fake's own snapshot rows.
+ */
+export function withLookupSnapshots(
+  prisma: PrismaClient,
+  rows: FakeLookupSnapshot[],
+) {
+  const snapshots = prisma.gitHubRepoSnapshot as unknown as {
+    findMany: (args: unknown) => Promise<unknown[]>;
+  };
+  const base = snapshots.findMany;
+  snapshots.findMany = async (args: unknown) => {
+    const where = (
+      args as {
+        where: {
+          accountId?: { in: string[] };
+          appKind?: string;
+          appRef?: string;
+        };
+      }
+    ).where;
+    if (where.appKind !== "lookup") return base(args);
+    await base(args);
+    return rows.filter(
+      (r) =>
+        where.accountId?.in.includes(r.accountId) && r.appRef === where.appRef,
+    );
+  };
+  return prisma;
+}
