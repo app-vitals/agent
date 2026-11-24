@@ -485,7 +485,7 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
         );
         expect(html).toContain('data-installation-sync="complete"');
         expect(html).toContain("2 of 2 repos");
-        expect(html).toContain("2026-11-20");
+        expect(html).toContain("Synced Nov 20, 2:00 AM PST");
         expect(html).toContain('id="repos-uncovered-warning"');
         // The page reads the cached view only: no GitHub-backed route.
         expect(
@@ -514,7 +514,7 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
         );
         expect(html).toContain("GitHub said &lt;no&gt;");
         expect(html).toContain("rate limit resets");
-        expect(html).toContain("2026-11-20");
+        expect(html).toContain("resets Nov 20, 3:00 AM PST");
         expect(html).not.toContain("repos-uncovered-warning");
       });
 

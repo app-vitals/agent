@@ -7,6 +7,7 @@ import { describe, expect, it } from "bun:test";
 import {
   APP_ID_MISMATCH_MESSAGE,
   actuallyBlockedWork,
+  formatSyncTime,
   NO_USERNAME_REASON,
   renderGithubSyncCard,
   renderInstallationReposBody,
@@ -376,7 +377,7 @@ describe("skipped-org detail", () => {
       ],
     });
     expect(line(html)).toBe(
-      "Lookup crawl failed: rate limited; next attempt 2026-01-01T01:00:00.000Z.",
+      "Lookup crawl failed: rate limited; next attempt 2026-01-01 01:00 UTC.",
     );
   });
 
@@ -404,7 +405,7 @@ describe("skipped-org detail", () => {
     expect(t).toContain("2 repos errored.");
     expect(t).toContain("1 repo gave up (max 4 attempts).");
     expect(t).toContain("Row errors: boom; bang.");
-    expect(t).toContain("Oldest check 2025-12-01T00:00:00.000Z.");
+    expect(t).toContain("Oldest check 2025-12-01 00:00 UTC.");
   });
 
   it("escapes lastError, rowErrors and org", () => {
@@ -480,5 +481,92 @@ describe("renderInstallationSyncStatus debug detail", () => {
 
   it("renders nothing for an older API with no detail", () => {
     expect(renderInstallationSyncStatus({})).toBe("");
+  });
+});
+
+describe("installation sync timestamps in the admin timezone", () => {
+  const PT = "America/Los_Angeles";
+
+  it("formats Pacific time with the zone abbreviation (PST)", () => {
+    expect(formatSyncTime("2026-11-24T01:02:00.000Z", PT)).toBe(
+      "Nov 23, 5:02 PM PST",
+    );
+  });
+
+  it("uses PDT on the summer side of the DST boundary", () => {
+    expect(formatSyncTime("2026-03-08T09:59:00.000Z", PT)).toBe(
+      "Mar 8, 1:59 AM PST",
+    );
+    expect(formatSyncTime("2026-03-08T10:00:00.000Z", PT)).toBe(
+      "Mar 8, 3:00 AM PDT",
+    );
+    expect(formatSyncTime("2026-11-01T08:59:00.000Z", PT)).toBe(
+      "Nov 1, 1:59 AM PDT",
+    );
+    expect(formatSyncTime("2026-11-01T09:00:00.000Z", PT)).toBe(
+      "Nov 1, 1:00 AM PST",
+    );
+  });
+
+  it("falls back to labelled UTC when no timezone is set", () => {
+    expect(formatSyncTime("2026-11-24T01:02:00.000Z")).toBe(
+      "2026-11-24 01:02 UTC",
+    );
+  });
+
+  it("renders the sync status line in the timezone", () => {
+    const html = renderInstallationSyncStatus(
+      {
+        complete: false,
+        syncedAt: "2026-11-24T01:02:00.000Z",
+        rateLimitResetAt: "2026-11-24T02:00:00.000Z",
+        nextAttemptAt: "2026-11-24T02:30:00.000Z",
+        lastTickAt: "2026-11-24T01:00:00.000Z",
+      },
+      PT,
+    );
+    expect(html).toContain("Synced Nov 23, 5:02 PM PST");
+    expect(html).toContain("GitHub rate limit resets Nov 23, 6:00 PM PST");
+    expect(html).toContain("Next attempt Nov 23, 6:30 PM PST");
+    expect(html).toContain("Last tick Nov 23, 5:00 PM PST");
+    expect(html).not.toContain("UTC");
+  });
+
+  it("keeps UTC in the sync status line when unset", () => {
+    expect(
+      renderInstallationSyncStatus({
+        complete: true,
+        syncedAt: "2026-11-24T01:02:00.000Z",
+      }),
+    ).toContain("Synced 2026-11-24 01:02 UTC");
+  });
+
+  it("renders skipped-org detail times in the timezone", () => {
+    const html = renderSyncConfirm(
+      "a1",
+      {
+        status: "previewed",
+        appAdds: ["acme/new"],
+        skippedOrgs: [
+          {
+            org: "zed",
+            reason: "access listing is incomplete",
+            detail: {
+              crawls: [
+                {
+                  completedAt: null,
+                  lastError: "rate limited",
+                  rateLimitResetAt: "2026-11-24T01:02:00.000Z",
+                },
+              ],
+              oldestCheckedAt: "2026-07-01T19:00:00.000Z",
+            },
+          },
+        ],
+      } as never,
+      PT,
+    );
+    expect(html).toContain("next attempt Nov 23, 5:02 PM PST");
+    expect(html).toContain("Oldest check Jul 1, 12:00 PM PDT");
   });
 });

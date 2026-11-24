@@ -72,20 +72,43 @@ const hasSyncDetail = (v: InstallationSyncView): boolean =>
   v.leaseHolder !== undefined ||
   v.lastTickAt !== undefined;
 
-const utc = (iso: string): string =>
-  `${escapeHtml(iso.slice(0, 16).replace("T", " "))} UTC`;
+/**
+ * Display text for a UTC ISO instant: "Nov 23, 5:02 PM PST" in the given IANA
+ * timezone, or "2026-11-23 17:02 UTC" when none is set. Unparseable input is
+ * returned as-is. Not HTML-escaped.
+ */
+export function formatSyncTime(iso: string, timezone?: string): string {
+  const d = new Date(iso);
+  if (!timezone || Number.isNaN(d.getTime())) {
+    return `${iso.slice(0, 16).replace("T", " ")} UTC`;
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(d);
+}
+
+const fmt = (iso: string, timezone?: string): string =>
+  escapeHtml(formatSyncTime(iso, timezone));
 
 /**
  * One-line sync status: synced-at, "N of M repos", last error and the rate-limit
  * reset. Empty when the view has no sync detail (older API).
  */
-export function renderInstallationSyncStatus(v: InstallationSyncView): string {
+export function renderInstallationSyncStatus(
+  v: InstallationSyncView,
+  timezone?: string,
+): string {
   if (!hasSyncDetail(v)) return "";
   const complete = installationSnapshotComplete(v);
   const parts: string[] = [];
   parts.push(
     v.syncedAt
-      ? `Synced ${escapeHtml(v.syncedAt.slice(0, 16).replace("T", " "))} UTC`
+      ? `Synced ${fmt(v.syncedAt, timezone)}`
       : complete
         ? "Synced"
         : "Sync in progress",
@@ -99,18 +122,17 @@ export function renderInstallationSyncStatus(v: InstallationSyncView): string {
   }
   if (v.lastError) parts.push(`Last error: ${escapeHtml(v.lastError)}`);
   if (v.rateLimitResetAt) {
-    parts.push(
-      `GitHub rate limit resets ${escapeHtml(v.rateLimitResetAt.slice(0, 16).replace("T", " "))} UTC`,
-    );
+    parts.push(`GitHub rate limit resets ${fmt(v.rateLimitResetAt, timezone)}`);
   }
   if (v.attempts) {
     parts.push(
       `${v.attempts} failed ${v.attempts === 1 ? "attempt" : "attempts"}`,
     );
   }
-  if (v.nextAttemptAt) parts.push(`Next attempt ${utc(v.nextAttemptAt)}`);
+  if (v.nextAttemptAt)
+    parts.push(`Next attempt ${fmt(v.nextAttemptAt, timezone)}`);
   if (v.leaseHolder) parts.push(`Refreshing (${escapeHtml(v.leaseHolder)})`);
-  if (v.lastTickAt) parts.push(`Last tick ${utc(v.lastTickAt)}`);
+  if (v.lastTickAt) parts.push(`Last tick ${fmt(v.lastTickAt, timezone)}`);
   const cls = v.lastError || v.rateLimitResetAt ? "alert alert-warning" : "";
   return `<div class="${cls}" data-installation-sync="${complete ? "complete" : "incomplete"}" style="color:#6b7280;font-size:12px;margin:8px 0">${parts.join(" &middot; ")}</div>`;
 }
@@ -290,9 +312,9 @@ export function renderGithubSyncCard(
 /** The card body: read-only repos per org with the user-can-push hint (only when known). */
 export function renderInstallationReposBody(
   view: InstallationReposView,
-  opts: { appIdMismatch?: boolean } = {},
+  opts: { appIdMismatch?: boolean; timezone?: string } = {},
 ): string {
-  const sync = renderInstallationSyncStatus(view);
+  const sync = renderInstallationSyncStatus(view, opts.timezone);
   if (view.orgs.length === 0 || view.orgs.every((o) => o.repos.length === 0)) {
     if (opts.appIdMismatch) {
       return `${sync}<div class="alert alert-warning" data-reason="app-id-mismatch">${escapeHtml(APP_ID_MISMATCH_MESSAGE)}</div>`;
@@ -334,7 +356,7 @@ export function renderInstallationReposBody(
                   return `<tr><td class="mono">${escapeHtml(r.fullName)}</td><td>${hint}${meta}</td></tr>`;
                 })
                 .join("");
-        return `<div class="github-installation-org" data-org="${escapeHtml(o.org)}" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:6px">${escapeHtml(o.org)}</div>${renderInstallationSyncStatus(o)}<table class="detail-table"><thead><tr><th>Repo</th><th>Bound user</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        return `<div class="github-installation-org" data-org="${escapeHtml(o.org)}" style="margin-bottom:16px"><div style="font-weight:600;margin-bottom:6px">${escapeHtml(o.org)}</div>${renderInstallationSyncStatus(o, opts.timezone)}<table class="detail-table"><thead><tr><th>Repo</th><th>Bound user</th></tr></thead><tbody>${rows}</tbody></table></div>`;
       })
       .join("")
   );
@@ -422,7 +444,7 @@ const plural = (n: number, one: string, many: string) =>
   `${n} ${n === 1 ? one : many}`;
 
 /** One readable sentence-list describing why an org's cached access was skipped. */
-function skipDetailText(d: SkipDetail): string {
+function skipDetailText(d: SkipDetail, timezone?: string): string {
   const out: string[] = [];
   const crawls = d.crawls ?? [];
   const failed = crawls.filter((c) => c.lastError);
@@ -431,7 +453,7 @@ function skipDetailText(d: SkipDetail): string {
   } else if (failed.length > 0) {
     for (const c of failed) {
       out.push(
-        `Lookup crawl failed: ${c.lastError}${c.rateLimitResetAt ? `; next attempt ${c.rateLimitResetAt}` : ""}`,
+        `Lookup crawl failed: ${c.lastError}${c.rateLimitResetAt ? `; next attempt ${formatSyncTime(c.rateLimitResetAt, timezone)}` : ""}`,
       );
     }
   } else if (crawls.some((c) => c.completedAt === null)) {
@@ -453,7 +475,8 @@ function skipDetailText(d: SkipDetail): string {
     );
   }
   if (d.rowErrors?.length) out.push(`Row errors: ${d.rowErrors.join("; ")}`);
-  if (d.oldestCheckedAt) out.push(`Oldest check ${d.oldestCheckedAt}`);
+  if (d.oldestCheckedAt)
+    out.push(`Oldest check ${formatSyncTime(d.oldestCheckedAt, timezone)}`);
   return out
     .map((x) => `${x}.`)
     .join(" ")
@@ -471,12 +494,13 @@ const withoutSkipWarnings = (
 
 const skippedOrgsHtml = (
   skipped: readonly { org: string; reason: string; detail?: SkipDetail }[],
+  timezone?: string,
 ) =>
   skipped.length === 0
     ? ""
     : `<div class="alert alert-warning" data-skipped-orgs="1"><div style="font-weight:600">Skipped orgs (nothing added or removed there)</div>${skipped
         .map((s) => {
-          const text = s.detail ? skipDetailText(s.detail) : "";
+          const text = s.detail ? skipDetailText(s.detail, timezone) : "";
           return `<div><span class="mono">${escapeHtml(s.org)}</span>: ${escapeHtml(s.reason)}${text ? `<div class="muted" data-skip-detail="1" style="font-size:0.9em">${escapeHtml(text)}</div>` : ""}</div>`;
         })
         .join("")}</div>`;
@@ -490,6 +514,7 @@ const skippedOrgsHtml = (
 export function renderSyncConfirm(
   agentId: string,
   preview: GithubSyncPreviewView,
+  timezone?: string,
 ): string {
   if (preview.status === "skipped") {
     return `<div class="alert alert-warning" data-sync="skipped">Sync was skipped: ${escapeHtml(preview.reason ?? "unknown reason")}</div>`;
@@ -498,7 +523,7 @@ export function renderSyncConfirm(
   const appRemoves = preview.appRemoves ?? [];
   const agentRemoves = preview.agentRemoves ?? [];
   const skippedList = preview.skippedOrgs ?? [];
-  const skipped = skippedOrgsHtml(skippedList);
+  const skipped = skippedOrgsHtml(skippedList, timezone);
   const warnings = warningsHtml(
     withoutSkipWarnings(preview.warnings, skippedList),
   );
@@ -528,20 +553,21 @@ export function renderSyncConfirm(
 export function renderSyncResult(
   result: GithubSyncApplyView,
   blocked: readonly OpenWorkView[],
+  timezone?: string,
 ): string {
   if (result.status === "skipped") {
     return `<div class="alert alert-warning" data-sync="skipped">Sync was skipped: ${escapeHtml(result.reason ?? "unknown reason")}</div>`;
   }
   if (result.status === "noop") {
     const skippedList = result.skippedOrgs ?? [];
-    return `<div class="alert alert-success" data-sync="noop">Nothing was changed.</div>${skippedOrgsHtml(skippedList)}${warningsHtml(withoutSkipWarnings(result.warnings, skippedList))}`;
+    return `<div class="alert alert-success" data-sync="noop">Nothing was changed.</div>${skippedOrgsHtml(skippedList, timezone)}${warningsHtml(withoutSkipWarnings(result.warnings, skippedList))}`;
   }
   const notApplied = result.notApplied ?? [];
   return `<div class="alert alert-success" data-sync="applied">Sync applied. Reload the page to refresh the lists.</div>${repoList("app-adds", "Added to the agent App installation", result.appAdds ?? [])}${repoList("app-removes", "Removed from the agent App installation", result.appRemoves ?? [])}${repoList("agent-removes", "Removed from the agent's repos", result.agentRemoves ?? [])}${
     notApplied.length === 0
       ? ""
       : `<div class="alert alert-warning" data-not-applied="1"><div style="font-weight:600">Left alone</div>${notApplied.map((n) => `<div><span class="mono">${escapeHtml(n.repo)}</span>: ${escapeHtml(n.reason)}</div>`).join("")}</div>`
-  }${skippedOrgsHtml(result.skippedOrgs ?? [])}${renderOpenWorkByRepo(
+  }${skippedOrgsHtml(result.skippedOrgs ?? [], timezone)}${renderOpenWorkByRepo(
     blocked,
     "Open tasks and PRs that were blocked",
     "No open tasks or PRs were blocked.",
