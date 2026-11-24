@@ -32,7 +32,7 @@ Changing one never changes the others.
 
 `GET /agents/{id}/github-access` returns what the bound account can reach: `404` for an unknown agent, `422` when no username is bound, and platform admin only. It uses the lookup App. The org list comes from the installer App's installable orgs when that App is configured, and otherwise from the lookup App's own installations (the installer App is optional). If the lookup App (or its key) is not configured the status is `unconfigured` and GitHub is not called; a login that does not exist on GitHub returns `user_not_found`. The full response shape is in [`agent-api-resources.md`](./agent-api-resources.md#preview-access).
 
-On the agent detail page, admins with the enterprise Apps configured see the GitHub username row and a **Preview access** card that lists reachable repos per org. Responses and logs never contain tokens or keys.
+On the agent detail page, admins with the lookup App configured (the installer App is not needed) see the GitHub username row and a **Preview access** card that lists reachable repos per org. Responses and logs never contain tokens or keys.
 
 ## Levels: what can push
 
