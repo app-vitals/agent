@@ -10,6 +10,7 @@
  * coding/ (AEP-3.2) and are mounted by the coding AdminExtension.
  */
 
+import type { GithubAppsState } from "./github-apps-state.ts";
 import { PROGRESS_LABELS } from "@app-vitals/agent-lib/progress-phases";
 import { getSelfServeSpecialty } from "./account-agent-create.ts";
 import {
@@ -1150,6 +1151,12 @@ export function renderAgentDetailPage(
      */
     githubEnterpriseConfigured?: boolean;
     /**
+     * Which enterprise GitHub Apps are configured (GFU-2.2). Supersedes
+     * githubEnterpriseConfigured (true = "both") when set; absent = neither
+     * App configured, so no GitHub identity cards.
+     */
+    githubAppsState?: GithubAppsState;
+    /**
      * SCT-4.1: a stored Slack config token resolves for this agent's account
      * (its own row, else the deployment default). The xoxpToken fields become
      * optional and say so.
@@ -1704,8 +1711,14 @@ export function renderAgentDetailPage(
     </div>`
     : "";
 
+  const appsState: GithubAppsState | undefined =
+    opts?.githubAppsState ??
+    (opts?.githubEnterpriseConfigured === true ? "both" : undefined);
+  // Username, access preview and the repo-removal flow need the lookup App;
+  // the Sync/Install cards also show for a missing lookup App, to say so.
   const showGithubIdentity =
-    isAdmin && opts?.githubEnterpriseConfigured === true;
+    isAdmin && (appsState === "both" || appsState === "lookup_only");
+  const showGithubCards = isAdmin && appsState !== undefined;
   // IRM-1.7: removing a repo first shows the open work it would block.
   const repoRemovalScript = `<div id="repo-removal-confirm" style="margin-top:12px"></div>
       <script>
@@ -2113,7 +2126,7 @@ export function renderAgentDetailPage(
 
   // One GitHub card: connect actions plus (admin + enterprise GitHub) the
   // Preview access and GitHub sync fragments.
-  const githubCardBody = `${githubConnectActionsHtml}${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubIdentity ? renderGithubSyncCard(agent.id, { hasAppId: "GH_APP_ID" in envVars, githubUsername: agent.githubUsername }) : ""}${showGithubIdentity ? renderGithubInstallCard(agent.id) : ""}`;
+  const githubCardBody = `${githubConnectActionsHtml}${showGithubIdentity ? renderGithubAccessCard(agent.id) : ""}${showGithubCards ? renderGithubSyncCard(agent.id, { hasAppId: "GH_APP_ID" in envVars, githubUsername: agent.githubUsername, ...(appsState === "both" ? {} : { appsState }) }) : ""}${showGithubIdentity ? renderGithubInstallCard(agent.id, appsState) : ""}`;
   const githubSection =
     canManage && githubCardBody.trim() !== ""
       ? `<div class="card">

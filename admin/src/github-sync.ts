@@ -25,6 +25,11 @@
  */
 
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
+import {
+  GITHUB_APPS_STATE_REASONS,
+  type GithubAppsState,
+  type GithubAppsStateFn,
+} from "./github-apps-state.ts";
 import { DEPLOYMENT_WIDE_ACCOUNT_KEY } from "./github-agent-installation-crawler.ts";
 import { DEFAULT_REFRESH_STALENESS_CAP_MS } from "./github-repo-refresher.ts";
 import {
@@ -104,6 +109,8 @@ export interface NotAppliedRepo {
 export interface GithubSyncPlan {
   skipped: boolean;
   skipReason?: string;
+  /** Set when the skip is because an App role is missing (additive). */
+  appsState?: Exclude<GithubAppsState, "both">;
   appAdds: string[];
   appRemoves: string[];
   agentRemoves: string[];
@@ -291,11 +298,17 @@ export interface GithubSyncDeps {
   audit: InstallationAuditPort;
   /** Optional: with none, nothing is listed or blocked. */
   openWork?: OpenWorkPort;
+  /** Optional: which Apps are usable; without both, Sync is skipped with a specific reason. */
+  appsState?: GithubAppsStateFn;
 }
 
 export type GithubSyncPreviewResult =
   | { status: "agent_not_found" }
-  | { status: "skipped"; reason: string }
+  | {
+      status: "skipped";
+      reason: string;
+      appsState?: Exclude<GithubAppsState, "both">;
+    }
   | {
       status: "previewed";
       plan: GithubSyncPlan;
@@ -312,7 +325,11 @@ export interface GithubSyncApplyInput extends SyncLists {
 
 export type GithubSyncApplyResult =
   | { status: "agent_not_found" }
-  | { status: "skipped"; reason: string }
+  | {
+      status: "skipped";
+      reason: string;
+      appsState?: Exclude<GithubAppsState, "both">;
+    }
   | { status: "noop"; plan: GithubSyncPlan }
   | { status: "removal_cap"; plan: GithubSyncPlan; removals: number }
   | {
@@ -341,7 +358,11 @@ export class GithubSyncService {
     if (!agent) return { status: "agent_not_found" };
     const plan = await this.planFor(agent);
     if (plan.skipped) {
-      return { status: "skipped", reason: plan.skipReason ?? "skipped" };
+      return {
+        status: "skipped",
+        reason: plan.skipReason ?? "skipped",
+        ...(plan.appsState ? { appsState: plan.appsState } : {}),
+      };
     }
     const work = await previewRepoRemovalWork(
       this.deps.openWork,
@@ -361,7 +382,11 @@ export class GithubSyncService {
     if (!agent) return { status: "agent_not_found" };
     let plan = await this.planFor(agent, input);
     if (plan.skipped) {
-      return { status: "skipped", reason: plan.skipReason ?? "skipped" };
+      return {
+        status: "skipped",
+        reason: plan.skipReason ?? "skipped",
+        ...(plan.appsState ? { appsState: plan.appsState } : {}),
+      };
     }
     plan = await this.reverifyRemovals(plan, agent);
     if (plan.appAdds.length + plan.removedRepos.length === 0) {
@@ -567,6 +592,15 @@ export class GithubSyncService {
     const username = agent.githubUsername?.trim();
     if (!username) {
       return skippedPlan(accessSkipReason(username, null) as string);
+    }
+    if (this.deps.appsState) {
+      const state = await this.deps.appsState(agent.accountId);
+      if (state !== "both") {
+        return {
+          ...skippedPlan(GITHUB_APPS_STATE_REASONS[state]),
+          appsState: state,
+        };
+      }
     }
     let liveAccess: UserRepoAccessResult | null = null;
     if (!this.deps.cache) {

@@ -103,6 +103,86 @@ describe("selected-repositories installation", () => {
   });
 });
 
+describe("org source", () => {
+  function build(opts: {
+    installer?: string[];
+    lookupInstallations?: string[];
+  }) {
+    const calls: string[] = [];
+    const repos = { one: ["a"], two: ["b"], three: ["c"] } as Record<
+      string,
+      string[]
+    >;
+    const lookup: LookupPort = {
+      getOrgToken: async () => ({
+        token: "t",
+        expiresAt: "x",
+        installationId: 1,
+      }),
+      getUser: async (_o, login) => ({ id: 1, login, type: "User" }),
+      listInstallationRepositories: async (org) =>
+        (repos[org] ?? []).map((n) => repo(org, n)),
+      getCollaboratorPermission: async () => "write",
+    };
+    return {
+      calls,
+      resolver: new UserRepoAccessResolver({
+        ...(opts.installer
+          ? {
+              installer: {
+                listInstallableOrganizations: async () => {
+                  calls.push("installer");
+                  return (opts.installer ?? []).map((login, id) => ({
+                    id,
+                    login,
+                  }));
+                },
+              },
+            }
+          : {}),
+        ...(opts.lookupInstallations
+          ? {
+              lookupInstallations: {
+                listInstallations: async () => {
+                  calls.push("lookup");
+                  return (opts.lookupInstallations ?? []).map((login, id) => ({
+                    id,
+                    login,
+                  }));
+                },
+              },
+            }
+          : {}),
+        lookup,
+        now: () => NOW,
+      }),
+    };
+  }
+
+  it("lookup-only: orgs come from the lookup App installations", async () => {
+    const { resolver, calls } = build({ lookupInstallations: ["one", "two"] });
+    const res = await resolver.resolve("octocat");
+    expect(res.orgs.map((o) => o.org)).toEqual(["one", "two"]);
+    expect(res.outcome).toBe("ok");
+    expect(calls).toEqual(["lookup"]);
+  });
+
+  it("installer configured: the installer's orgs win and lookup is not listed", async () => {
+    const { resolver, calls } = build({
+      installer: ["three"],
+      lookupInstallations: ["one", "two"],
+    });
+    const res = await resolver.resolve("octocat");
+    expect(res.orgs.map((o) => o.org)).toEqual(["three"]);
+    expect(calls).toEqual(["installer"]);
+  });
+
+  it("no org source at all fails loudly", async () => {
+    const { resolver } = build({});
+    await expect(resolver.resolve("octocat")).rejects.toThrow(/org source/);
+  });
+});
+
 describe("canPushForRole", () => {
   const cases: Array<[RepoRole, boolean]> = [
     ["admin", true],

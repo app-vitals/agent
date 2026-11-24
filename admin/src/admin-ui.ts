@@ -137,6 +137,7 @@ import {
   GITHUB_PROVISION_STATE_TTL_SECONDS,
   GithubProvisioningService,
 } from "./github-provisioning-service.ts";
+import type { GithubAppsState } from "./github-apps-state.ts";
 import type { GoogleAuthClient } from "./google-auth-client.ts";
 import {
   type ChatClient,
@@ -2003,33 +2004,35 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     }
   };
 
-  // True only for a platform admin when BOTH the installer and the lookup
-  // enterprise GitHub Apps are configured (GHE-1.3 status) and the agents API
-  // seam is wired. One role alone is not enough: the access preview and Sync
-  // both need the pair.
-  const githubEnterpriseConfigured = async (
+  // Which enterprise GitHub Apps are configured (GHE-1.3 status), for a
+  // platform admin with the agents API seam wired. undefined = nothing to show
+  // (not an admin, seam unwired, status unavailable, or neither App set).
+  // "both": today's behavior. "lookup_only": access preview works, Sync and
+  // installation repos need an installer App. "lookup_missing": the lookup App
+  // is missing (the installer alone cannot preview access or sync).
+  const githubAppsState = async (
     c: Context<AdminUIEnv>,
-  ): Promise<boolean> => {
-    if (!c.var.isAdmin || !githubEnterpriseApi || !agentsApi) return false;
+  ): Promise<GithubAppsState | undefined> => {
+    if (!c.var.isAdmin || !githubEnterpriseApi || !agentsApi) return undefined;
     const res = await callApi(
       c,
       githubEnterpriseApi,
       "/github-enterprise/apps",
     );
-    if (!res?.ok) return false;
+    if (!res?.ok) return undefined;
     try {
       const status = (await res.json()) as {
         configured?: unknown;
         installer?: unknown;
         lookup?: unknown;
       };
-      return (
-        status.configured === true &&
-        status.installer != null &&
-        status.lookup != null
-      );
+      if (status.configured !== true) return undefined;
+      if (status.lookup == null) {
+        return status.installer != null ? "lookup_missing" : undefined;
+      }
+      return status.installer != null ? "both" : "lookup_only";
     } catch {
-      return false;
+      return undefined;
     }
   };
 
@@ -2544,7 +2547,8 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
 
     // IRM-1.4: the repos the agent App's installation covers, for the repos
     // list's coverage warning. Best effort: unknown means no warning.
-    const enterpriseConfigured = await githubEnterpriseConfigured(c);
+    const appsState = await githubAppsState(c);
+    const enterpriseConfigured = appsState === "both";
     let installationRepos: string[] | undefined;
     let installationSync: InstallationSyncView | undefined;
     if (
@@ -2604,7 +2608,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
           configurationCardsHtml: cards.configuration,
           queueActivityLinks: deps.queueActivityLinks,
           marketplaces,
-          githubEnterpriseConfigured: enterpriseConfigured,
+          ...(appsState ? { githubAppsState: appsState } : {}),
           slackConfigTokenStored: await hasStoredSlackConfigToken(
             deps.slackConfigTokens,
             agent.accountId ?? null,
@@ -3521,7 +3525,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
             configurationCardsHtml: cards.configuration,
             queueActivityLinks: deps.queueActivityLinks,
             marketplaces,
-            githubEnterpriseConfigured: await githubEnterpriseConfigured(c),
+            ...(await githubAppsState(c).then((st) =>
+              st ? { githubAppsState: st } : {},
+            )),
             slackConfigTokenStored: await hasStoredSlackConfigToken(
               deps.slackConfigTokens,
               agent.accountId ?? null,

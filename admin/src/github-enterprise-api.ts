@@ -483,8 +483,8 @@ function serializeApp(m: GitHubEnterpriseAppMetadata) {
 // ─── Access preview (GHE-2.4) ─────────────────────────────────────────────────
 
 /**
- * Backs GET /agents/:id/github-access. Unconfigured (either App missing, or a
- * stored App without its key / enterprise slug) returns before any GitHub
+ * Backs GET /agents/:id/github-access. Unconfigured (the lookup App, or its
+ * key, missing) returns before any GitHub
  * call. A GitHub failure while listing orgs is rethrown as a 502 carrying only
  * the mapped, non-leaky message.
  */
@@ -499,32 +499,38 @@ export function createGithubAccessPreview(
       deps.appService.get("installer", accountId),
       deps.appService.get("lookup", accountId),
     ]);
-    if (!installer || !lookup || !installer.enterpriseSlug) {
-      return { status: "unconfigured" };
-    }
+    if (!lookup) return { status: "unconfigured" };
     const [installerKey, lookupKey] = await Promise.all([
-      deps.appService.getPrivateKey("installer", accountId),
+      installer ? deps.appService.getPrivateKey("installer", accountId) : null,
       deps.appService.getPrivateKey("lookup", accountId),
     ]);
-    if (!installerKey || !lookupKey) return { status: "unconfigured" };
+    if (!lookupKey) return { status: "unconfigured" };
 
     const common = {
       apiBase: deps.apiBase,
       fetchFn: deps.fetchFn,
       now: deps.now,
     };
+    const lookupClient = new GithubLookupClient({
+      appId: lookup.appId,
+      privateKey: lookupKey,
+      ...common,
+    });
+    // The installer only widens the org list; without a usable one (no key or
+    // enterprise slug) the lookup App's own installations are the org source.
+    const installerClient =
+      installer?.enterpriseSlug && installerKey
+        ? new GithubEnterpriseClient({
+            appId: installer.appId,
+            enterprise: installer.enterpriseSlug,
+            privateKey: installerKey,
+            ...common,
+          })
+        : undefined;
     const resolver = new UserRepoAccessResolver({
-      installer: new GithubEnterpriseClient({
-        appId: installer.appId,
-        enterprise: installer.enterpriseSlug,
-        privateKey: installerKey,
-        ...common,
-      }),
-      lookup: new GithubLookupClient({
-        appId: lookup.appId,
-        privateKey: lookupKey,
-        ...common,
-      }),
+      installer: installerClient,
+      lookupInstallations: lookupClient,
+      lookup: lookupClient,
       now: deps.now,
     });
     try {

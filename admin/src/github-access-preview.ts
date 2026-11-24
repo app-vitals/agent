@@ -9,7 +9,7 @@
 import type { UserRepoAccessResult } from "./user-repo-access-resolver.ts";
 
 export type GithubAccessPreview =
-  /** The installer or lookup App is not configured; GitHub was not called. */
+  /** The lookup App (or its key) is not configured; GitHub was not called. */
   | { status: "unconfigured" }
   /** `access` is the resolver output, unchanged. */
   | { status: "ok" | "user_not_found"; access: UserRepoAccessResult };
