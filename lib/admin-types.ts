@@ -6023,6 +6023,13 @@ export interface components {
         };
         GithubInstallationReposList: {
             appId: number;
+            /**
+             * @description Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text.
+             * @enum {string}
+             */
+            appsState?: "lookup_only" | "lookup_missing";
+            /** @description Set with `appsState`: why the installation repos cannot be changed here. The listing is the cached lookup crawl. */
+            reason?: string;
             /** @description Whether the cached crawl is complete. While false the list may be partial. */
             complete?: boolean;
             /** @description When the completed crawl finished (ISO 8601). */
@@ -6083,6 +6090,11 @@ export interface components {
              */
             status: "previewed" | "skipped";
             reason?: string;
+            /**
+             * @description Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text.
+             * @enum {string}
+             */
+            appsState?: "lookup_only" | "lookup_missing";
             /** @description Repos the bound user can push to, in orgs the agent App is installed on with a complete access listing, that are not on the installation. No cap. */
             appAdds?: string[];
             /** @description Installation repos the bound user can no longer push to. */
@@ -6124,6 +6136,11 @@ export interface components {
             /** @enum {string} */
             status: "applied" | "noop" | "skipped";
             reason?: string;
+            /**
+             * @description Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text.
+             * @enum {string}
+             */
+            appsState?: "lookup_only" | "lookup_missing";
             auditId?: string;
             appAdds?: string[];
             appRemoves?: string[];

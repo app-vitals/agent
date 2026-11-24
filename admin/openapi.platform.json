@@ -3528,6 +3528,18 @@
           "appId": {
             "type": "integer"
           },
+          "appsState": {
+            "type": "string",
+            "enum": [
+              "lookup_only",
+              "lookup_missing"
+            ],
+            "description": "Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Set with `appsState`: why the installation repos cannot be changed here. The listing is the cached lookup crawl."
+          },
           "complete": {
             "type": "boolean",
             "description": "Whether the cached crawl is complete. While false the list may be partial."
@@ -3670,6 +3682,14 @@
           },
           "reason": {
             "type": "string"
+          },
+          "appsState": {
+            "type": "string",
+            "enum": [
+              "lookup_only",
+              "lookup_missing"
+            ],
+            "description": "Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text."
           },
           "appAdds": {
             "type": "array",
@@ -3825,6 +3845,14 @@
           },
           "reason": {
             "type": "string"
+          },
+          "appsState": {
+            "type": "string",
+            "enum": [
+              "lookup_only",
+              "lookup_missing"
+            ],
+            "description": "Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text."
           },
           "auditId": {
             "type": "string"
