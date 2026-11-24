@@ -13,7 +13,7 @@ import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import type { Clock } from "./clock.ts";
 import type { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
 import { GithubEnterpriseClient } from "./github-enterprise-client.ts";
-import { DEPLOYMENT_WIDE_ACCOUNT_KEY } from "./github-agent-installation-crawler.ts";
+import { lookupAccountKeys } from "./github-agent-installation-crawler.ts";
 import { GithubLookupClient } from "./github-lookup-client.ts";
 import { GitHubRepoCacheService } from "./github-repo-cache.ts";
 import type { CrawlStore } from "./github-repo-crawler.ts";
@@ -159,15 +159,8 @@ export function createGithubSync(
     lookupRepos: async (accountId) => {
       const lookup = await lookupClient(accountId);
       if (!lookup) return [];
-      // The crawler files a deployment-wide App's snapshots under
-      // DEPLOYMENT_WIDE_ACCOUNT_KEY, so a null-account agent reads that key and
-      // an account agent reads its own account plus that key.
-      // Note: a real account literally named "deployment" would collide with
-      // this fallback key; that is known and deliberately not fixed here.
       const snapshots = await cache.listLookupOrgSnapshots(
-        accountId
-          ? [accountId, DEPLOYMENT_WIDE_ACCOUNT_KEY]
-          : [DEPLOYMENT_WIDE_ACCOUNT_KEY],
+        lookupAccountKeys(accountId),
         lookup.appId,
       );
       return snapshots.map((s) => ({

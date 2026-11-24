@@ -198,8 +198,69 @@ describe("createGithubLookupService", () => {
     const { svc, calls } = build({ lookup: lookupRow }, [snap()]);
     const r = await svc.listRepositories("acct");
     expect(r.syncState).toBe("ready");
-    expect(calls[0]).toEqual([["acct", ""], "555"]);
-    await svc.listRepositories();
-    expect(calls[1]).toEqual([[""], "555"]);
+    expect(calls[0]).toEqual([["acct", "deployment"], "555"]);
+  });
+
+  describe("against a cache seeded under the real keys", () => {
+    /** Fake cache that only returns snapshots filed under a requested accountId. */
+    function seededCache(seed: Record<string, LookupSnapshotView[]>) {
+      const calls: string[][] = [];
+      return {
+        calls,
+        cache: {
+          listLookupSnapshots: async (accountIds: string[]) => {
+            calls.push(accountIds);
+            return accountIds.flatMap((id) => seed[id] ?? []);
+          },
+        },
+      };
+    }
+    const deploymentApps = {
+      get: async (role: string) => (role === "lookup" ? lookupRow : null),
+      getPrivateKey: async (role: string) => (role === "lookup" ? "pem" : null),
+    } as unknown as GitHubEnterpriseAppService;
+
+    it("deployment-wide lookup App (null account) reads the 'deployment' key: ready", async () => {
+      const { cache, calls } = seededCache({
+        deployment: [snap({ completedAt: ago(5 * MIN) })],
+      });
+      const svc = createGithubLookupService({
+        appService: deploymentApps,
+        cache,
+        now: () => NOW,
+      });
+      const r = await svc.listRepositories(null);
+      expect(calls).toEqual([["deployment"]]);
+      expect(r.configured).toBe(true);
+      expect(r.syncState).toBe("ready");
+      expect(r.repos.map((x) => x.fullName)).toEqual(["acme/a", "acme/b"]);
+    });
+
+    it("account-scoped lookup also serves the deployment-wide snapshots", async () => {
+      const { cache, calls } = seededCache({
+        deployment: [snap({ completedAt: ago(5 * MIN) })],
+      });
+      const svc = createGithubLookupService({
+        appService: deploymentApps,
+        cache,
+        now: () => NOW,
+      });
+      const r = await svc.listRepositories("acct");
+      expect(calls).toEqual([["acct", "deployment"]]);
+      expect(r.syncState).toBe("ready");
+      expect(r.repos).toHaveLength(2);
+    });
+
+    it("never queries the empty-string key", async () => {
+      const { cache, calls } = seededCache({});
+      const svc = createGithubLookupService({
+        appService: deploymentApps,
+        cache,
+        now: () => NOW,
+      });
+      await svc.listRepositories();
+      await svc.listRepositories("acct");
+      expect(calls.flat()).not.toContain("");
+    });
   });
 });

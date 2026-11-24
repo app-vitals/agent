@@ -83,4 +83,20 @@ describeOrSkip("githubLookup.listRepositories (cache, integration)", () => {
     expect(done.repos).toHaveLength(2);
     expect(done.fetchedAt).toEqual(NOW);
   });
+
+  it("null-account lookup reads a deployment-wide snapshot filed under 'deployment'", async () => {
+    const snap = await cache.upsertSnapshot(
+      { ...key("acme"), accountId: "deployment" },
+      { crawlPage: 1, crawlStartedAt: NOW, totalCount: 1 },
+    );
+    await cache.upsertRepos(snap.id, [{ githubId: 3, fullName: "acme/c" }]);
+    await cache.upsertSnapshot(
+      { ...key("acme"), accountId: "deployment" },
+      { completedAt: NOW },
+    );
+    const r = await svc().listRepositories(null);
+    expect(r.configured).toBe(true);
+    expect(r.syncState).toBe("ready");
+    expect(r.repos).toEqual([{ fullName: "acme/c", archived: false }]);
+  });
 });
