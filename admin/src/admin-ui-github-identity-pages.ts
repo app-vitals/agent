@@ -7,6 +7,11 @@
  * repo names and levels only (no token or key ever reaches this module).
  */
 
+import {
+  type GithubAppsState,
+  LOOKUP_MISSING_REASON,
+  LOOKUP_ONLY_REASON,
+} from "./github-apps-state.ts";
 import type { GheOrgs } from "./admin-ui-github-enterprise-pages.ts";
 import { escapeHtml } from "./admin-ui-styles.ts";
 
@@ -117,7 +122,7 @@ export function renderGithubAccessResult(
   preview: GithubAccessPreviewView,
 ): string {
   if (preview.status === "unconfigured") {
-    return `<div class="alert alert-warning">The enterprise GitHub apps are not configured.</div>`;
+    return `<div class="alert alert-warning" data-reason="lookup-missing">${escapeHtml(LOOKUP_MISSING_REASON)}</div>`;
   }
   const access = preview.access;
   if (
@@ -169,8 +174,21 @@ export function renderGithubAccessError(message: string): string {
   return `<div class="alert alert-error">${escapeHtml(message)}</div>`;
 }
 
-/** "Install on org" block (GHC-1.2); lazy-loads the org list fragment on page load. */
-export function renderGithubInstallCard(agentId: string): string {
+/**
+ * "Install on org" block (GHC-1.2); lazy-loads the org list fragment on page
+ * load. In lookup-only it explains that installing needs an installer App
+ * instead of loading the (installer-backed) org list.
+ */
+export function renderGithubInstallCard(
+  agentId: string,
+  appsState: GithubAppsState = "both",
+): string {
+  if (appsState === "lookup_only") {
+    return `<div id="github-install-card" style="margin-top:20px">
+      <div class="form-label" style="font-weight:600;margin-bottom:6px">Install on org</div>
+      <div class="alert alert-warning" data-reason="lookup-only">${escapeHtml(LOOKUP_ONLY_REASON)}</div>
+    </div>`;
+  }
   const url = `/admin/agents/${escapeHtml(agentId)}/github-orgs`;
   return `<div id="github-install-card" style="margin-top:20px">
       <div class="form-label" style="font-weight:600;margin-bottom:6px">Install on org</div>
@@ -202,7 +220,7 @@ export function renderGithubOrgsFragment(
   data: GheOrgs,
 ): string {
   if (!data.configured) {
-    return `<div class="alert alert-warning">The installer GitHub App is not configured.</div>`;
+    return `<div class="alert alert-warning" data-reason="installer-unconfigured">The installer GitHub App is not configured. Installing the agent App on an organization needs an enterprise installer App (GitHub Enterprise Cloud).</div>`;
   }
   const reason = data.agentAppReason
     ? `<div class="alert alert-error">${escapeHtml(data.agentAppReason)}</div>`

@@ -330,3 +330,90 @@ describe("Install on org block (GHC-1.2)", () => {
     );
   });
 });
+
+describe("GitHub identity surfaces by App state (GFU-2.2)", () => {
+  const pageState = (appsState?: "both" | "lookup_only" | "lookup_missing") =>
+    renderAgentDetailPage(
+      { ...AGENT, githubUsername: "octo" },
+      { GH_APP_ID: "1" },
+      [],
+      [],
+      [],
+      [],
+      [],
+      "u@x.com",
+      true,
+      { timezone: "UTC", ...(appsState ? { githubAppsState: appsState } : {}) },
+    );
+
+  test("both: preview, sync button and the install org list", () => {
+    const html = pageState("both");
+    expect(html).toContain('id="github-access-btn"');
+    expect(html).toContain('id="github-sync-btn"');
+    expect(html).toContain('id="github-install-result"');
+    expect(html).not.toContain('data-reason="lookup-only"');
+  });
+
+  test("lookup-only: preview stays, Sync and Install explain the installer need", () => {
+    const html = pageState("lookup_only");
+    expect(html).toContain('id="github-access-btn"');
+    expect(html).toContain('data-reason="lookup-only"');
+    expect(html).not.toContain('id="github-sync-btn"');
+    expect(html).not.toContain('id="github-install-result"');
+    expect(html).toContain("Install on org");
+  });
+
+  test("lookup-missing: only the Sync card, saying the lookup App is missing", () => {
+    const html = pageState("lookup_missing");
+    expect(html).toContain('data-reason="lookup-missing"');
+    expect(html).not.toContain('id="github-access-btn"');
+    expect(html).not.toContain("Install on org");
+  });
+
+  test("no state: hidden; legacy githubEnterpriseConfigured: true means both", () => {
+    expect(pageState()).not.toContain('id="github-installation-card"');
+    expect(page(true, true)).toContain('id="github-installation-card"');
+    expect(page(true, true)).not.toContain('data-reason="lookup-only"');
+  });
+
+  test("access preview: unconfigured is the lookup-missing message", () => {
+    const html = renderGithubAccessResult({ status: "unconfigured" });
+    expect(html).toContain('data-reason="lookup-missing"');
+    expect(html).toContain("lookup GitHub App is not configured");
+    expect(html).not.toContain("installer");
+  });
+
+  test("access preview: escapes the username and org values", () => {
+    const html = renderGithubAccessResult({
+      status: "user_not_found",
+      access: {
+        username: "<img src=x>",
+        outcome: "user_not_found",
+        userVerified: false,
+        orgs: [],
+        unresolved: 0,
+        complete: true,
+        checkedAt: "2026-11-10T00:00:00Z",
+      },
+    } as GithubAccessPreviewView);
+    expect(html).not.toContain("<img src=x>");
+    expect(html).toContain("&lt;img src=x&gt;");
+  });
+
+  test("install card: lookup-only explains; both lazy-loads; id escaped", () => {
+    const only = renderGithubInstallCard('a"><i>', "lookup_only");
+    expect(only).toContain('data-reason="lookup-only"');
+    expect(only).not.toContain("github-install-result");
+    expect(only).not.toContain("<i>");
+    expect(renderGithubInstallCard("a", "both")).toBe(
+      renderGithubInstallCard("a"),
+    );
+  });
+
+  test("orgs fragment: installer-unconfigured names the installer and its enterprise need", () => {
+    const html = renderGithubOrgsFragment("a", { configured: false, orgs: [] });
+    expect(html).toContain("The installer GitHub App is not configured.");
+    expect(html).toContain("enterprise installer App");
+    expect(html).not.toContain("lookup");
+  });
+});

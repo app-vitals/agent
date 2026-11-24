@@ -683,9 +683,19 @@ const InstallationSyncDetailShape = {
     .openapi({ description: "Last refresh tick on the snapshot (ISO 8601)." }),
 };
 
+const AppsStateSchema = z.enum(["lookup_only", "lookup_missing"]).openapi({
+  description:
+    "Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text.",
+});
+
 const GithubInstallationReposListSchema = z
   .object({
     appId: z.number().int(),
+    appsState: AppsStateSchema.optional(),
+    reason: z.string().optional().openapi({
+      description:
+        "Set with `appsState`: why the installation repos cannot be changed here. The listing is the cached lookup crawl.",
+    }),
     ...InstallationSyncDetailShape,
     orgs: z.array(
       z.object({
@@ -763,6 +773,7 @@ const GithubSyncPreviewSchema = z
         "`skipped` (not an error) when no GitHub username is bound, the user is not found or unverified, the agent has no GH_APP_ID, or the Apps are not configured; `reason` says why.",
     }),
     reason: z.string().optional(),
+    appsState: AppsStateSchema.optional(),
     appAdds: z.array(z.string()).optional().openapi({
       description:
         "Repos the bound user can push to, in orgs the agent App is installed on with a complete access listing, that are not on the installation. No cap.",
@@ -811,6 +822,7 @@ const GithubSyncApplyResultSchema = z
   .object({
     status: z.enum(["applied", "noop", "skipped"]),
     reason: z.string().optional(),
+    appsState: AppsStateSchema.optional(),
     auditId: z.string().optional(),
     appAdds: z.array(z.string()).optional(),
     appRemoves: z.array(z.string()).optional(),
@@ -3561,7 +3573,14 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       throw new NotFoundError(`agent ${agentId} not found`);
     }
     if (result.status === "skipped") {
-      return c.json({ status: "skipped" as const, reason: result.reason }, 200);
+      return c.json(
+        {
+          status: "skipped" as const,
+          reason: result.reason,
+          ...(result.appsState ? { appsState: result.appsState } : {}),
+        },
+        200,
+      );
     }
     const { plan } = result;
     return c.json(
@@ -3596,7 +3615,11 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         throw new NotFoundError(`agent ${agentId} not found`);
       case "skipped":
         return c.json(
-          { status: "skipped" as const, reason: result.reason },
+          {
+            status: "skipped" as const,
+            reason: result.reason,
+            ...(result.appsState ? { appsState: result.appsState } : {}),
+          },
           200,
         );
       case "removal_cap":

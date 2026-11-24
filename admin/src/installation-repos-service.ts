@@ -7,6 +7,11 @@
  * through the installation port.
  */
 
+import {
+  GITHUB_APPS_STATE_REASONS,
+  type GithubAppsState,
+  type GithubAppsStateFn,
+} from "./github-apps-state.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import { DEPLOYMENT_WIDE_ACCOUNT_KEY } from "./github-agent-installation-crawler.ts";
 import {
@@ -128,6 +133,9 @@ export type InstallationListResult =
       status: "ok";
       appId: number;
       orgs: InstallationOrgView[];
+      /** Set when an App role is missing; the listing is the cached crawl only (additive). */
+      appsState?: Exclude<GithubAppsState, "both">;
+      reason?: string;
     } & InstallationSyncDetail);
 
 export interface InstallationReposDeps {
@@ -137,6 +145,8 @@ export interface InstallationReposDeps {
   installation: InstallationReposPort;
   /** The repo/access cache list() reads. Without it list() reports nothing synced. */
   cache?: InstallationCachePort;
+  /** Optional: which Apps are usable; without both, list() says why (additive fields). */
+  appsState?: GithubAppsStateFn;
 }
 
 /** The agent's App identity keys (client id, slug), when stored. */
@@ -338,7 +348,18 @@ export class InstallationReposService {
         ...(s.lastTickAt ? { lastTickAt: iso(s.lastTickAt) } : {}),
       });
     }
-    return { status: "ok", appId: agent.appId, orgs, ...summarize(orgs) };
+    const state = this.deps.appsState
+      ? await this.deps.appsState(agent.accountId)
+      : "both";
+    return {
+      status: "ok",
+      appId: agent.appId,
+      orgs,
+      ...summarize(orgs),
+      ...(state !== "both"
+        ? { appsState: state, reason: GITHUB_APPS_STATE_REASONS[state] }
+        : {}),
+    };
   }
 }
 
