@@ -618,7 +618,7 @@ const GithubAccessPreviewSchema = z
   .object({
     status: z.enum(["ok", "user_not_found", "unconfigured"]).openapi({
       description:
-        "`unconfigured` when the installer or lookup App is not set (no GitHub call was made).",
+        "`unconfigured` when the lookup App or its key is not set (no GitHub call was made). The installer App is optional.",
     }),
     access: z
       .object({
@@ -1847,7 +1847,7 @@ const getGithubAccessRoute = createRoute({
   path: "/agents/{id}/github-access",
   summary: "Preview the repos the agent's bound GitHub user can reach",
   description:
-    "Platform-admin only (session members, ops keys and agent keys get 403): the response lists repo names the bound user can reach. Read-only; nothing is stored. 404 for an unknown agent; 422 when no githubUsername is bound. Returns `status: unconfigured` (not an error, no GitHub call) when the enterprise Apps are not configured, and `status: user_not_found` when the user does not exist on GitHub; otherwise `access` is the resolver output (per-org status, repos with level and canPush, unresolved count, complete flag).",
+    "Platform-admin only (session members, ops keys and agent keys get 403): the response lists repo names the bound user can reach. Read-only; nothing is stored. 404 for an unknown agent; 422 when no githubUsername is bound. Returns `status: unconfigured` (not an error, no GitHub call) when the lookup App is not configured (the installer App is optional), and `status: user_not_found` when the user does not exist on GitHub; otherwise `access` is the resolver output (per-org status, repos with level and canPush, unresolved count, complete flag).",
   request: { params: AgentIdParamSchema },
   responses: {
     200: {

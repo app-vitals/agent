@@ -24,6 +24,7 @@ import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AdminDeps } from "./agents-api.ts";
 import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
 import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
+import { createGithubAccessPreview } from "./github-enterprise-api.ts";
 import { accessFor, envWith } from "./github-installation.fixtures.ts";
 import {
   createGithubInstallationRepos,
@@ -7244,6 +7245,134 @@ describe("admin API — GET /agents/:id/github-access (GHE-2.4)", () => {
     const res = await get(app, asAdmin);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: "unconfigured" });
+  });
+
+  describe("real preview over a fake GitHub (lookup-only and both Apps)", () => {
+    const { privateKey: PEM } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+      publicKeyEncoding: { type: "spki", format: "pem" },
+    });
+    type Role = "installer" | "lookup";
+    const record = (role: Role) => ({
+      role,
+      appId: role === "lookup" ? "555" : "12345",
+      slug: `example-${role}`,
+      enterpriseSlug: role === "installer" ? "acme" : null,
+    });
+
+    function preview(roles: Role[]) {
+      const paths: string[] = [];
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(input.toString()).pathname;
+        paths.push(`${init?.method ?? "GET"} ${path}`);
+        if (path === "/app/installations")
+          return json([
+            { id: 7001, account: { login: "acme-eng", type: "Organization" } },
+          ]);
+        if (path === "/enterprises/acme/installation")
+          return json({
+            id: 4242,
+            access_tokens_url:
+              "https://ghe.test/app/installations/4242/access_tokens",
+          });
+        if (path === "/app/installations/4242/access_tokens")
+          return json({ token: "ghs_i", expires_at: "2099-01-01T00:00:00Z" });
+        if (path === "/enterprises/acme/apps/installable_organizations")
+          return json([{ id: 1, login: "acme-eng" }]);
+        if (path === "/orgs/acme-eng/installation")
+          return json({ id: 7001, repository_selection: "all" });
+        if (path === "/app/installations/7001/access_tokens")
+          return json({ token: "ghs_l", expires_at: "2099-01-01T00:00:00Z" });
+        if (path === "/installation/repositories")
+          return json({
+            total_count: 1,
+            repositories: [
+              {
+                id: 1,
+                name: "api",
+                full_name: "acme-eng/api",
+                private: true,
+                archived: false,
+              },
+            ],
+          });
+        if (path === "/users/octocat")
+          return json({ id: 9, login: "octocat", type: "User" });
+        if (path === "/repos/acme-eng/api/collaborators/octocat/permission")
+          return json({ permission: "write", role_name: "write" });
+        return json({ message: "Not Found" }, 404);
+      }) as typeof fetch;
+      const appService = {
+        get: async (role: Role) => (roles.includes(role) ? record(role) : null),
+        getPrivateKey: async (role: Role) =>
+          roles.includes(role) ? PEM : null,
+      } as unknown as Parameters<
+        typeof createGithubAccessPreview
+      >[0]["appService"];
+      return {
+        paths,
+        fn: createGithubAccessPreview({
+          appService,
+          fetchFn,
+          apiBase: "https://ghe.test",
+          now: () => new Date("2026-11-09T12:00:00Z"),
+        }),
+      };
+    }
+
+    const expectedOrgs = [
+      {
+        org: "acme-eng",
+        status: "ok",
+        repos: [{ fullName: "acme-eng/api", level: "write", canPush: true }],
+        unresolved: 0,
+      },
+    ];
+
+    it("lookup-only: status ok with the repos the lookup App sees", async () => {
+      const p = preview(["lookup"]);
+      const { app } = setup({ githubUsername: "octocat", preview: p.fn });
+      const res = await get(app, asAdmin);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        access: { orgs: unknown[]; complete: boolean };
+      };
+      expect(body.status).toBe("ok");
+      expect(body.access.orgs).toEqual(expectedOrgs);
+      expect(body.access.complete).toBe(true);
+      expect(p.paths).toContain("GET /app/installations");
+      expect(p.paths.some((x) => x.includes("/enterprises/"))).toBe(false);
+    });
+
+    it("both Apps: same result, orgs come from the installer", async () => {
+      const p = preview(["installer", "lookup"]);
+      const { app } = setup({ githubUsername: "octocat", preview: p.fn });
+      const body = (await (await get(app, asAdmin)).json()) as {
+        status: string;
+        access: { orgs: unknown[] };
+      };
+      expect(body.status).toBe("ok");
+      expect(body.access.orgs).toEqual(expectedOrgs);
+      expect(p.paths).toContain(
+        "GET /enterprises/acme/apps/installable_organizations",
+      );
+      expect(p.paths).not.toContain("GET /app/installations");
+    });
+
+    it("installer-only is unconfigured with no GitHub call", async () => {
+      const p = preview(["installer"]);
+      const { app } = setup({ githubUsername: "octocat", preview: p.fn });
+      const res = await get(app, asAdmin);
+      expect(await res.json()).toEqual({ status: "unconfigured" });
+      expect(p.paths).toEqual([]);
+    });
   });
 
   it("user_not_found is passed through", async () => {

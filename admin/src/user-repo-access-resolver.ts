@@ -123,8 +123,16 @@ export interface LookupPort {
   ): Promise<RepoRole>;
 }
 
+/** Lookup-App org source: GithubLookupClient satisfies this. */
+export interface LookupInstallationsPort {
+  listInstallations(): Promise<{ login: string }[]>;
+}
+
 export interface UserRepoAccessResolverOptions {
-  installer: InstallerPort;
+  /** Org source when configured: the orgs the installer App can install on. */
+  installer?: InstallerPort;
+  /** Org source when no installer is configured: the lookup App's own installations. */
+  lookupInstallations?: LookupInstallationsPort;
   lookup: LookupPort;
   now?: () => Date;
   /** Max concurrent per-repo permission calls (default 5). */
@@ -149,13 +157,15 @@ function kindOf(e: unknown): string | undefined {
 }
 
 export class UserRepoAccessResolver {
-  private readonly installer: InstallerPort;
+  private readonly installer?: InstallerPort;
+  private readonly lookupInstallations?: LookupInstallationsPort;
   private readonly lookup: LookupPort;
   private readonly now: () => Date;
   private readonly concurrency: number;
 
   constructor(opts: UserRepoAccessResolverOptions) {
     this.installer = opts.installer;
+    this.lookupInstallations = opts.lookupInstallations;
     this.lookup = opts.lookup;
     this.now = opts.now ?? (() => new Date());
     this.concurrency = Math.max(
@@ -165,9 +175,7 @@ export class UserRepoAccessResolver {
   }
 
   async resolve(username: string): Promise<UserRepoAccessResult> {
-    const candidates = (
-      await this.installer.listInstallableOrganizations()
-    ).map((o) => o.login);
+    const candidates = await this.listOrgs();
     const verdict = await this.verifyUser(candidates, username);
     if (verdict === "not_found") {
       return this.result(username, "user_not_found", true, []);
@@ -177,6 +185,19 @@ export class UserRepoAccessResolver {
       orgs.push(await this.resolveOrg(org, username));
     }
     return this.result(username, "ok", verdict === "verified", orgs);
+  }
+
+  /** The installer's installable orgs when configured, else the lookup App's installations. */
+  private async listOrgs(): Promise<string[]> {
+    const source = this.installer
+      ? await this.installer.listInstallableOrganizations()
+      : await this.lookupInstallations?.listInstallations();
+    if (!source) {
+      throw new Error(
+        "UserRepoAccessResolver needs an org source: installer or lookupInstallations",
+      );
+    }
+    return source.map((o) => o.login);
   }
 
   /** One getUser check up front, on the first org that can mint a token. */
