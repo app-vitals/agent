@@ -40,6 +40,7 @@ import { GithubRepoRefresher } from "./github-repo-refresher.ts";
 import {
   createInstallationPort,
   type InstallationRepoClient,
+  PrismaInstallationAgents,
 } from "./installation-ports.ts";
 import { createInstallationReposPort } from "./installation-repos-service.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
@@ -176,9 +177,6 @@ describeOrSkip("GitHub repo cache round trip (integration)", () => {
   /** Run the real refresher until every target is crawled and backfilled. */
   async function refresh(apps: Apps, agentScope: string | null) {
     const installer = fakeInstaller();
-    const { PrismaInstallationAgents } = await import(
-      "./installation-ports.ts"
-    );
     const agentsPort = new PrismaInstallationAgents(prisma, agentEnv);
     const discovery = createRefreshDiscovery({
       listAppScopes: async () =>
