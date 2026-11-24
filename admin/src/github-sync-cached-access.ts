@@ -21,6 +21,7 @@ import {
 import {
   canPushForRole,
   type OrgAccessResult,
+  type OrgSkipDetail,
   type ResolvedRepoAccess,
   type UserRepoAccessResult,
 } from "./user-repo-access-resolver.ts";
@@ -29,7 +30,13 @@ import type { RepoRole } from "./github-lookup-client.ts";
 export interface CachedOrgInput {
   org: string;
   /** completedAt of each crawl snapshot this org depends on; null = not completed. Empty = none needed. */
-  crawls: { completedAt: Date | null }[];
+  crawls: {
+    completedAt: Date | null;
+    lastError?: string | null;
+    rateLimitResetAt?: Date | null;
+  }[];
+  /** Whether the lookup crawl snapshot was found (omit when no lookup source is wired). */
+  lookupSnapshotFound?: boolean;
   /** True when a crawl snapshot that must exist does not. */
   crawlMissing?: boolean;
   /** Every repo (full name) that needs an answer. */
@@ -49,6 +56,49 @@ const ROLES = new Set<string>([
 
 const nameOf = (fullName: string): string =>
   fullName.slice(fullName.indexOf("/") + 1).toLowerCase();
+
+function skipDetail(
+  o: CachedOrgInput,
+  answers: { row?: CachedAccessRow }[],
+  oldest?: Date,
+): OrgSkipDetail {
+  const rows = answers.flatMap((a) => (a.row ? [a.row] : []));
+  const ok = rows.filter((r) => r.status === "ok").length;
+  const attempts = rows.flatMap((r) =>
+    r.attempts === undefined ? [] : [r.attempts],
+  );
+  const rowErrors = [
+    ...new Set(
+      rows.flatMap((r) =>
+        r.status !== "ok" && r.lastError ? [r.lastError] : [],
+      ),
+    ),
+  ].slice(0, 3);
+  return {
+    ...(o.lookupSnapshotFound === undefined
+      ? {}
+      : { lookupSnapshotFound: o.lookupSnapshotFound }),
+    crawls: o.crawls.map((c) => ({
+      completedAt: c.completedAt ? c.completedAt.toISOString() : null,
+      ...(c.lastError === undefined ? {} : { lastError: c.lastError }),
+      ...(c.rateLimitResetAt === undefined
+        ? {}
+        : {
+            rateLimitResetAt: c.rateLimitResetAt
+              ? c.rateLimitResetAt.toISOString()
+              : null,
+          }),
+    })),
+    totalRepos: o.repos.length,
+    reposWithOkAccess: ok,
+    reposMissingAnswer: answers.length - ok,
+    errorRows: rows.filter((r) => r.status === "error").length,
+    terminalRows: rows.filter((r) => r.status === "terminal").length,
+    ...(attempts.length > 0 ? { maxAttempts: Math.max(...attempts) } : {}),
+    ...(rowErrors.length > 0 ? { rowErrors } : {}),
+    ...(oldest ? { oldestCheckedAt: oldest.toISOString() } : {}),
+  };
+}
 
 export function buildCachedAccess(opts: {
   username: string;
@@ -76,6 +126,7 @@ export function buildCachedAccess(opts: {
         repos: [],
         unresolved: missing.length,
         reason: INCOMPLETE_ACCESS_REASON,
+        detail: skipDetail(o, answers),
       });
       continue;
     }
@@ -93,6 +144,7 @@ export function buildCachedAccess(opts: {
         repos: [],
         unresolved: 0,
         reason: staleAccessReason(unknownTime ? undefined : oldest),
+        detail: skipDetail(o, answers, unknownTime ? undefined : oldest),
       });
       continue;
     }

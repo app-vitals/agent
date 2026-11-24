@@ -722,8 +722,38 @@ const OpenWorkItemSchema = z.object({
   title: z.string().optional(),
 });
 
+const OrgSkipDetailSchema = z
+  .object({
+    lookupSnapshotFound: z.boolean().optional(),
+    crawls: z
+      .array(
+        z.object({
+          completedAt: z.string().nullable(),
+          lastError: z.string().nullable().optional(),
+          rateLimitResetAt: z.string().nullable().optional(),
+        }),
+      )
+      .optional(),
+    totalRepos: z.number().int().optional(),
+    reposWithOkAccess: z.number().int().optional(),
+    reposMissingAnswer: z.number().int().optional(),
+    errorRows: z.number().int().optional(),
+    terminalRows: z.number().int().optional(),
+    maxAttempts: z.number().int().optional(),
+    rowErrors: z.array(z.string()).optional(),
+    oldestCheckedAt: z.string().optional(),
+  })
+  .openapi("GithubSyncOrgSkipDetail");
+
 const SkippedOrgsSchema = z.array(
-  z.object({ org: z.string(), reason: z.string() }),
+  z.object({
+    org: z.string(),
+    reason: z.string(),
+    detail: OrgSkipDetailSchema.optional().openapi({
+      description:
+        "Why the org was skipped, for cached data: whether the lookup snapshot was found, each crawl's completedAt/lastError/rateLimitResetAt, repo and access-row counts, and the oldest-checked time when stale.",
+    }),
+  }),
 );
 
 const GithubSyncPreviewSchema = z

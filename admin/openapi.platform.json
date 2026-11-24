@@ -3702,6 +3702,9 @@
                 },
                 "reason": {
                   "type": "string"
+                },
+                "detail": {
+                  "$ref": "#/components/schemas/GithubSyncOrgSkipDetail"
                 }
               },
               "required": [
@@ -3743,6 +3746,71 @@
         "required": [
           "status"
         ]
+      },
+      "GithubSyncOrgSkipDetail": {
+        "type": "object",
+        "properties": {
+          "lookupSnapshotFound": {
+            "type": "boolean"
+          },
+          "crawls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "completedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lastError": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rateLimitResetAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "completedAt"
+              ]
+            }
+          },
+          "totalRepos": {
+            "type": "integer"
+          },
+          "reposWithOkAccess": {
+            "type": "integer"
+          },
+          "reposMissingAnswer": {
+            "type": "integer"
+          },
+          "errorRows": {
+            "type": "integer"
+          },
+          "terminalRows": {
+            "type": "integer"
+          },
+          "maxAttempts": {
+            "type": "integer"
+          },
+          "rowErrors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "oldestCheckedAt": {
+            "type": "string"
+          }
+        },
+        "description": "Why the org was skipped, for cached data: whether the lookup snapshot was found, each crawl's completedAt/lastError/rateLimitResetAt, repo and access-row counts, and the oldest-checked time when stale."
       },
       "GithubSyncApplyResult": {
         "type": "object",
@@ -3808,6 +3876,9 @@
                 },
                 "reason": {
                   "type": "string"
+                },
+                "detail": {
+                  "$ref": "#/components/schemas/GithubSyncOrgSkipDetail"
                 }
               },
               "required": [

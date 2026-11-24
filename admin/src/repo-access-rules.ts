@@ -11,6 +11,7 @@
 
 import {
   type OrgAccessResult,
+  type OrgSkipDetail,
   SELECTED_REPOS_REASON,
   type UserRepoAccessResult,
 } from "./user-repo-access-resolver.ts";
@@ -18,6 +19,8 @@ import {
 export interface OrgSkip {
   org: string;
   reason: string;
+  /** Why the org was skipped, when known (cached-data orgs). */
+  detail?: OrgSkipDetail;
 }
 
 export function repoOrg(fullName: string): string {

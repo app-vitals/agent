@@ -157,6 +157,8 @@ export class GitHubRepoCacheService {
     return rows.map((r) => ({
       org: r.org,
       completedAt: r.completedAt,
+      lastError: r.lastError,
+      rateLimitResetAt: r.rateLimitResetAt,
       repos: r.repos,
     }));
   }

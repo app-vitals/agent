@@ -6093,6 +6093,7 @@ export interface components {
             skippedOrgs?: {
                 org: string;
                 reason: string;
+                detail?: components["schemas"]["GithubSyncOrgSkipDetail"];
             }[];
             /** @description The agent's open tasks and PRs on the removed repos that the removals would block; empty when no open-work port is wired. */
             openWork?: {
@@ -6101,6 +6102,23 @@ export interface components {
                 title?: string;
             }[];
             warnings?: string[];
+        };
+        /** @description Why the org was skipped, for cached data: whether the lookup snapshot was found, each crawl's completedAt/lastError/rateLimitResetAt, repo and access-row counts, and the oldest-checked time when stale. */
+        GithubSyncOrgSkipDetail: {
+            lookupSnapshotFound?: boolean;
+            crawls?: {
+                completedAt: string | null;
+                lastError?: string | null;
+                rateLimitResetAt?: string | null;
+            }[];
+            totalRepos?: number;
+            reposWithOkAccess?: number;
+            reposMissingAnswer?: number;
+            errorRows?: number;
+            terminalRows?: number;
+            maxAttempts?: number;
+            rowErrors?: string[];
+            oldestCheckedAt?: string;
         };
         GithubSyncApplyResult: {
             /** @enum {string} */
@@ -6118,6 +6136,7 @@ export interface components {
             skippedOrgs?: {
                 org: string;
                 reason: string;
+                detail?: components["schemas"]["GithubSyncOrgSkipDetail"];
             }[];
             warnings?: string[];
         };
