@@ -17,6 +17,21 @@ At most one App per role is stored per scope, so a scope has at most two.
 
 The **installer is optional**. The lookup App works alone: it lists the organizations it is installed on and the repositories it can see, so no GitHub Enterprise Cloud enterprise is needed. Without an installer, create the lookup App under an organization and install it manually on each organization with **all repositories**, using `https://github.com/apps/<slug>/installations/new` (the settings page links it once the lookup slug is saved). The installer remains what enables auto-installing agent Apps and requires Enterprise Cloud.
 
+### What works with only the lookup App
+
+With the lookup App configured and no installer (or an installer with no enterprise slug), these work and the rest is refused with an explicit reason (`appsState: lookup_only`):
+
+| Capability | Lookup only | Needs the installer |
+|------------|-------------|---------------------|
+| Repo crawl and the repo/access cache | Works | |
+| System-crons repo picker | Works | |
+| Access preview (`GET /agents/{id}/github-access`, **Preview access** card) | Works: orgs come from the lookup App's own installations | |
+| Installation repos list (`GET /agents/{id}/github-installation/repos`) | | Needs the installer: the agent App's installation is found through it |
+| Sync (`github-sync/preview` and `apply`) | | Needs the installer |
+| Install on org (`POST /github-enterprise/orgs/{org}/install`) | | Needs the installer, on Enterprise Cloud |
+
+With no lookup App (or no key) nothing in this table works (`appsState: lookup_missing`), and the access preview reports `unconfigured`.
+
 Each role can be configured at two scopes: **deployment-wide** (no account) and **per account**. An account uses its own App for a role when it has one, otherwise it falls back to the deployment-wide App for that role. Roles resolve independently, so an account can have its own lookup App and still use the deployment-wide installer. The settings page has an account selector on both cards (deployment-wide default plus each account); saving, validating and deleting act on the chosen scope, and the card says whether the account is using its own App or the deployment-wide fallback. Over the API, pass `accountId` as a query parameter; omit it for the deployment-wide pair.
 
 ## Required permissions
