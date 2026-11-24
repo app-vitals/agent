@@ -2270,7 +2270,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
         }
       }
     }
-    return html(renderInstallationReposBody(view, { appIdMismatch }));
+    return html(renderInstallationReposBody(view, { appIdMismatch, timezone }));
   });
 
   // IRM-3.2: the single Sync confirm (over the IRM-3.1 preview) and its apply.
@@ -2288,6 +2288,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
       renderSyncConfirm(
         c.req.param("id") ?? "",
         (await res.json()) as GithubSyncPreviewView,
+        timezone,
       ),
     );
   });
@@ -2357,6 +2358,7 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
                 warnings,
               )
             : [],
+          timezone,
         ),
       );
     },

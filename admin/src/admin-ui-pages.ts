@@ -1749,7 +1749,7 @@ export function renderAgentDetailPage(
           <button type="submit" class="btn btn-primary">Add</button>
         </div>
       </form>
-      ${opts?.installationSync ? renderInstallationSyncStatus(opts.installationSync) : ""}
+      ${opts?.installationSync ? renderInstallationSyncStatus(opts.installationSync, timezone) : ""}
       <div class="data-table-wrapper">
         <table class="data-table">
           <thead>
