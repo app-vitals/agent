@@ -460,6 +460,15 @@ function skipDetailText(d: SkipDetail): string {
     .replace(/\.\.$/, ".");
 }
 
+/** Drop the `<org>: skipped (<reason>)` warnings the skippedOrgs block already shows. */
+const withoutSkipWarnings = (
+  warnings: readonly string[] | undefined,
+  skipped: readonly { org: string; reason: string }[],
+): string[] =>
+  (warnings ?? []).filter(
+    (w) => !skipped.some((s) => w === `${s.org}: skipped (${s.reason})`),
+  );
+
 const skippedOrgsHtml = (
   skipped: readonly { org: string; reason: string; detail?: SkipDetail }[],
 ) =>
@@ -488,10 +497,16 @@ export function renderSyncConfirm(
   const appAdds = preview.appAdds ?? [];
   const appRemoves = preview.appRemoves ?? [];
   const agentRemoves = preview.agentRemoves ?? [];
-  const skipped = skippedOrgsHtml(preview.skippedOrgs ?? []);
-  const warnings = warningsHtml(preview.warnings);
+  const skippedList = preview.skippedOrgs ?? [];
+  const skipped = skippedOrgsHtml(skippedList);
+  const warnings = warningsHtml(
+    withoutSkipWarnings(preview.warnings, skippedList),
+  );
   if (appAdds.length + appRemoves.length + agentRemoves.length === 0) {
-    return `<div class="alert alert-success" data-sync="in-sync">Already in sync: nothing to add or remove.</div>${skipped}${warnings}`;
+    if (skippedList.length > 0) {
+      return `<div class="alert alert-warning" data-sync="nothing-synced">Nothing was synced: ${skippedList.length} org(s) skipped, see below.</div>${skipped}${warnings}`;
+    }
+    return `<div class="alert alert-success" data-sync="in-sync">Already in sync: nothing to add or remove.</div>${warnings}`;
   }
   const removals = new Set([...appRemoves, ...agentRemoves].map(lc)).size;
   const overCap = removals > MAX_UNCONFIRMED_REMOVALS;
@@ -518,7 +533,8 @@ export function renderSyncResult(
     return `<div class="alert alert-warning" data-sync="skipped">Sync was skipped: ${escapeHtml(result.reason ?? "unknown reason")}</div>`;
   }
   if (result.status === "noop") {
-    return `<div class="alert alert-success" data-sync="noop">Nothing was changed.</div>${warningsHtml(result.warnings)}`;
+    const skippedList = result.skippedOrgs ?? [];
+    return `<div class="alert alert-success" data-sync="noop">Nothing was changed.</div>${skippedOrgsHtml(skippedList)}${warningsHtml(withoutSkipWarnings(result.warnings, skippedList))}`;
   }
   const notApplied = result.notApplied ?? [];
   return `<div class="alert alert-success" data-sync="applied">Sync applied. Reload the page to refresh the lists.</div>${repoList("app-adds", "Added to the agent App installation", result.appAdds ?? [])}${repoList("app-removes", "Removed from the agent App installation", result.appRemoves ?? [])}${repoList("agent-removes", "Removed from the agent's repos", result.agentRemoves ?? [])}${
@@ -529,5 +545,5 @@ export function renderSyncResult(
     blocked,
     "Open tasks and PRs that were blocked",
     "No open tasks or PRs were blocked.",
-  )}${warningsHtml(result.warnings)}`;
+  )}${warningsHtml(withoutSkipWarnings(result.warnings, result.skippedOrgs ?? []))}`;
 }

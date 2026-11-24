@@ -256,6 +256,78 @@ describe("renderSyncResult", () => {
   });
 });
 
+describe("skipped orgs and the in-sync state", () => {
+  const skipped = [{ org: "zed", reason: "access listing is incomplete" }];
+  const dupe = "zed: skipped (access listing is incomplete)";
+
+  it("warns, not in-sync, when every org was skipped and nothing changes", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      appAdds: [],
+      appRemoves: [],
+      agentRemoves: [],
+      skippedOrgs: skipped,
+      warnings: [dupe],
+    });
+    expect(html).toContain('data-sync="nothing-synced"');
+    expect(html).toContain("Nothing was synced: 1 org(s) skipped, see below");
+    expect(html).not.toContain('data-sync="in-sync"');
+    expect(html).not.toContain("Already in sync");
+    expect(html).toContain('data-skipped-orgs="1"');
+    expect(html).not.toContain("github-sync-confirm-btn");
+  });
+
+  it("still confirms changes when some orgs were skipped", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      appAdds: ["acme/new"],
+      skippedOrgs: skipped,
+      warnings: [dupe],
+    });
+    expect(html).toContain('data-sync="confirm"');
+    expect(html).toContain('data-skipped-orgs="1"');
+    expect(html).not.toContain('data-sync="nothing-synced"');
+  });
+
+  it("keeps the green in-sync state when no org was skipped", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      appAdds: [],
+      appRemoves: [],
+      agentRemoves: [],
+      skippedOrgs: [],
+    });
+    expect(html).toContain('data-sync="in-sync"');
+    expect(html).not.toContain("nothing-synced");
+  });
+
+  it("reports a skipped org once in the preview, keeping other warnings", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      appAdds: ["acme/new"],
+      skippedOrgs: skipped,
+      warnings: [dupe, "other warning"],
+    });
+    expect(html).not.toContain(dupe);
+    expect(html).toContain("other warning");
+    expect(html.match(/zed/g)).toHaveLength(1);
+  });
+
+  it("reports a skipped org once in the apply result, keeping other warnings", () => {
+    const html = renderSyncResult(
+      {
+        status: "applied",
+        skippedOrgs: skipped,
+        warnings: [dupe, "other warning"],
+      },
+      [],
+    );
+    expect(html).not.toContain(dupe);
+    expect(html).toContain("other warning");
+    expect(html).toContain('data-skipped-orgs="1"');
+  });
+});
+
 describe("skipped-org detail", () => {
   const render = (detail?: Record<string, unknown>, org = "zed") =>
     renderSyncConfirm("a1", {
