@@ -32,6 +32,19 @@ import {
  */
 export const DEPLOYMENT_WIDE_ACCOUNT_KEY = "deployment";
 
+/**
+ * The SnapshotKey.accountId values a lookup reads for an agent: its own
+ * account (when it has one) plus DEPLOYMENT_WIDE_ACCOUNT_KEY, where the
+ * crawler files deployment-wide App snapshots. A null/empty account reads only
+ * the deployment key. Note: a real account literally named "deployment" would
+ * collide with this fallback key; that is known and deliberately not fixed.
+ */
+export function lookupAccountKeys(accountId?: string | null): string[] {
+  return accountId
+    ? [accountId, DEPLOYMENT_WIDE_ACCOUNT_KEY]
+    : [DEPLOYMENT_WIDE_ACCOUNT_KEY];
+}
+
 /** The slice of the installer client the crawl needs. */
 export type AgentInstallationClient = Pick<
   InstallationRepoClient,

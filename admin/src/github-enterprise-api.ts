@@ -36,6 +36,7 @@ import {
   UnprocessableEntityError,
 } from "./errors.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
+import { lookupAccountKeys } from "./github-agent-installation-crawler.ts";
 import { fetchAuthenticatedApp, fetchPublicApp } from "./github-app-api.ts";
 import {
   GITHUB_ENTERPRISE_APP_ROLES,
@@ -563,10 +564,8 @@ export function createGithubLookupService(
       if (!lookupKey || (installer?.enterpriseSlug && !installerKey)) {
         return { configured: false, repos: [] };
       }
-      // The crawler files a deployment-wide App's snapshots under accountId "".
-      const accountIds = accountId ? [accountId, ""] : [""];
       const snapshots = await deps.cache.listLookupSnapshots(
-        accountIds,
+        lookupAccountKeys(accountId),
         lookup.appId,
       );
       return summarizeLookupSnapshots(

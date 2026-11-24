@@ -11,6 +11,7 @@ import {
   agentInstallationPageSource,
   crawlAgentInstallation,
   DEPLOYMENT_WIDE_ACCOUNT_KEY,
+  lookupAccountKeys,
   type AgentInstallationClient,
 } from "./github-agent-installation-crawler.ts";
 import type {
@@ -353,5 +354,25 @@ describe("crawlAgentInstallation", () => {
     });
     expect(res.outcome).toBe("failed");
     expect(store.snap?.attempts).toBe(1);
+  });
+});
+
+describe("lookupAccountKeys", () => {
+  it("a deployment-wide agent (no account) reads only the deployment key", () => {
+    expect(lookupAccountKeys(null)).toEqual([DEPLOYMENT_WIDE_ACCOUNT_KEY]);
+    expect(lookupAccountKeys(undefined)).toEqual([DEPLOYMENT_WIDE_ACCOUNT_KEY]);
+    expect(lookupAccountKeys("")).toEqual([DEPLOYMENT_WIDE_ACCOUNT_KEY]);
+  });
+
+  it("an account agent reads its own account and the deployment key", () => {
+    expect(lookupAccountKeys("acct")).toEqual([
+      "acct",
+      DEPLOYMENT_WIDE_ACCOUNT_KEY,
+    ]);
+  });
+
+  it("never includes the empty-string key", () => {
+    expect(lookupAccountKeys(null)).not.toContain("");
+    expect(lookupAccountKeys("acct")).not.toContain("");
   });
 });
