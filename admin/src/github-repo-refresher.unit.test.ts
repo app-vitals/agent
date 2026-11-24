@@ -465,6 +465,23 @@ describe("GithubRepoRefresher access backfill and archived repos", () => {
     // Configured repos first; the unconfigured archived acme/b is skipped.
     expect(events).toEqual(["probe:acme/c@octocat", "probe:acme/a@octocat"]);
   });
+
+  it("checks an archived repo that is on a bound agent's installation", async () => {
+    const agentKey: SnapshotKey = {
+      accountId: "acct",
+      appKind: "agent",
+      appRef: "7",
+      org: "acme",
+    };
+    const t = target("acme", { users: [{ username: "octocat" }] });
+    t.access = { ...(t.access as NonNullable<typeof t.access>), installationKeys: [agentKey] };
+    await seedCrawl(t.key, ["acme/a", "acme/b", "acme/c"], T0);
+    await seedCrawl(agentKey, ["acme/c"], T0);
+    store.archived = new Set(["acme/b", "acme/c"]);
+    await refresher([t]).tick();
+    // Installed archived acme/c is probed; the other archived acme/b is not.
+    expect(events.sort()).toEqual(["probe:acme/a@octocat", "probe:acme/c@octocat"]);
+  });
 });
 
 describe("GithubRepoRefresher.tick", () => {

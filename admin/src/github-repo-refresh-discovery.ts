@@ -190,7 +190,20 @@ export function createRefreshDiscovery(
                   shouldStop: ctx.shouldStop,
                 }),
               ...(users.length > 0
-                ? { access: { probe: lookup.client, users } }
+                ? {
+                    access: {
+                      probe: lookup.client,
+                      users,
+                      installationKeys: bound.map(
+                        (a): SnapshotKey => ({
+                          accountId: scopeKeyOf(a.accountId),
+                          appKind: "agent",
+                          appRef: String(a.appId),
+                          org,
+                        }),
+                      ),
+                    },
+                  }
                 : {}),
             });
           }

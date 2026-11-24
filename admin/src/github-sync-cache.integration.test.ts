@@ -189,15 +189,17 @@ describe("sync preview for a null-account agent over the real lookup read", () =
   });
 });
 
-// The refresher checks no access for an archived repo nobody configured, so the
-// sync must neither require a row for it nor treat the missing row as no access.
+// The refresher checks an archived repo only when an agent configured it or it
+// is on the installation, so the sync must not require a row for any other
+// archived repo, nor treat a missing row as no access.
 describe("sync preview with archived repos over the real lookup read", () => {
-  it("leaves archived repos alone and still uses the org", async () => {
+  it("never adds archived repos, removes an installed one the user cannot push, and still uses the org", async () => {
     const now = new Date();
-    // Access rows exist only for the two non-archived repos.
+    // Rows exist for the non-archived repos and the installed archived acme/old
+    // (not pushable); acme/frozen is archived and not installed: no row.
     const cache = freshCache(
       "acme",
-      ["acme/a", "acme/b"],
+      ["acme/a", "acme/b", "acme/old"],
       ["acme/a", "acme/b"],
       now,
     );
@@ -245,7 +247,7 @@ describe("sync preview with archived repos over the real lookup read", () => {
     if (r.status !== "previewed") throw new Error(r.status);
     expect(r.plan.skippedOrgs).toEqual([]);
     expect(r.plan.appAdds).toEqual(["acme/b"]);
-    expect(r.plan.appRemoves).toEqual([]);
-    expect(r.plan.removedRepos).toEqual([]);
+    expect(r.plan.appRemoves).toEqual(["acme/old"]);
+    expect(r.plan.removedRepos).toEqual(["acme/old"]);
   });
 });

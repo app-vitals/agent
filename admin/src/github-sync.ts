@@ -75,7 +75,7 @@ export const REVERIFY_FAILED_REASON =
 export const NOT_PRESENT_REASON =
   "not on the agent installation or in the agent's repos";
 export const ARCHIVED_REASON =
-  "the repo is archived (read-only), so the installation is left alone";
+  "the repo is archived (read-only), so it is not added to the installation";
 
 export interface SyncLists {
   appAdds: readonly string[];
@@ -97,9 +97,10 @@ export interface GithubSyncPlanInput {
    */
   requested?: SyncLists;
   /**
-   * Archived repos (owner/repo). They are never an installation add or
-   * removal: an archived repo is read-only, and its access is not tracked
-   * unless an agent has it configured. The agent's own repos are unaffected.
+   * Archived repos (owner/repo). They are never an installation add: an
+   * archived repo is read-only. An archived repo already on the installation
+   * is still removed when the access answer says the user cannot push. The
+   * agent's own repos are unaffected.
    */
   archivedRepos?: readonly string[];
 }
@@ -193,7 +194,8 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
   };
 
   const archived = new Set((input.archivedRepos ?? []).map(lower));
-  // Checked before orgUsable, so an archived repo never reports its org skipped.
+  // Adds only; checked before orgUsable, so an archived repo never reports its
+  // org skipped. Removals of installed archived repos take the normal path.
   const isArchived = (repo: string): boolean => {
     if (!archived.has(lower(repo))) return false;
     leave(repo, ARCHIVED_REASON);
@@ -224,11 +226,9 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
   const removable = (
     repos: Iterable<string>,
     present: Map<string, string>,
-    skipArchived: boolean,
   ): Set<string> => {
     const out = new Set<string>();
     for (const repo of new Set(repos)) {
-      if (skipArchived && isArchived(repo)) continue;
       if (!orgUsable(repo)) continue;
       if (pushable.has(lower(repo))) {
         leave(repo, STILL_PUSHABLE_REASON);
@@ -243,10 +243,10 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
     }
     return out;
   };
-  // Archived installation repos are left alone; the agent's own configured
-  // repos keep the existing rule (their access is still tracked).
-  const appRemoves = removable(appRemoveCandidates, installed, true);
-  const agentRemoves = removable(agentRemoveCandidates, configured, false);
+  // An archived repo still on the installation is removed like any other once
+  // the user lacks push (least privilege); only adds skip archived repos.
+  const appRemoves = removable(appRemoveCandidates, installed);
+  const agentRemoves = removable(agentRemoveCandidates, configured);
 
   const skippedOrgs = sorted(skipReasons.keys()).map((org) => ({
     org,
@@ -496,7 +496,8 @@ export class GithubSyncService {
    * Access from the cache (complete and fresh orgs only), with the installed
    * orgs, plus the archived repos the lookup crawl reported. An archived repo
    * is left out of an org's required access rows unless the agent has it
-   * configured, since the refresher does not check the others.
+   * configured or it is on the installation (the refresher probes those so a
+   * removal has an answer), since it does not check the others.
    */
   private async cachedAccess(
     agent: InstallationAgentRecord,
@@ -526,6 +527,7 @@ export class GithubSyncService {
     const archivedRepos = lookup.flatMap((l) => l.archivedRepos ?? []);
     const archived = new Set(archivedRepos.map(key));
     const configuredKeys = new Set(agent.repos.map(key));
+    const installedKeys = new Set(installed.flatMap((i) => i.repos.map(key)));
     const orgNames = new Map<string, string>();
     for (const i of installed) orgNames.set(key(i.org), i.org);
     for (const r of agent.repos) {
@@ -543,7 +545,12 @@ export class GithubSyncService {
         ...agent.repos.filter((r) => key(repoOrg(r)) === k),
         ...lk.flatMap((l) => l.repos),
       ]) {
-        if (archived.has(key(r)) && !configuredKeys.has(key(r))) continue;
+        if (
+          archived.has(key(r)) &&
+          !configuredKeys.has(key(r)) &&
+          !installedKeys.has(key(r))
+        )
+          continue;
         repos.set(key(r), r);
       }
       const crawls = [
