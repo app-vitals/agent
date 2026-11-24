@@ -1,4 +1,8 @@
 import { describe, expect, it, test } from "bun:test";
+import type {
+  CachedAccessRow,
+  InstallationSnapshotRow,
+} from "./installation-repos-service.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import {
   GITHUB_SYNC_AUDIT_PLAN_HASH,
@@ -643,7 +647,10 @@ describe("skippedOrgs detail", () => {
 
   function cachedSvc(
     lookup: Parameters<typeof lookupDeps>[0],
-    over: { snap?: object; rows?: object[] } = {},
+    over: {
+      snap?: Partial<InstallationSnapshotRow>;
+      rows?: CachedAccessRow[];
+    } = {},
   ) {
     return new GithubSyncService({
       agents: {
