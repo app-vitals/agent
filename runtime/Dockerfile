@@ -25,13 +25,13 @@
 # ─── Node.js binary source ─────────────────────────────────────────────────
 # Copied into the base stage below instead of piping deb.nodesource.com's
 # setup script through bash — that endpoint intermittently 403s in CI,
-# blocking every build. node:26-trixie-slim matches oven/bun:1.4.4-slim's Debian
+# blocking every build. node:26-trixie-slim matches oven/bun:1.4.5-slim's Debian
 # release (trixie) so the copied binary is glibc-compatible.
 FROM node:26-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS node-source
 
 # ─── Base: system tooling installed as root ───────────────────────────────────
 
-FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS base
+FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS base
 
 # Install system dependencies:
 #   - git          — required by Claude Code and mise
@@ -52,7 +52,7 @@ FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3
 #     against an installed 1.61.1, not assumed from docs or an older version's
 #     source. That dry run confirms chromium-headless-shell needs the identical
 #     package set as full `chromium` on this OS.
-#     oven/bun:1.4.4-slim is Debian trixie (13) — see node-source stage comment above
+#     oven/bun:1.4.5-slim is Debian trixie (13) — see node-source stage comment above
 #     — hence the t64-suffixed package names (Debian's 64-bit time_t transition).
 # Upgrade apt/libapt-pkg7.0 past the base image's 3.0.3 (Trivy HIGH CVE-2026-109518, fixed in 3.0.4).
 RUN apt-get update \
@@ -138,7 +138,7 @@ COPY --from=node-source /usr/local/lib/node_modules/npm /usr/local/lib/node_modu
 # renovate: datasource=npm depName=npm
 ARG NPM_VERSION=12.2.2
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.325
+ARG CLAUDE_CODE_VERSION=2.1.330
 # The trailing check fails the build if the installed CLI doesn't report exactly
 # the pinned version (e.g. a registry/tag mismatch), so a drifted image can't ship.
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \

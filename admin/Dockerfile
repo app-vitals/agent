@@ -2,7 +2,7 @@
 #
 # Build from the repository root:  docker build -f admin/Dockerfile .
 
-FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS deps
+FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS deps
 
 WORKDIR /app
 
@@ -23,7 +23,7 @@ RUN if [ -f bun.lock ]; then bun install --frozen-lockfile --production; else bu
     && rm -rf node_modules/.bun/typescript@* node_modules/.bun/@typescript+* \
               node_modules/.bun/node_modules/typescript node_modules/.bun/node_modules/@typescript
 
-FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS production
+FROM oven/bun:1.4.5-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643 AS production
 
 # Upgrade apt/libapt-pkg7.0 past the base image's 3.0.3 (Trivy HIGH CVE-2026-109518, fixed in 3.0.4).
 RUN apt-get update \
