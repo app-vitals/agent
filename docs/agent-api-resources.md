@@ -269,7 +269,7 @@ Response shape:
 
 | Field | Type | When present | Meaning |
 |-------|------|--------------|---------|
-| `status` | enum: `"ok"`, `"user_not_found"`, `"unconfigured"` | always | `unconfigured`: the enterprise GitHub Apps are not configured (no GitHub call was made). `user_not_found`: the username does not exist on GitHub. `ok`: the lookup completed and `access` is present. |
+| `status` | enum: `"ok"`, `"user_not_found"`, `"unconfigured"` | always | `unconfigured`: the lookup GitHub App (or its key) is not configured (no GitHub call was made). The installer App is optional. `user_not_found`: the username does not exist on GitHub. `ok`: the lookup completed and `access` is present. |
 | `access` | object | when status is `"ok"` | Resolver output with per-org access details. Absent when `unconfigured` or `user_not_found`. |
 | `access.username` | string | | The GitHub username queried. |
 | `access.outcome` | enum: `"ok"`, `"user_not_found"` | | Whether the user exists on GitHub. |
