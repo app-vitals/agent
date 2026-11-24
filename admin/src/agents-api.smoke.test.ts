@@ -7722,6 +7722,45 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
     expect(state.repos).toEqual(["acme-eng/repo-2"]);
   });
 
+  it("sync preview and apply carry skippedOrgs detail next to the unchanged reason", async () => {
+    const accessRows = [
+      { ...accessRow("repo-1", "ok", true), checkedAt: T0, attempts: 0 },
+      {
+        ...accessRow("repo-2", "error"),
+        checkedAt: T0,
+        attempts: 2,
+        lastError: "rate limited",
+      },
+    ];
+    const expected = {
+      org: "acme-eng",
+      reason: "access data is incomplete",
+      detail: {
+        lookupSnapshotFound: true,
+        totalRepos: 3,
+        reposWithOkAccess: 1,
+        reposMissingAnswer: 2,
+        errorRows: 1,
+        terminalRows: 0,
+        maxAttempts: 2,
+        rowErrors: ["rate limited"],
+      },
+    };
+    const { app } = setup({ accessRows });
+    const pre = (await (
+      await app.request(previewUrl, { headers: asAdmin })
+    ).json()) as { skippedOrgs: unknown[]; warnings: string[] };
+    expect(pre.skippedOrgs).toMatchObject([expected]);
+    expect(pre.warnings).toEqual([
+      "acme-eng: skipped (access data is incomplete)",
+    ]);
+    const { app: app2 } = setup({ accessRows });
+    const applied = (await (
+      await apply(app2, { appRemoves: ["acme-eng/repo-2"] })
+    ).json()) as { skippedOrgs: unknown[] };
+    expect(applied.skippedOrgs).toMatchObject([expected]);
+  });
+
   it("sync preview reports a failing open-work port as a warning", async () => {
     const { app } = setup({
       openWork: {

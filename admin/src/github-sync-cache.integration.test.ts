@@ -69,7 +69,7 @@ describe("sync preview over the cache", () => {
     const r = await preview(cache, now);
     if (r.status !== "previewed") throw new Error(r.status);
     expect(r.plan.removedRepos).toEqual([]);
-    expect(r.plan.skippedOrgs).toEqual([
+    expect(r.plan.skippedOrgs).toMatchObject([
       { org: "acme", reason: "access data is incomplete" },
     ]);
   });

@@ -256,6 +256,186 @@ describe("renderSyncResult", () => {
   });
 });
 
+describe("skipped orgs and the in-sync state", () => {
+  const skipped = [{ org: "zed", reason: "access listing is incomplete" }];
+  const dupe = "zed: skipped (access listing is incomplete)";
+
+  it("warns, not in-sync, when every org was skipped and nothing changes", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      appAdds: [],
+      appRemoves: [],
+      agentRemoves: [],
+      skippedOrgs: skipped,
+      warnings: [dupe],
+    });
+    expect(html).toContain('data-sync="nothing-synced"');
+    expect(html).toContain("Nothing was synced: 1 org(s) skipped, see below");
+    expect(html).not.toContain('data-sync="in-sync"');
+    expect(html).not.toContain("Already in sync");
+    expect(html).toContain('data-skipped-orgs="1"');
+    expect(html).not.toContain("github-sync-confirm-btn");
+  });
+
+  it("still confirms changes when some orgs were skipped", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      appAdds: ["acme/new"],
+      skippedOrgs: skipped,
+      warnings: [dupe],
+    });
+    expect(html).toContain('data-sync="confirm"');
+    expect(html).toContain('data-skipped-orgs="1"');
+    expect(html).not.toContain('data-sync="nothing-synced"');
+  });
+
+  it("keeps the green in-sync state when no org was skipped", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      appAdds: [],
+      appRemoves: [],
+      agentRemoves: [],
+      skippedOrgs: [],
+    });
+    expect(html).toContain('data-sync="in-sync"');
+    expect(html).not.toContain("nothing-synced");
+  });
+
+  it("reports a skipped org once in the preview, keeping other warnings", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      appAdds: ["acme/new"],
+      skippedOrgs: skipped,
+      warnings: [dupe, "other warning"],
+    });
+    expect(html).not.toContain(dupe);
+    expect(html).toContain("other warning");
+    expect(html.match(/zed/g)).toHaveLength(1);
+  });
+
+  it("reports a skipped org once in the apply result, keeping other warnings", () => {
+    const html = renderSyncResult(
+      {
+        status: "applied",
+        skippedOrgs: skipped,
+        warnings: [dupe, "other warning"],
+      },
+      [],
+    );
+    expect(html).not.toContain(dupe);
+    expect(html).toContain("other warning");
+    expect(html).toContain('data-skipped-orgs="1"');
+  });
+});
+
+describe("skipped-org detail", () => {
+  const render = (detail?: Record<string, unknown>, org = "zed") =>
+    renderSyncConfirm("a1", {
+      status: "previewed",
+      appAdds: ["acme/new"],
+      skippedOrgs: [{ org, reason: "access listing is incomplete", detail }],
+    } as never);
+  const line = (html: string) =>
+    /data-skip-detail="1"[^>]*>([^<]*)</.exec(html)?.[1] ?? "";
+
+  it("renders exactly as before without detail", () => {
+    const html = render(undefined);
+    expect(html).toContain(
+      '<div><span class="mono">zed</span>: access listing is incomplete</div>',
+    );
+    expect(html).not.toContain("data-skip-detail");
+  });
+
+  it("renders a complete crawl with repos missing an answer", () => {
+    const html = render({
+      lookupSnapshotFound: true,
+      crawls: [{ completedAt: "2026-01-01T00:00:00.000Z" }],
+      totalRepos: 31,
+      reposWithOkAccess: 1,
+      reposMissingAnswer: 30,
+    });
+    expect(line(html)).toBe(
+      "Lookup crawl complete (31 repos). 30 repos have no access answer yet.",
+    );
+  });
+
+  it("renders a missing lookup snapshot", () => {
+    const html = render({ lookupSnapshotFound: false, crawls: [] });
+    expect(line(html)).toBe("Lookup crawl not found for this App.");
+  });
+
+  it("renders a failed crawl with the next attempt", () => {
+    const html = render({
+      lookupSnapshotFound: true,
+      crawls: [
+        {
+          completedAt: null,
+          lastError: "rate limited",
+          rateLimitResetAt: "2026-01-01T01:00:00.000Z",
+        },
+      ],
+    });
+    expect(line(html)).toBe(
+      "Lookup crawl failed: rate limited; next attempt 2026-01-01T01:00:00.000Z.",
+    );
+  });
+
+  it("renders an incomplete crawl without an error", () => {
+    const html = render({ crawls: [{ completedAt: null }] });
+    expect(line(html)).toBe("Lookup crawl not complete yet.");
+  });
+
+  it("renders error rows, terminal rows, row errors and oldest check", () => {
+    const html = render({
+      lookupSnapshotFound: true,
+      crawls: [{ completedAt: "2026-01-01T00:00:00.000Z" }],
+      totalRepos: 5,
+      reposWithOkAccess: 2,
+      reposMissingAnswer: 3,
+      errorRows: 2,
+      terminalRows: 1,
+      maxAttempts: 4,
+      rowErrors: ["boom", "bang"],
+      oldestCheckedAt: "2025-12-01T00:00:00.000Z",
+    });
+    const t = line(html);
+    expect(t).toContain("Lookup crawl complete (5 repos).");
+    expect(t).toContain("3 repos have no access answer yet.");
+    expect(t).toContain("2 repos errored.");
+    expect(t).toContain("1 repo gave up (max 4 attempts).");
+    expect(t).toContain("Row errors: boom; bang.");
+    expect(t).toContain("Oldest check 2025-12-01T00:00:00.000Z.");
+  });
+
+  it("escapes lastError, rowErrors and org", () => {
+    const html = render(
+      {
+        crawls: [{ completedAt: null, lastError: "<script>x</script>" }],
+        rowErrors: ["<img onerror=1>"],
+      },
+      "<b>o</b>",
+    );
+    expect(html).not.toContain("<script>x");
+    expect(html).not.toContain("<img onerror");
+    expect(html).not.toContain("<b>o</b>");
+    expect(html).toContain("&lt;script&gt;x");
+    expect(html).toContain("&lt;img onerror=1&gt;");
+  });
+
+  it("renders in the apply result too", () => {
+    const html = renderSyncResult(
+      {
+        status: "applied",
+        skippedOrgs: [
+          { org: "zed", reason: "r", detail: { lookupSnapshotFound: false } },
+        ],
+      },
+      [],
+    );
+    expect(line(html)).toBe("Lookup crawl not found for this App.");
+  });
+});
+
 describe("renderInstallationSyncStatus debug detail", () => {
   it("shows attempts, next attempt, lease holder and last tick on a failed snapshot, as an error", () => {
     const html = renderInstallationSyncStatus({

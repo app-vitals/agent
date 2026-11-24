@@ -173,6 +173,8 @@ export function createGithubSync(
       return snapshots.map((s) => ({
         org: s.org,
         completedAt: s.completedAt,
+        lastError: s.lastError,
+        rateLimitResetAt: s.rateLimitResetAt,
         repos: s.repos.map((r) => r.fullName),
       }));
     },

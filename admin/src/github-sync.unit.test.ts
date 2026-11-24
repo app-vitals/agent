@@ -1,7 +1,12 @@
 import { describe, expect, it, test } from "bun:test";
+import type {
+  CachedAccessRow,
+  InstallationSnapshotRow,
+} from "./installation-repos-service.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import {
   GITHUB_SYNC_AUDIT_PLAN_HASH,
+  type CachedLookupOrg,
   GithubSyncService,
   NOT_ADDABLE_REASON,
   NOT_PRESENT_REASON,
@@ -601,5 +606,195 @@ describe("GithubSyncService.apply", () => {
     expect(r.status).toBe("applied");
     expect(calls.some((c) => c[0] === "removeRepos")).toBe(false);
     expect(repos()).toEqual(["acme/a"]);
+  });
+});
+
+describe("skippedOrgs detail", () => {
+  const detail = {
+    lookupSnapshotFound: true,
+    totalRepos: 3,
+    reposWithOkAccess: 1,
+    reposMissingAnswer: 2,
+    errorRows: 1,
+    terminalRows: 1,
+  };
+
+  test("planGithubSync carries the org's detail next to the unchanged reason", () => {
+    const p = planGithubSync(
+      base({
+        access: access([
+          org("acme", [], {
+            status: "partial",
+            reason: "access data is incomplete",
+            detail,
+          }),
+        ]),
+      }),
+    );
+    expect(p.skippedOrgs).toEqual([
+      { org: "acme", reason: "access data is incomplete", detail },
+    ]);
+    expect(p.warnings).toEqual(["acme: skipped (access data is incomplete)"]);
+  });
+
+  test("an org with no detail has no detail key", () => {
+    const p = planGithubSync(base({ access: access([]) }));
+    expect(p.skippedOrgs[0]).toEqual({
+      org: "acme",
+      reason: "org was not checked",
+    });
+  });
+
+  function cachedSvc(
+    lookup: Parameters<typeof lookupDeps>[0],
+    over: {
+      snap?: Partial<InstallationSnapshotRow>;
+      rows?: CachedAccessRow[];
+    } = {},
+  ) {
+    return new GithubSyncService({
+      agents: {
+        get: async () => ({
+          id: "ag",
+          githubUsername: "octo",
+          appId: 7,
+          repos: ["acme/a"],
+        }),
+        setRepos: async () => {},
+      },
+      access: async () => {
+        throw new Error("live resolver must not be used");
+      },
+      installation: {
+        listInstalled: async () => ({
+          status: "found",
+          orgs: [{ org: "acme", repos: ["acme/a", "acme/b"] }],
+        }),
+        addRepos: async () => {},
+        removeRepos: async () => {},
+      },
+      audit: { write: async () => "a" },
+      now: () => new Date("2026-11-20T12:00:00.000Z"),
+      ...(() => {
+        const d = lookupDeps(lookup);
+        return {
+          ...d,
+          cache: {
+            listAgentSnapshots: async () => [
+              { ...(await d.cache.listAgentSnapshots())[0], ...over.snap },
+            ],
+            getAccessRows: async () =>
+              over.rows ?? (await d.cache.getAccessRows()),
+          },
+        };
+      })(),
+    });
+  }
+  const lookupDeps = (lookup: CachedLookupOrg[]) => ({
+    cache: {
+      listAgentSnapshots: async () => [
+        {
+          org: "acme",
+          completedAt: new Date("2026-11-20T11:00:00.000Z"),
+          totalCount: 2,
+          lastError: null,
+          rateLimitResetAt: null,
+          repos: [{ fullName: "acme/a" }, { fullName: "acme/b" }],
+        },
+      ],
+      getAccessRows: async () => [
+        { repo: "a", status: "ok", canPush: true },
+        { repo: "b", status: "terminal", canPush: false, attempts: 4 },
+      ],
+    },
+    lookupRepos: async () => lookup,
+  });
+
+  it("reports a missing lookup snapshot", async () => {
+    const r = await cachedSvc([]).preview("ag");
+    if (r.status !== "previewed") throw new Error(r.status);
+    expect(r.plan.skippedOrgs[0]).toMatchObject({
+      org: "acme",
+      reason: "access data is incomplete",
+      detail: { lookupSnapshotFound: false },
+    });
+  });
+
+  it("reports the lookup crawl's completedAt, lastError and rateLimitResetAt plus row counts", async () => {
+    const reset = new Date("2026-11-20T13:00:00.000Z");
+    const r = await cachedSvc([
+      {
+        org: "acme",
+        completedAt: null,
+        repos: ["acme/a", "acme/b"],
+        lastError: "secondary rate limit",
+        rateLimitResetAt: reset,
+      },
+    ]).preview("ag");
+    if (r.status !== "previewed") throw new Error(r.status);
+    expect(r.plan.skippedOrgs[0]?.detail).toMatchObject({
+      lookupSnapshotFound: true,
+      totalRepos: 2,
+      reposWithOkAccess: 1,
+      reposMissingAnswer: 1,
+      terminalRows: 1,
+      errorRows: 0,
+      maxAttempts: 4,
+    });
+    expect(r.plan.skippedOrgs[0]?.detail?.crawls).toContainEqual({
+      completedAt: null,
+      lastError: "secondary rate limit",
+      rateLimitResetAt: reset.toISOString(),
+    });
+  });
+
+  it("reports the installation crawl's lastError and rateLimitResetAt", async () => {
+    const r = await cachedSvc(
+      [
+        {
+          org: "acme",
+          completedAt: new Date("2026-11-20T11:00:00.000Z"),
+          repos: ["acme/a", "acme/b"],
+        },
+      ],
+      {
+        snap: { completedAt: null, lastError: "boom", rateLimitResetAt: null },
+      },
+    ).preview("ag");
+    if (r.status !== "previewed") throw new Error(r.status);
+    expect(r.plan.skippedOrgs[0]?.detail?.crawls).toContainEqual({
+      completedAt: null,
+      lastError: "boom",
+      rateLimitResetAt: null,
+    });
+  });
+
+  it("reports the oldest-checked time and error row count for stale data", async () => {
+    const old = new Date("2026-01-01T00:00:00.000Z");
+    const r = await cachedSvc(
+      [
+        {
+          org: "acme",
+          completedAt: new Date("2026-11-20T11:00:00.000Z"),
+          repos: ["acme/a", "acme/b"],
+        },
+      ],
+      {
+        rows: [
+          { repo: "a", status: "ok", canPush: true, checkedAt: old },
+          { repo: "b", status: "ok", canPush: true, checkedAt: old },
+        ],
+      },
+    ).preview("ag");
+    if (r.status !== "previewed") throw new Error(r.status);
+    expect(r.plan.skippedOrgs[0]).toMatchObject({
+      detail: {
+        oldestCheckedAt: old.toISOString(),
+        reposWithOkAccess: 2,
+        reposMissingAnswer: 0,
+        errorRows: 0,
+        terminalRows: 0,
+      },
+    });
   });
 });

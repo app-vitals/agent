@@ -56,7 +56,10 @@ import {
   previewRepoRemovalWork,
   repoLostAccessBlockReason,
 } from "./repo-removal-open-work.ts";
-import type { UserRepoAccessResult } from "./user-repo-access-resolver.ts";
+import type {
+  OrgSkipDetail,
+  UserRepoAccessResult,
+} from "./user-repo-access-resolver.ts";
 
 /** `planHash` of the audit row a sync apply writes. */
 export const GITHUB_SYNC_AUDIT_PLAN_HASH = "sync:apply";
@@ -163,6 +166,7 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
     : [...configured.values()];
 
   const skipReasons = new Map<string, string>();
+  const skipDetails = new Map<string, OrgSkipDetail>();
   const notApplied = new Map<string, NotAppliedRepo>();
   const leave = (repo: string, reason: string) => {
     if (requested)
@@ -171,9 +175,11 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
   // Unknown is never none: false (with the reason recorded) for a skipped org.
   const orgUsable = (repo: string): boolean => {
     const org = repoOrg(repo);
-    const reason = orgSkipReason(orgResults.get(lower(org)));
+    const result = orgResults.get(lower(org));
+    const reason = orgSkipReason(result);
     if (!reason) return true;
     skipReasons.set(org, reason);
+    if (result?.detail) skipDetails.set(org, result.detail);
     leave(repo, `skipped for org: ${reason}`);
     return false;
   };
@@ -224,6 +230,7 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
   const skippedOrgs = sorted(skipReasons.keys()).map((org) => ({
     org,
     reason: skipReasons.get(org) as string,
+    ...(skipDetails.has(org) ? { detail: skipDetails.get(org) } : {}),
   }));
   return {
     skipped: false,
@@ -244,6 +251,8 @@ export interface CachedLookupOrg {
   org: string;
   completedAt: Date | null;
   repos: readonly string[];
+  lastError?: string | null;
+  rateLimitResetAt?: Date | null;
 }
 
 /** Default freshness bound: the refresher's staleness cap (the longest data is left unrefreshed). */
@@ -501,8 +510,22 @@ export class GithubSyncService {
         repos.set(key(r), r);
       }
       const crawls = [
-        ...(inst && snap ? [{ completedAt: snap.completedAt }] : []),
-        ...lk.map((l) => ({ completedAt: l.completedAt })),
+        ...(inst && snap
+          ? [
+              {
+                completedAt: snap.completedAt,
+                lastError: snap.lastError,
+                rateLimitResetAt: snap.rateLimitResetAt,
+              },
+            ]
+          : []),
+        ...lk.map((l) => ({
+          completedAt: l.completedAt,
+          ...(l.lastError === undefined ? {} : { lastError: l.lastError }),
+          ...(l.rateLimitResetAt === undefined
+            ? {}
+            : { rateLimitResetAt: l.rateLimitResetAt }),
+        })),
       ];
       let rows: Awaited<ReturnType<InstallationCachePort["getAccessRows"]>> =
         [];
@@ -522,6 +545,9 @@ export class GithubSyncService {
       inputs.push({
         org,
         crawls,
+        ...(this.deps.lookupRepos !== undefined
+          ? { lookupSnapshotFound: lk.length > 0 }
+          : {}),
         // A read failure, an installed org with no crawl, or a lookup source with no crawl of this org.
         crawlMissing:
           failed ||

@@ -51,6 +51,31 @@ export interface ResolvedRepoAccess {
   canPush: boolean;
 }
 
+/** Why a cached-data org was skipped: what the cache did and did not answer. All members optional. */
+export interface OrgSkipDetail {
+  /** Whether the lookup-App crawl snapshot for the org exists (undefined when not applicable). */
+  lookupSnapshotFound?: boolean;
+  /** Each crawl snapshot the org depends on. */
+  crawls?: {
+    completedAt: string | null;
+    lastError?: string | null;
+    rateLimitResetAt?: string | null;
+  }[];
+  totalRepos?: number;
+  /** Repos with an ok access row. */
+  reposWithOkAccess?: number;
+  /** Repos without an ok access row. */
+  reposMissingAnswer?: number;
+  errorRows?: number;
+  terminalRows?: number;
+  /** Highest attempts count among the access rows. */
+  maxAttempts?: number;
+  /** Distinct lastError values of the error/terminal rows (at most 3). */
+  rowErrors?: string[];
+  /** Oldest check time (ISO) when the data is stale. */
+  oldestCheckedAt?: string;
+}
+
 export interface OrgAccessResult {
   org: string;
   status: OrgAccessStatus;
@@ -60,6 +85,8 @@ export interface OrgAccessResult {
   unresolved: number;
   /** Why the org is not "ok" when the cause is the lookup install scope. */
   reason?: string;
+  /** Extra context for a partial org built from cached data. */
+  detail?: OrgSkipDetail;
 }
 
 /** Shown when the lookup App is installed on selected repositories only. */
