@@ -8,7 +8,7 @@ Follow-up to `gsync-deployment-fix`. Repo: `app-vitals/agent`.
    - The blocked reason reads "dispatched but found nothing to do", which is misleading for a network failure. Wording only; no task.
    - `Task` skips are reason-aware (the same reason repeating counts, any other resets). `PullRequest` skips are a plain count with no reason, so any three skips block.
    - A runner crash also records a stable `dispatch:runner-error` reason and counts.
-2. **GFU-1.1** end-to-end cache round-trip test.
+2. **Shipped: end-to-end cache round-trip test (GFU-1.1).** Merged in #294 (`admin/src/github-cache-roundtrip.integration.test.ts`); no task remains.
 3. **GFU-2.x** lookup-only (no installer App) behavior and messaging.
 
 ## Findings (read from the code)
@@ -35,7 +35,6 @@ The access resolver uses the installer only for `listInstallableOrganizations()`
 
 | Task | Title | Repo | Layer | Depends on | Model | Hours |
 |---|---|---|---|---|---|---|
-| GFU-1.1 | test: add a real-database round trip for the GitHub repo cache | agent | Background | none | sonnet | 3 |
 | GFU-2.1 | feat: resolve GitHub access with only the lookup App | agent | API | none | sonnet | 3 |
 | GFU-2.2 | feat: explain lookup-only limits on every installer-dependent surface | agent | Frontend | GFU-2.1 | sonnet | 3 |
 | GFU-2.3 | docs: document lookup-only GitHub App capabilities | agent | Shared | GFU-2.2 | haiku | 1 |
@@ -44,7 +43,6 @@ GFU-2.1 and GFU-2.2 share branch `feat/gfu-lookup-only` (one PR) and inherit `so
 
 ```
 [START]
-  ├─ GFU-1.1 (no deps)
   └─ GFU-2.1 (no deps)
         └─ GFU-2.2 (needs 2.1, same branch)
               └─ GFU-2.3 (needs 2.2)
@@ -72,5 +70,6 @@ All changes are additive or internal. No renames or removals; no exported type g
 ## Decision Log
 
 - Scope of item 3: added GFU-2.1 (lookup-only access preview), because the requested message ("repo access is visible") is not true without it.
-- Docs location: `docs/platform/` in this repo is the source; GFU-2.3 checks whether the copy in `app-vitals/shipwright` is auto-synced and reports if a mirror update is needed.
+- GFU-1.1 (cache round-trip test) shipped in #294 and was dropped from the task table; remaining IDs are not renumbered.
+- Docs location: the GitHub App docs are flat files under `docs/` in this repo (`docs/github-enterprise-apps.md`, `docs/github-multi-org.md`) and are the source; GFU-2.3 checks whether the copy in `app-vitals/shipwright` is auto-synced and reports if a mirror update is needed.
 - Out of scope: the `"deployment"` account-key collision with a real account of that name, the cause of the bad node, and users re-selecting system-cron repos.
