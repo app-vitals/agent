@@ -641,7 +641,10 @@ describe("skippedOrgs detail", () => {
     });
   });
 
-  function cachedSvc(lookup: Parameters<typeof lookupDeps>[0]) {
+  function cachedSvc(
+    lookup: Parameters<typeof lookupDeps>[0],
+    over: { snap?: object; rows?: object[] } = {},
+  ) {
     return new GithubSyncService({
       agents: {
         get: async () => ({
@@ -665,7 +668,19 @@ describe("skippedOrgs detail", () => {
       },
       audit: { write: async () => "a" },
       now: () => new Date("2026-11-20T12:00:00.000Z"),
-      ...lookupDeps(lookup),
+      ...(() => {
+        const d = lookupDeps(lookup);
+        return {
+          ...d,
+          cache: {
+            listAgentSnapshots: async () => [
+              { ...(await d.cache.listAgentSnapshots())[0], ...over.snap },
+            ],
+            getAccessRows: async () =>
+              over.rows ?? (await d.cache.getAccessRows()),
+          },
+        };
+      })(),
     });
   }
   const lookupDeps = (lookup: CachedLookupOrg[]) => ({
@@ -723,6 +738,56 @@ describe("skippedOrgs detail", () => {
       completedAt: null,
       lastError: "secondary rate limit",
       rateLimitResetAt: reset.toISOString(),
+    });
+  });
+
+  it("reports the installation crawl's lastError and rateLimitResetAt", async () => {
+    const r = await cachedSvc(
+      [
+        {
+          org: "acme",
+          completedAt: new Date("2026-11-20T11:00:00.000Z"),
+          repos: ["acme/a", "acme/b"],
+        },
+      ],
+      {
+        snap: { completedAt: null, lastError: "boom", rateLimitResetAt: null },
+      },
+    ).preview("ag");
+    if (r.status !== "previewed") throw new Error(r.status);
+    expect(r.plan.skippedOrgs[0]?.detail?.crawls).toContainEqual({
+      completedAt: null,
+      lastError: "boom",
+      rateLimitResetAt: null,
+    });
+  });
+
+  it("reports the oldest-checked time and error row count for stale data", async () => {
+    const old = new Date("2026-01-01T00:00:00.000Z");
+    const r = await cachedSvc(
+      [
+        {
+          org: "acme",
+          completedAt: new Date("2026-11-20T11:00:00.000Z"),
+          repos: ["acme/a", "acme/b"],
+        },
+      ],
+      {
+        rows: [
+          { repo: "a", status: "ok", canPush: true, checkedAt: old },
+          { repo: "b", status: "ok", canPush: true, checkedAt: old },
+        ],
+      },
+    ).preview("ag");
+    if (r.status !== "previewed") throw new Error(r.status);
+    expect(r.plan.skippedOrgs[0]).toMatchObject({
+      detail: {
+        oldestCheckedAt: old.toISOString(),
+        reposWithOkAccess: 2,
+        reposMissingAnswer: 0,
+        errorRows: 0,
+        terminalRows: 0,
+      },
     });
   });
 });

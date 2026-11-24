@@ -510,7 +510,15 @@ export class GithubSyncService {
         repos.set(key(r), r);
       }
       const crawls = [
-        ...(inst && snap ? [{ completedAt: snap.completedAt }] : []),
+        ...(inst && snap
+          ? [
+              {
+                completedAt: snap.completedAt,
+                lastError: snap.lastError,
+                rateLimitResetAt: snap.rateLimitResetAt,
+              },
+            ]
+          : []),
         ...lk.map((l) => ({
           completedAt: l.completedAt,
           ...(l.lastError === undefined ? {} : { lastError: l.lastError }),
