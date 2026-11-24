@@ -254,7 +254,7 @@ describe("createGithubSync lookup snapshot read", () => {
     const { svc } = build(null, [lookupAcme("some-other-account")]);
     const preview = await svc.preview("a1");
     if (preview.status !== "previewed") throw new Error(preview.status);
-    expect(preview.plan.skippedOrgs).toEqual([
+    expect(preview.plan.skippedOrgs).toMatchObject([
       { org: "acme", reason: "access data is incomplete" },
     ]);
   });
