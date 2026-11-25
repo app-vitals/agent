@@ -92,6 +92,8 @@ export interface InstallationSnapshotRow {
   totalCount: number | null;
   lastError: string | null;
   rateLimitResetAt: Date | null;
+  /** The agent App's installation on the org; absent or null = unknown (never 'all'). */
+  repositorySelection?: "all" | "selected" | null;
   attempts?: number;
   nextAttemptAt?: Date | null;
   leaseHolder?: string | null;

@@ -33,6 +33,8 @@ export type SnapshotProgress = Partial<{
   crawlStartedAt: Date | null;
   completedAt: Date | null;
   totalCount: number | null;
+  /** Agent snapshots: the App installation's repository selection; null = unknown. */
+  repositorySelection: "all" | "selected" | null;
   lastError: string | null;
   attempts: number;
   nextAttemptAt: Date | null;
@@ -70,6 +72,11 @@ export interface AccessQuery {
 }
 
 const REPO_BATCH_SIZE = 500;
+
+/** A stored selection narrowed to the known values; anything else is unknown (null). */
+function asSelection(raw: string | null): "all" | "selected" | null {
+  return raw === "all" || raw === "selected" ? raw : null;
+}
 
 function requireNonEmpty(name: string, value: unknown): void {
   if (typeof value !== "string" || value.trim() === "") {
@@ -178,6 +185,7 @@ export class GitHubRepoCacheService {
       totalCount: r.totalCount,
       lastError: r.lastError,
       rateLimitResetAt: r.rateLimitResetAt,
+      repositorySelection: asSelection(r.repositorySelection),
       attempts: r.attempts,
       nextAttemptAt: r.nextAttemptAt,
       leaseHolder: r.leaseHolder,

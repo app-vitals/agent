@@ -77,7 +77,13 @@ class MemoryStore implements CrawlStore {
 }
 
 interface FakeClientOpts {
-  installs?: { id: number; appId?: number; appSlug?: string; clientId?: string }[];
+  installs?: {
+    id: number;
+    appId?: number;
+    appSlug?: string;
+    clientId?: string;
+    repositorySelection?: "all" | "selected" | "none";
+  }[];
   total?: number;
   perPage?: number;
   failPage?: (page: number) => Error | undefined;
@@ -374,5 +380,74 @@ describe("lookupAccountKeys", () => {
   it("never includes the empty-string key", () => {
     expect(lookupAccountKeys(null)).not.toContain("");
     expect(lookupAccountKeys("acct")).not.toContain("");
+  });
+});
+
+describe("crawlAgentInstallation repository selection (GIS-1.1)", () => {
+  const run = (store: MemoryStore, client: AgentInstallationClient) =>
+    crawlAgentInstallation({
+      agent: agent(),
+      org: "acme",
+      client,
+      store,
+      clock,
+    });
+  const selection = (store: MemoryStore) =>
+    (store.snap as unknown as Record<string, unknown> | null)
+      ?.repositorySelection;
+
+  it.each(["all", "selected"] as const)("records %s", async (value) => {
+    const store = new MemoryStore();
+    const { client } = fakeClient({
+      installs: [{ id: 501, appId: 777, repositorySelection: value }],
+    });
+    await run(store, client);
+    expect(selection(store)).toBe(value);
+  });
+
+  it("records null when the listing omits it or says none", async () => {
+    for (const repositorySelection of [undefined, "none" as const]) {
+      const store = new MemoryStore();
+      const { client } = fakeClient({
+        installs: [{ id: 501, appId: 777, repositorySelection }],
+      });
+      await run(store, client);
+      expect(selection(store)).toBeNull();
+    }
+  });
+
+  it("clears a previous value when the App is not installed", async () => {
+    const store = new MemoryStore();
+    await run(
+      store,
+      fakeClient({
+        installs: [{ id: 501, appId: 777, repositorySelection: "all" }],
+      }).client,
+    );
+    expect(selection(store)).toBe("all");
+    const res = await run(store, fakeClient({ installs: [] }).client);
+    expect(res.outcome).toBe("not_installed");
+    expect(selection(store)).toBeNull();
+  });
+
+  it("keeps the previous value when listing installations fails", async () => {
+    const store = new MemoryStore();
+    await run(
+      store,
+      fakeClient({
+        installs: [{ id: 501, appId: 777, repositorySelection: "selected" }],
+      }).client,
+    );
+    const failing: AgentInstallationClient = {
+      async listOrgInstallations() {
+        throw new GithubEnterpriseError("server", "boom");
+      },
+      async listInstallationRepositoriesPage() {
+        throw new GithubEnterpriseError("server", "boom");
+      },
+    };
+    const res = await run(store, failing);
+    expect(res.outcome).toBe("failed");
+    expect(selection(store)).toBe("selected");
   });
 });
