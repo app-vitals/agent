@@ -94,6 +94,11 @@ export function lazyInstallerClient(
       (await client(accountId)).addRepositories(org, id, names),
     removeRepositories: async (org, id, names, accountId) =>
       (await client(accountId)).removeRepositories(org, id, names),
+    setRepositorySelection: async (org, id, input, accountId) =>
+      (await client(accountId)).setRepositorySelection(org, id, {
+        repositorySelection: input.repositorySelection,
+        repositories: [...input.repositories],
+      }),
   };
 }
 

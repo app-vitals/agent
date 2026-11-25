@@ -7418,6 +7418,7 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
       "installable_orgs_success",
     [`GET ${INST}`]: "org_installations_success",
     [`GET ${INST}/501/repositories`]: "install_repos_success",
+    [`PATCH ${INST}/501/repositories`]: "install_selection_success",
     [`PATCH ${INST}/501/repositories/add`]: "install_repos_add_success",
     [`PATCH ${INST}/501/repositories/remove`]: "install_repos_remove_success",
   };
@@ -7474,6 +7475,21 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
           ),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
+      }
+      if (key === `PATCH ${INST}/501/repositories`) {
+        // GIS-1.2: the "all" to "selected" switch (installation repos become the list).
+        if (entry.status === 200) {
+          const names =
+            (JSON.parse(String(init?.body ?? "{}")) as { repositories?: string[] })
+              .repositories ?? [];
+          patches.push({ key, names });
+          events.push(["switch", names]);
+          state.installed = names.map((n) => `acme-eng/${n}`);
+        }
+        return new Response(JSON.stringify(entry.body), {
+          status: entry.status,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (key.startsWith("PATCH") && entry.status === 200) {
         const body = JSON.parse(String(init?.body ?? "{}")) as {
@@ -8115,6 +8131,75 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
     const ok = await apply(app, { agentRemoves: many, confirmRemovals: true });
     expect(ok.status).toBe(200);
     expect(state.repos).toEqual([]);
+  });
+
+  // GIS-1.2: an agent App installed on All repositories is switched to Selected.
+  const allSnapshot = () => [
+    {
+      org: "acme-eng",
+      completedAt: new Date(),
+      totalCount: 2,
+      lastError: null,
+      rateLimitResetAt: null,
+      repositorySelection: "all",
+      repos: [{ fullName: "acme-eng/repo-1" }, { fullName: "acme-eng/repo-2" }],
+    },
+  ];
+
+  it("sync preview lists the selection switch for an 'all' installation", async () => {
+    const { app, events } = setup({ snapshots: allSnapshot() });
+    const res = await app.request(previewUrl, { headers: asAdmin });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      selectionSwitches: unknown[];
+      appRemoves: string[];
+    };
+    expect(body.selectionSwitches).toEqual([
+      { org: "acme-eng", repos: ["acme-eng/repo-1"] },
+    ]);
+    expect(body.appRemoves).toEqual(["acme-eng/repo-2"]);
+    // Read-only: only the open-work listing, no GitHub change.
+    expect(events.map((e) => e[0])).toEqual(["list"]);
+  });
+
+  it("sync apply switches before removing, folds the removal and audits once", async () => {
+    const { app, audits, events } = setup({ snapshots: allSnapshot() });
+    const res = await apply(app, {
+      appRemoves: ["acme-eng/repo-2"],
+      agentRemoves: ["acme-eng/repo-2"],
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: "applied",
+      appRemoves: ["acme-eng/repo-2"],
+      selectionSwitches: [{ org: "acme-eng", repos: ["acme-eng/repo-1"] }],
+    });
+    expect(events.map((e) => e[0])).toEqual([
+      "switch",
+      "setRepos",
+      "audit",
+      "block",
+    ]);
+    expect(events[0]).toEqual(["switch", ["repo-1"]]);
+    expect(audits[0]?.diff).toMatchObject({
+      installationRemoves: ["acme-eng/repo-2"],
+      selectionSwitches: [{ org: "acme-eng", repos: ["acme-eng/repo-1"] }],
+    });
+  });
+
+  it("sync apply: a 403 on the switch is a 502 naming the missing permission, with a failed audit", async () => {
+    const { app, audits } = setup({
+      snapshots: allSnapshot(),
+      override: { [`PATCH ${INST}/501/repositories`]: "install_selection_403" },
+    });
+    const res = await apply(app, { appRemoves: ["acme-eng/repo-2"] });
+    expect(res.status).toBe(502);
+    expect(JSON.stringify(await res.json())).toContain(
+      "enterprise_organization_installation_repositories",
+    );
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ result: { status: "failed" } });
+    expect(audits[0]?.diff).toMatchObject({ installationRemoves: [] });
   });
 
   it("sync apply: noop when nothing confirmed still applies; 400 for bad names", async () => {

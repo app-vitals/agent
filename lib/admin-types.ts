@@ -6101,6 +6101,11 @@ export interface components {
             appRemoves?: string[];
             /** @description Configured agent repos the bound user can no longer push to. The agent's repos are never added to. */
             agentRemoves?: string[];
+            /** @description Orgs whose agent App installation is on All repositories. Sync switches each to Selected repositories (first 50 repos in the switch, the rest added in batches) before any add or remove; `repos` is the resulting list: the installed repos minus the org's confirmed removals. An org the bound user can push to nothing in is skipped (see `skippedOrgs`) and stays on All repositories. */
+            selectionSwitches?: {
+                org: string;
+                repos: string[];
+            }[];
             /** @description Orgs whose access listing is missing, partial or failed, whose cached access data is incomplete or stale, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed. `reason` says why (for stale data, when it was checked). */
             skippedOrgs?: {
                 org: string;
@@ -6145,6 +6150,11 @@ export interface components {
             appAdds?: string[];
             appRemoves?: string[];
             agentRemoves?: string[];
+            /** @description Orgs whose agent App installation is on All repositories. Sync switches each to Selected repositories (first 50 repos in the switch, the rest added in batches) before any add or remove; `repos` is the resulting list: the installed repos minus the org's confirmed removals. An org the bound user can push to nothing in is skipped (see `skippedOrgs`) and stays on All repositories. */
+            selectionSwitches?: {
+                org: string;
+                repos: string[];
+            }[];
             /** @description Confirmed repos left alone: access changed since the preview, the org was skipped, or the repo is not where the change expected it. */
             notApplied?: {
                 repo: string;
