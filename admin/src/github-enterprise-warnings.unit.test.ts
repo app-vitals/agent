@@ -20,6 +20,13 @@ describe("permissionWarnings", () => {
     ).toEqual([]);
   });
 
+  it("installer warning says the repositories permission is needed for Sync", () => {
+    const msg = GHE_WARNINGS.installer_repositories_write;
+    expect(msg).toContain("enterprise_organization_installation_repositories (write)");
+    expect(msg).toContain("Sync");
+    expect(msg).not.toContain("not needed yet");
+  });
+
   it("lookup: warns unless members is read or write", () => {
     expect(permissionWarnings("lookup", { metadata: "read" })).toEqual([GHE_WARNINGS.lookup_members_read]);
     expect(permissionWarnings("lookup", { members: "read" })).toEqual([]);
