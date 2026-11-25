@@ -42,7 +42,9 @@ bun install
 bun run lint
 bun run typecheck
 bun run check:boundary   # no import may leave runtime/, admin/, lib/ and agent-types/; plus the coding-vs-platform gate
-bun test
+bun run test               # unit layer
+bun run test:integration
+bun run test:smoke
 ```
 
 Integration tests that need Postgres read `DATABASE_URL_ADMIN_TEST` and skip when it is unset.
