@@ -50,6 +50,12 @@ import {
   GithubEnterpriseError,
   type GithubEnterpriseErrorKind,
 } from "./github-enterprise-client.ts";
+import {
+  findAgentInstallation,
+  GITHUB_UNINSTALL_AUDIT_PLAN_HASH,
+  planOrgUninstall,
+  uninstallBlockReason,
+} from "./github-uninstall.ts";
 import { resolveValidation } from "./github-enterprise-warnings.ts";
 import { GithubLookupClient } from "./github-lookup-client.ts";
 import {
@@ -58,8 +64,18 @@ import {
 } from "./github-lookup-repositories.ts";
 import type { GithubRefreshAction } from "./github-refresh-action.ts";
 import type { GitHubRepoCacheService } from "./github-repo-cache.ts";
-import { CLIENT_ID_RE, SLUG_RE } from "./installation-ports.ts";
+import {
+  CLIENT_ID_RE,
+  type InstallationAgentsPort,
+  type InstallationAuditPort,
+  SLUG_RE,
+} from "./installation-ports.ts";
 import { ErrorSchema } from "./openapi-schemas.ts";
+import type { OpenWorkPort } from "./reconcile-open-work.ts";
+import {
+  blockRepoRemovalWork,
+  previewRepoRemovalWork,
+} from "./repo-removal-open-work.ts";
 import { UserRepoAccessResolver } from "./user-repo-access-resolver.ts";
 
 // ─── Deps ─────────────────────────────────────────────────────────────────────
@@ -79,6 +95,16 @@ export interface GithubEnterpriseApiDeps {
    * and runs (best effort) after an App is saved or an agent App is installed.
    */
   refreshAction?: GithubRefreshAction;
+  /**
+   * GIS-1.5: what DELETE /orgs/{org}/install cleans up after the App is
+   * uninstalled (the agent's repos, one audit row, open work). Without it the
+   * route answers 503 and never uninstalls.
+   */
+  uninstall?: {
+    agents: InstallationAgentsPort;
+    audit: InstallationAuditPort;
+    openWork?: OpenWorkPort;
+  };
   /** Test seams; default to the real GitHub API. */
   fetchFn?: typeof fetch;
   apiBase?: string;
@@ -244,6 +270,48 @@ const InstallResultSchema = z
   })
   .openapi("GithubEnterpriseInstallResult");
 
+const UninstallQuerySchema = AccountQuerySchema.extend({
+  agentId: z
+    .string()
+    .min(1)
+    .openapi({ param: { name: "agentId", in: "query" }, example: "agent-id" }),
+  preview: z
+    .enum(["true", "false"])
+    .optional()
+    .openapi({
+      param: { name: "preview", in: "query" },
+      description:
+        "true: list the repos and open work an uninstall would affect and change nothing.",
+    }),
+  confirmRemovals: z
+    .enum(["true", "false"])
+    .optional()
+    .openapi({
+      param: { name: "confirmRemovals", in: "query" },
+      description: "Required when more than 10 agent repos would be removed.",
+    }),
+});
+
+const UninstallResultSchema = z
+  .object({
+    status: z.enum(["preview", "uninstalled"]),
+    org: z.string(),
+    installationId: z.number(),
+    repos: z.array(z.string()).openapi({
+      description: "The agent's repos in the org, removed from the agent.",
+    }),
+    openWork: z.array(
+      z.object({
+        id: z.string(),
+        repo: z.string(),
+        title: z.string().optional(),
+      }),
+    ),
+    warnings: z.array(z.string()),
+    auditId: z.string().optional(),
+  })
+  .openapi("GithubEnterpriseUninstallResult");
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 const jsonError = { content: { "application/json": { schema: ErrorSchema } } };
@@ -408,6 +476,27 @@ const installRoute = createRoute({
   },
 });
 
+const uninstallRoute = createRoute({
+  method: "delete",
+  path: "/github-enterprise/orgs/{org}/install",
+  tags,
+  summary: "Uninstall an agent's App from an organization",
+  description:
+    "Admin-only. Finds the agent App's installation on the org (client id, slug or app id) and deletes it with the installer App, removes that org's repos from the agent's repos, blocks the agent's open tasks and PRs on them through the open-work port (a port failure is a warning) and writes one audit row (uninstall:org). `preview=true` lists the repos and open work that would be affected and changes nothing. 404 when the App is not installed on the org; 422 when more than 10 repos would be removed without `confirmRemovals=true`; 502 (with a failed audit row) when GitHub refuses.",
+  request: { params: OrgParamSchema, query: UninstallQuerySchema },
+  responses: {
+    200: {
+      description: "Uninstalled, or the preview",
+      content: { "application/json": { schema: UninstallResultSchema } },
+    },
+    400: { description: "Bad request", ...jsonError },
+    409: { description: "Installer App not configured", ...jsonError },
+    503: { description: "Uninstall is not available", ...jsonError },
+    ...upstreamErrors,
+    ...errorResponses,
+  },
+});
+
 // ─── Error mapping ────────────────────────────────────────────────────────────
 
 interface Mapped {
@@ -483,8 +572,8 @@ function serializeApp(m: GitHubEnterpriseAppMetadata) {
 // ─── Access preview (GHE-2.4) ─────────────────────────────────────────────────
 
 /**
- * Backs GET /agents/:id/github-access. Unconfigured (either App missing, or a
- * stored App without its key / enterprise slug) returns before any GitHub
+ * Backs GET /agents/:id/github-access. Unconfigured (the lookup App, or its
+ * key, missing) returns before any GitHub
  * call. A GitHub failure while listing orgs is rethrown as a 502 carrying only
  * the mapped, non-leaky message.
  */
@@ -499,32 +588,38 @@ export function createGithubAccessPreview(
       deps.appService.get("installer", accountId),
       deps.appService.get("lookup", accountId),
     ]);
-    if (!installer || !lookup || !installer.enterpriseSlug) {
-      return { status: "unconfigured" };
-    }
+    if (!lookup) return { status: "unconfigured" };
     const [installerKey, lookupKey] = await Promise.all([
-      deps.appService.getPrivateKey("installer", accountId),
+      installer ? deps.appService.getPrivateKey("installer", accountId) : null,
       deps.appService.getPrivateKey("lookup", accountId),
     ]);
-    if (!installerKey || !lookupKey) return { status: "unconfigured" };
+    if (!lookupKey) return { status: "unconfigured" };
 
     const common = {
       apiBase: deps.apiBase,
       fetchFn: deps.fetchFn,
       now: deps.now,
     };
+    const lookupClient = new GithubLookupClient({
+      appId: lookup.appId,
+      privateKey: lookupKey,
+      ...common,
+    });
+    // The installer only widens the org list; without a usable one (no key or
+    // enterprise slug) the lookup App's own installations are the org source.
+    const installerClient =
+      installer?.enterpriseSlug && installerKey
+        ? new GithubEnterpriseClient({
+            appId: installer.appId,
+            enterprise: installer.enterpriseSlug,
+            privateKey: installerKey,
+            ...common,
+          })
+        : undefined;
     const resolver = new UserRepoAccessResolver({
-      installer: new GithubEnterpriseClient({
-        appId: installer.appId,
-        enterprise: installer.enterpriseSlug,
-        privateKey: installerKey,
-        ...common,
-      }),
-      lookup: new GithubLookupClient({
-        appId: lookup.appId,
-        privateKey: lookupKey,
-        ...common,
-      }),
+      installer: installerClient,
+      lookupInstallations: lookupClient,
+      lookup: lookupClient,
       now: deps.now,
     });
     try {
@@ -669,6 +764,7 @@ export function createGithubEnterpriseApp(
     slug: string | null;
     invalid: boolean;
     clientId: string | null;
+    appId: number | null;
   }> => {
     if (!(await deps.agentService.getSummary(agentId))) {
       throw new NotFoundError(`agent ${agentId} not found`);
@@ -679,11 +775,13 @@ export function createGithubEnterpriseApp(
       storedClientId && CLIENT_ID_RE.test(storedClientId)
         ? storedClientId
         : null;
+    const rawAppId = Number(env?.GH_APP_ID?.trim());
+    const appId = Number.isInteger(rawAppId) && rawAppId > 0 ? rawAppId : null;
     const slug = env?.GH_APP_SLUG;
-    if (!slug) return { slug: null, invalid: false, clientId };
+    if (!slug) return { slug: null, invalid: false, clientId, appId };
     return SLUG_RE.test(slug)
-      ? { slug, invalid: false, clientId }
-      : { slug: null, invalid: true, clientId };
+      ? { slug, invalid: false, clientId, appId }
+      : { slug: null, invalid: true, clientId, appId };
   };
 
   /** Public-lookup client id; reason is set when the App is private (404). */
@@ -980,6 +1078,122 @@ export function createGithubEnterpriseApp(
           repositorySelection: res.installation.repositorySelection,
         },
       },
+      200,
+    );
+  });
+
+  app.openapi(uninstallRoute, async (c) => {
+    requireAdmin(c);
+    const { org } = c.req.valid("param");
+    const query = c.req.valid("query");
+    const { accountId, agentId } = query;
+    const port = deps.uninstall;
+    if (!port) {
+      return c.json({ error: "App uninstall is not available" }, 503);
+    }
+
+    const installer = await appService.get("installer", accountId);
+    if (!installer) {
+      throw new ConflictError("the installer App is not configured");
+    }
+    const agent = await agentApp(agentId);
+    const record = await port.agents.get(agentId);
+    if (!record) throw new NotFoundError(`agent ${agentId} not found`);
+
+    const client = await clientFor(installer, accountId);
+    const installation = findAgentInstallation(
+      await client.listOrgInstallations(org),
+      { clientId: agent.clientId, slug: agent.slug, appId: agent.appId },
+    );
+    if (!installation) {
+      throw new NotFoundError(`the agent's App is not installed on org ${org}`);
+    }
+
+    const plan = planOrgUninstall({ org, agentRepos: record.repos });
+    const work = await previewRepoRemovalWork(
+      port.openWork,
+      agentId,
+      plan.repos,
+    );
+    const base = {
+      org,
+      installationId: installation.id,
+      repos: plan.repos,
+      openWork: work.openWork,
+    };
+    if (query.preview === "true") {
+      return c.json(
+        { status: "preview" as const, ...base, warnings: work.warnings },
+        200,
+      );
+    }
+    if (plan.needsConfirm && query.confirmRemovals !== "true") {
+      throw new UnprocessableEntityError(
+        `${plan.repos.length} repos would be removed; resend with confirmRemovals=true to apply`,
+      );
+    }
+
+    const writeAudit = (error?: string) =>
+      port.audit.write({
+        agentId,
+        caller: "admin",
+        planHash: GITHUB_UNINSTALL_AUDIT_PLAN_HASH,
+        diff: {
+          installationAdds: [],
+          installationRemoves: error === undefined ? plan.repos : [],
+          configAdds: [],
+          configRemoves: [],
+        },
+        result:
+          error === undefined
+            ? { status: "applied" }
+            : { status: "failed", error },
+      });
+
+    try {
+      await client.uninstallFromOrg(org, installation.id);
+    } catch (err) {
+      const reason =
+        err instanceof GithubEnterpriseError
+          ? mapEnterpriseFailure(err.kind).message
+          : "GitHub uninstall failed";
+      const auditId = await writeAudit(reason);
+      throw new BadGatewayError(
+        `GitHub refused the uninstall: ${reason} Audit ${auditId} records the failure.`,
+      );
+    }
+
+    // GitHub has uninstalled; a cleanup failure is audited and reported, never hidden.
+    let cleanupError: string | undefined;
+    try {
+      if (plan.repos.length > 0) {
+        const drop = new Set(plan.repos);
+        await port.agents.setRepos(
+          agentId,
+          record.repos.filter((r) => !drop.has(r)),
+        );
+      }
+    } catch (err) {
+      cleanupError = err instanceof Error ? err.message : String(err);
+    }
+    const auditId = await writeAudit(cleanupError);
+    if (cleanupError !== undefined) {
+      throw new BadGatewayError(
+        `the App was uninstalled but the agent's repos could not be updated; audit ${auditId} records the failure`,
+      );
+    }
+    const warnings = [
+      ...work.warnings,
+      ...(await blockRepoRemovalWork(
+        port.openWork,
+        agentId,
+        plan.repos,
+        uninstallBlockReason,
+      )),
+    ];
+    await markStaleQuietly();
+    return c.json(
+      { status: "uninstalled" as const, ...base, warnings, auditId },
       200,
     );
   });

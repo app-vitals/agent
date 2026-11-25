@@ -150,3 +150,68 @@ describe("repository client validation", () => {
     expect(err.kind).toBe("validation");
   });
 });
+
+describe("GithubEnterpriseClient.uninstallFromOrg", () => {
+  const { privateKey } = require("node:crypto").generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const make = (deleteStatus: number) => {
+    const calls: { method: string; path: string; auth: string }[] = [];
+    const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = new URL(input.toString());
+      const method = init?.method ?? "GET";
+      calls.push({
+        method,
+        path: u.pathname,
+        auth: ((init?.headers ?? {}) as Record<string, string>)
+          .Authorization as string,
+      });
+      if (u.pathname === "/enterprises/acme/installation")
+        return Response.json({ id: 4242 });
+      if (u.pathname === "/app/installations/4242/access_tokens")
+        return Response.json(
+          { token: "ghs_t", expires_at: "2099-01-01T00:00:00Z" },
+          { status: 201 },
+        );
+      if (method === "DELETE") {
+        return deleteStatus === 204
+          ? new Response(null, { status: 204 })
+          : Response.json({ message: "nope" }, { status: deleteStatus });
+      }
+      throw new Error(`unexpected ${method} ${u.pathname}`);
+    }) as typeof fetch;
+    const client = new GithubEnterpriseClient({
+      appId: "1",
+      enterprise: "acme",
+      privateKey,
+      fetchFn,
+    });
+    return { client, calls };
+  };
+
+  it("DELETEs the org installation with the installation token (204)", async () => {
+    const { client, calls } = make(204);
+    await client.uninstallFromOrg("org-1", 601);
+    const del = calls.find((c) => c.method === "DELETE");
+    expect(del?.path).toBe(
+      "/enterprises/acme/apps/organizations/org-1/installations/601",
+    );
+    expect(del?.auth).toBe("Bearer ghs_t");
+  });
+
+  it("maps a refusal to a typed error", async () => {
+    const { client } = make(403);
+    const err = await client.uninstallFromOrg("org-1", 601).catch((e) => e);
+    expect(err).toBeInstanceOf(GithubEnterpriseError);
+    expect(err.kind).toBe("permission");
+  });
+
+  it("rejects a bad installation id before any network call", async () => {
+    const { client, calls } = make(204);
+    const err = await client.uninstallFromOrg("org-1", 0).catch((e) => e);
+    expect(err.kind).toBe("validation");
+    expect(calls).toHaveLength(0);
+  });
+});

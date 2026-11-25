@@ -17,6 +17,10 @@ import {
   renderSyncResult,
   uncoveredRepos,
 } from "./admin-ui-installation-repos-pages.ts";
+import {
+  LOOKUP_MISSING_REASON,
+  LOOKUP_ONLY_REASON,
+} from "./github-apps-state.ts";
 import { MISSING_APP_ID_REASON } from "./installation-ports.ts";
 
 describe("uncoveredRepos", () => {
@@ -181,6 +185,47 @@ describe("renderSyncConfirm", () => {
       appRemoves: ["acme/old"],
       agentRemoves: ["acme/gone"],
     });
+  });
+
+  it("lists each selection switch with org and kept repo count in the one confirm", () => {
+    const html = renderSyncConfirm("a1", {
+      ...preview,
+      selectionSwitches: [
+        { org: "acme", repos: ["acme/a", "acme/b"] },
+        { org: "solo<x>", repos: ["solo/a"] },
+      ],
+    });
+    expect(html).toContain('data-list="selection-switches"');
+    expect(html).toContain("all repositories to selected repositories (2)");
+    expect(html).toContain('data-switch-org="acme"');
+    expect(html).toContain("keeps 2 repos");
+    expect(html).toContain("solo&lt;x&gt;");
+    expect(html).toContain("keeps 1 repo<");
+    expect(html.match(/id="github-sync-confirm-btn"/g)?.length).toBe(1);
+  });
+
+  it("confirms a switch-only plan instead of saying in sync", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      selectionSwitches: [{ org: "acme", repos: ["acme/a"] }],
+    });
+    expect(html).toContain('data-sync="confirm"');
+    expect(html).not.toContain("in-sync");
+  });
+
+  it("shows the empty-target skip warning with the Uninstall hint", () => {
+    const html = renderSyncConfirm("a1", {
+      ...preview,
+      skippedOrgs: [
+        {
+          org: "empty-org",
+          reason:
+            "the bound user can push to none of this org's repos, so it stays on All repositories; use Uninstall to remove the agent App from this org",
+        },
+      ],
+    });
+    expect(html).toContain("empty-org");
+    expect(html).toContain("use Uninstall to remove the agent App");
   });
 
   it("requires the over-cap checkbox for more than 10 removals", () => {
@@ -568,5 +613,84 @@ describe("installation sync timestamps in the admin timezone", () => {
     );
     expect(html).toContain("next attempt Nov 23, 5:02 PM PST");
     expect(html).toContain("Oldest check Jul 1, 12:00 PM PDT");
+  });
+});
+
+describe("renderGithubSyncCard: App states (GFU-2.2)", () => {
+  const base = { hasAppId: true, githubUsername: "octo" };
+
+  it("both (explicit or default) renders identically", () => {
+    expect(renderGithubSyncCard("a1", { ...base, appsState: "both" })).toBe(
+      renderGithubSyncCard("a1", base),
+    );
+  });
+
+  it("lookup-only explains that Sync needs an installer; no button, body or form", () => {
+    const html = renderGithubSyncCard("a1", {
+      ...base,
+      appsState: "lookup_only",
+    });
+    expect(html).toContain('data-reason="lookup-only"');
+    expect(html).toContain("&#39;");
+    expect(html).toContain(LOOKUP_ONLY_REASON.replace(/'/g, "&#39;"));
+    expect(html).not.toContain('id="github-sync-btn"');
+    expect(html).not.toContain('id="github-installation-body"');
+    expect(html).toContain('id="github-refresh-btn"');
+  });
+
+  it("lookup-only wins over a missing App id or username", () => {
+    const html = renderGithubSyncCard("a1", {
+      hasAppId: false,
+      githubUsername: null,
+      appsState: "lookup_only",
+    });
+    expect(html).toContain('data-reason="lookup-only"');
+    expect(html).not.toContain('data-reason="missing-app-id"');
+    expect(html).not.toContain('data-reason="no-username"');
+  });
+
+  it("lookup-missing says the lookup App is missing, never the installer", () => {
+    const html = renderGithubSyncCard("a1", {
+      ...base,
+      appsState: "lookup_missing",
+    });
+    expect(html).toContain('data-reason="lookup-missing"');
+    expect(html).toContain(LOOKUP_MISSING_REASON);
+    expect(html).not.toContain("installer");
+    expect(html).not.toContain('id="github-sync-btn"');
+    expect(html).not.toContain('id="github-refresh-btn"');
+  });
+
+  it("escapes the agent id in every state", () => {
+    for (const appsState of [
+      "both",
+      "lookup_only",
+      "lookup_missing",
+    ] as const) {
+      const html = renderGithubSyncCard('"><img src=x>', {
+        ...base,
+        appsState,
+      });
+      expect(html).not.toContain("<img src=x>");
+    }
+  });
+
+  it("sync skipped fragments carry an escaped apps-state marker and reason", () => {
+    const skipped = {
+      status: "skipped" as const,
+      appsState: "lookup_only" as const,
+      reason: "<b>no installer</b>",
+    };
+    for (const html of [
+      renderSyncConfirm("a1", skipped),
+      renderSyncResult(skipped, []),
+    ]) {
+      expect(html).toContain('data-apps-state="lookup_only"');
+      expect(html).toContain("&lt;b&gt;no installer&lt;/b&gt;");
+      expect(html).not.toContain("<b>no installer</b>");
+    }
+    expect(
+      renderSyncResult({ status: "skipped", reason: "r" }, []),
+    ).not.toContain("data-apps-state");
   });
 });

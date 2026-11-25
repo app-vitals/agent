@@ -166,6 +166,15 @@ const ROUTES: Record<string, [Cassette, string]> = {
     enterprise,
     "installable_orgs_success",
   ],
+  "GET /app/installations": [
+    {
+      lookup_only_installations: {
+        status: 200,
+        body: [{ id: 7001, account: { login: "org-1", type: "Organization" } }],
+      },
+    },
+    "lookup_only_installations",
+  ],
   "GET /orgs/org-1/installation": [lookup, "org_installation_success"],
   "GET /orgs/org-2/installation": [lookup, "org_installation_404"],
   "POST /app/installations/7001/access_tokens": [
@@ -319,7 +328,24 @@ describeOrSkip("GET /agents/:id/github-access (integration)", () => {
     expect(calls).toEqual([]);
   });
 
-  it("only one App configured is still unconfigured", async () => {
+  it("only the installer configured is still unconfigured", async () => {
+    const agent = await prisma.agent.create({
+      data: { name: "A", githubUsername: "octocat" },
+    });
+    const svc = svcNoApps();
+    await svc.save({
+      role: "installer",
+      appId: "12345",
+      slug: "example-installer",
+      enterpriseSlug: "acme",
+      privateKey: PEM,
+    });
+    const res = await get(build(svc), agent.id);
+    expect(await res.json()).toEqual({ status: "unconfigured" });
+    expect(calls).toEqual([]);
+  });
+
+  it("only the lookup App configured resolves through its own installations", async () => {
     const agent = await prisma.agent.create({
       data: { name: "A", githubUsername: "octocat" },
     });
@@ -332,8 +358,17 @@ describeOrSkip("GET /agents/:id/github-access (integration)", () => {
       privateKey: PEM,
     });
     const res = await get(build(svc), agent.id);
-    expect(await res.json()).toEqual({ status: "unconfigured" });
-    expect(calls).toEqual([]);
+    const json = (await res.json()) as {
+      status: string;
+      access: { orgs: { org: string; status: string }[] };
+    };
+    expect(json.status).toBe("ok");
+    expect(json.access.orgs.map((o) => [o.org, o.status])).toEqual([
+      ["org-1", "ok"],
+    ]);
+    expect(calls).not.toContain(
+      "GET /enterprises/acme/apps/installable_organizations",
+    );
   });
 
   it("user_not_found when the user does not exist on GitHub", async () => {

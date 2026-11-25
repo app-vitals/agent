@@ -97,6 +97,10 @@ import {
 import { parseChatCredentialConfig } from "./chat-credential-config.ts";
 import { HttpChatServiceProvisioningClient } from "./chat-service-provisioning-client.ts";
 import { SystemClock } from "./clock.ts";
+import {
+  PrismaInstallationAgents,
+  PrismaInstallationAudit,
+} from "./installation-ports.ts";
 import { CronRunNowService } from "./cron-run-now.ts";
 import { parseCronRunNowConfig } from "./cron-run-now-config.ts";
 import { CronRunTranscriptService } from "./cron-run-transcripts.ts";
@@ -635,6 +639,13 @@ export async function startAdmin(
     },
     githubEnterprise: {
       refreshAction: githubRefreshAction,
+      uninstall: {
+        agents: new PrismaInstallationAgents(prisma, agentEnvService),
+        audit: new PrismaInstallationAudit(prisma),
+        ...(resolvedExtensions.openWork
+          ? { openWork: resolvedExtensions.openWork }
+          : {}),
+      },
       appService: githubEnterpriseAppService,
       agentService,
       agentEnvService,

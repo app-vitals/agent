@@ -11,6 +11,7 @@ import {
   renderGithubAccessResult,
   renderGithubInstallCard,
   renderGithubOrgsFragment,
+  renderGithubUninstallConfirm,
   renderGithubUsernameRow,
 } from "./admin-ui-github-identity-pages.ts";
 import {
@@ -301,8 +302,50 @@ describe("Install on org block (GHC-1.2)", () => {
     );
     expect(html).toContain("Installed");
     expect(html).toContain("Not installed");
-    expect(html).not.toContain("disabled");
+    expect(html).not.toMatch(/ disabled/);
     expect(html).not.toContain('name="agentId"');
+  });
+
+  test("installed org shows Uninstall, not installed keeps Install", () => {
+    const html = renderGithubOrgsFragment("agent-123", orgs());
+    expect(html.match(/>Uninstall<\/button>/g)?.length).toBe(1);
+    expect(html).toContain(
+      "/admin/agents/agent-123/github-orgs/%3Cb%3Ex%3C%2Fb%3E/uninstall-confirm",
+    );
+    expect(html.match(/>Install<\/button>/g)?.length).toBe(1);
+  });
+
+  test("Uninstall is disabled when the agent App reason is set", () => {
+    const html = renderGithubOrgsFragment(
+      "agent-123",
+      orgs({ agentAppReason: "nope" }),
+    );
+    expect(html).toMatch(/data-org="[^"]*" disabled>Uninstall</);
+  });
+
+  test("unconfigured installer renders no Uninstall", () => {
+    expect(
+      renderGithubOrgsFragment("a", { configured: false, orgs: orgs().orgs }),
+    ).not.toContain("Uninstall");
+  });
+
+  test("uninstall confirm lists repos and open work, escaped", () => {
+    const html = renderGithubUninstallConfirm("agent-123", {
+      org: "acme",
+      repos: ["acme/<r>"],
+      openWork: [{ id: "T-1", repo: "acme/<r>", title: "Do it" }],
+    });
+    expect(html).toContain("acme/&lt;r&gt;");
+    expect(html).toContain("T-1");
+    expect(html).toContain('action="/admin/agents/agent-123/github-orgs/acme/uninstall"');
+    expect(html).not.toContain("confirmRemovals");
+  });
+
+  test("uninstall confirm carries confirmRemovals for more than 10 repos", () => {
+    const repos = Array.from({ length: 11 }, (_, i) => `acme/r${i}`);
+    expect(
+      renderGithubUninstallConfirm("a", { org: "acme", repos, openWork: [] }),
+    ).toContain('name="confirmRemovals"');
   });
 
   test("installed org has no Install button; names are escaped", () => {
@@ -328,5 +371,92 @@ describe("Install on org block (GHC-1.2)", () => {
     expect(renderGithubOrgsFragment("a", orgs({ orgs: [] }))).toContain(
       "No installable organizations",
     );
+  });
+});
+
+describe("GitHub identity surfaces by App state (GFU-2.2)", () => {
+  const pageState = (appsState?: "both" | "lookup_only" | "lookup_missing") =>
+    renderAgentDetailPage(
+      { ...AGENT, githubUsername: "octo" },
+      { GH_APP_ID: "1" },
+      [],
+      [],
+      [],
+      [],
+      [],
+      "u@x.com",
+      true,
+      { timezone: "UTC", ...(appsState ? { githubAppsState: appsState } : {}) },
+    );
+
+  test("both: preview, sync button and the install org list", () => {
+    const html = pageState("both");
+    expect(html).toContain('id="github-access-btn"');
+    expect(html).toContain('id="github-sync-btn"');
+    expect(html).toContain('id="github-install-result"');
+    expect(html).not.toContain('data-reason="lookup-only"');
+  });
+
+  test("lookup-only: preview stays, Sync and Install explain the installer need", () => {
+    const html = pageState("lookup_only");
+    expect(html).toContain('id="github-access-btn"');
+    expect(html).toContain('data-reason="lookup-only"');
+    expect(html).not.toContain('id="github-sync-btn"');
+    expect(html).not.toContain('id="github-install-result"');
+    expect(html).toContain("Install on org");
+  });
+
+  test("lookup-missing: only the Sync card, saying the lookup App is missing", () => {
+    const html = pageState("lookup_missing");
+    expect(html).toContain('data-reason="lookup-missing"');
+    expect(html).not.toContain('id="github-access-btn"');
+    expect(html).not.toContain("Install on org");
+  });
+
+  test("no state: hidden; legacy githubEnterpriseConfigured: true means both", () => {
+    expect(pageState()).not.toContain('id="github-installation-card"');
+    expect(page(true, true)).toContain('id="github-installation-card"');
+    expect(page(true, true)).not.toContain('data-reason="lookup-only"');
+  });
+
+  test("access preview: unconfigured is the lookup-missing message", () => {
+    const html = renderGithubAccessResult({ status: "unconfigured" });
+    expect(html).toContain('data-reason="lookup-missing"');
+    expect(html).toContain("lookup GitHub App is not configured");
+    expect(html).not.toContain("installer");
+  });
+
+  test("access preview: escapes the username and org values", () => {
+    const html = renderGithubAccessResult({
+      status: "user_not_found",
+      access: {
+        username: "<img src=x>",
+        outcome: "user_not_found",
+        userVerified: false,
+        orgs: [],
+        unresolved: 0,
+        complete: true,
+        checkedAt: "2026-11-10T00:00:00Z",
+      },
+    } as GithubAccessPreviewView);
+    expect(html).not.toContain("<img src=x>");
+    expect(html).toContain("&lt;img src=x&gt;");
+  });
+
+  test("install card: lookup-only explains; both lazy-loads; id escaped", () => {
+    const only = renderGithubInstallCard('a"><i>', "lookup_only");
+    expect(only).toContain('data-reason="lookup-only"');
+    expect(only).not.toContain("github-install-result");
+    expect(only).not.toContain("<i>");
+    expect(renderGithubInstallCard("a", "both")).toBe(
+      renderGithubInstallCard("a"),
+    );
+  });
+
+  test("orgs fragment: installer-unconfigured names the installer and its enterprise need", () => {
+    const html = renderGithubOrgsFragment("a", { configured: false, orgs: [] });
+    expect(html).toContain("The installer GitHub App is not configured.");
+    expect(html).toContain("enterprise installer App");
+    expect(html).not.toContain("lookup");
   });
 });

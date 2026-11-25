@@ -17,6 +17,22 @@ At most one App per role is stored per scope, so a scope has at most two.
 
 The **installer is optional**. The lookup App works alone: it lists the organizations it is installed on and the repositories it can see, so no GitHub Enterprise Cloud enterprise is needed. Without an installer, create the lookup App under an organization and install it manually on each organization with **all repositories**, using `https://github.com/apps/<slug>/installations/new` (the settings page links it once the lookup slug is saved). The installer remains what enables auto-installing agent Apps and requires Enterprise Cloud.
 
+### What works with only the lookup App
+
+With the lookup App configured and no installer (or an installer with no enterprise slug), these work and the rest is refused with an explicit reason (`appsState: lookup_only`):
+
+| Capability | Lookup only | Needs the installer |
+|------------|-------------|---------------------|
+| Repo crawl and the repo/access cache | Works | |
+| System-crons repo picker | Works | |
+| Access preview (`GET /agents/{id}/github-access`, **Preview access** card) | Works: orgs come from the lookup App's own installations | |
+| Installation repos list (`GET /agents/{id}/github-installation/repos`) | | Needs the installer: the agent App's installation is found through it |
+| Sync (`github-sync/preview` and `apply`) | | Needs the installer |
+| Install on org (`POST /github-enterprise/orgs/{org}/install`) | | Needs the installer, on Enterprise Cloud |
+| Uninstall from org (`DELETE /github-enterprise/orgs/{org}/install`) | | Needs the installer, on Enterprise Cloud |
+
+With no lookup App (or no key) nothing in this table works (`appsState: lookup_missing`), and the access preview reports `unconfigured`.
+
 Each role can be configured at two scopes: **deployment-wide** (no account) and **per account**. An account uses its own App for a role when it has one, otherwise it falls back to the deployment-wide App for that role. Roles resolve independently, so an account can have its own lookup App and still use the deployment-wide installer. The settings page has an account selector on both cards (deployment-wide default plus each account); saving, validating and deleting act on the chosen scope, and the card says whether the account is using its own App or the deployment-wide fallback. Over the API, pass `accountId` as a query parameter; omit it for the deployment-wide pair.
 
 ## Required permissions
@@ -26,7 +42,7 @@ Permissions were verified against GitHub's REST API description and the "permiss
 | App | Permission | Level | Why |
 |-----|------------|-------|-----|
 | Installer | Enterprise: `enterprise_organization_installations` | **Read and write** (read covers the list calls only) | Read for listing installable orgs and an org's installations; write for installing (and removing) an App on an org. Required: validation fails without it. |
-| Installer | Enterprise: `enterprise_organization_installation_repositories` | **Read and write** (read covers list only) | Read for listing repositories an installation can access; write for granting and revoking repository access (repository management). The settings page asks for it; validation only warns when it is missing. |
+| Installer | Enterprise: `enterprise_organization_installation_repositories` | **Read and write** (read covers list only) | Read for listing repositories an installation can access; write for granting and revoking repository access (repository management). Sync needs it (add, remove and the all-to-selected switch), and so does uninstall's cleanup of the installation. The settings page asks for it; validation only warns when it is missing, so a missing grant shows up as a failed Sync, not a failed validation. |
 | Lookup | Repository: `metadata` | **read** | Collaborator-permission lookups are listed under Metadata read, not Administration. Required: validation fails without it. |
 | Lookup | Organization: `members` | **read** | Lets the lookup see organization membership. Optional: validation only warns when it is missing. |
 
@@ -47,7 +63,7 @@ The settings page shows these same steps on each card, and notes that a GitHub E
 1. **Create the installer App** in GitHub under your enterprise's Settings, GitHub Apps, New GitHub App (an enterprise-owned App). Under Enterprise permissions grant both `enterprise_organization_installations` and `enterprise_organization_installation_repositories` at Read and write. Install it on the enterprise. Generate a private key.
 2. **Create the lookup App** under your organization's Settings, Developer settings, GitHub Apps, New GitHub App. Grant Repository `Metadata` at Read and Organization `Members` at Read. Install it on every org, choosing **all repositories** (not selected repositories only). Generate a private key.
 3. Open `/admin/settings/github-enterprise` (admin-only; **Settings** in the nav). On each card enter the App id (on the App's settings page), the App slug (the last part of `github.com/apps/<slug>`) and the private key, pasted as PEM or uploaded as a `.pem` file. The installer card also takes the **enterprise slug** (the last part of `github.com/enterprises/<slug>`).
-4. Use **Validate** on each card. Validation authenticates as the App, checks the required permission and records the result and time on the card. A failure shows a generic reason, except that a 404 on the installer's `GET /enterprises/{slug}/installation` lookup reports that the App is not installed on that enterprise or the slug is wrong. Missing optional permissions appear as non-failing warnings on the card and in the validate response (`warnings`): the installer without `enterprise_organization_installation_repositories` (write) and the lookup without Organization Members (read). Warnings never change a valid result to invalid. Keys are never echoed.
+4. Use **Validate** on each card. Validation authenticates as the App, checks the required permission and records the result and time on the card. A failure shows a generic reason, except that a 404 on the installer's `GET /enterprises/{slug}/installation` lookup reports that the App is not installed on that enterprise or the slug is wrong. Missing optional permissions appear as non-failing warnings on the card and in the validate response (`warnings`): the installer without `enterprise_organization_installation_repositories` (write), which Sync needs to add, remove and switch repositories, and the lookup without Organization Members (read). Warnings never change a valid result to invalid. Keys are never echoed.
 5. To install an agent's App on an org, open the agent's page, Access tab, GitHub card, and use the **Install on org** block (it lists your organizations with lookup-app and agent-app status; no agent ID to type). The settings page's Organizations card is lookup-app only. Install resolves the App's `client_id` (the install call needs it, not the numeric id) in this order:
    - the agent's stored `GH_APP_CLIENT_ID`, when set and well-formed. This is the only route for a **private** App.
    - otherwise the agent's `GH_APP_SLUG`, resolved through the public `GET /apps/{slug}`. This needs the App to be public.
@@ -55,7 +71,7 @@ The settings page shows these same steps on each card, and notes that a GitHub E
    An agent with neither is refused with a 422, as is a private App with no stored client id (the message says to store its `GH_APP_CLIENT_ID`). The org list shows the same reason up front when an agent is selected.
 6. **The agent's installations card stays empty until the agent has `GH_APP_ID` and a private key.** Installing an App on an org does not populate the card: it shows what the agent runtime reports from its own credentials ([`github-multi-org.md`](./github-multi-org.md)), and admin never calls GitHub on the agent's behalf for it. Until those are set the runtime reports nothing.
 
-The same operations are available over the API: `GET`/`PUT`/`DELETE /github-enterprise/apps[/{role}]`, `POST /github-enterprise/apps/{role}/validate`, `GET /github-enterprise/orgs`, `POST /github-enterprise/orgs/{org}/install` (see [`admin-service.md`](./admin-service.md)).
+The same operations are available over the API: `GET`/`PUT`/`DELETE /github-enterprise/apps[/{role}]`, `POST /github-enterprise/apps/{role}/validate`, `GET /github-enterprise/orgs`, `POST /github-enterprise/orgs/{org}/install`, `DELETE /github-enterprise/orgs/{org}/install` (uninstall; supports `preview=true` to list what would change first) (see [`admin-service.md`](./admin-service.md)).
 
 ## Installation repos
 
@@ -63,7 +79,7 @@ An agent's repo scope should stay within what its bound GitHub user can actually
 
 Both need a `GH_APP_ID` in the agent's own stored env (the numeric id of that agent's GitHub App, whose installation is changed); Sync also needs the agent's `githubUsername` and both enterprise Apps.
 
-**Card gating.** The card renders only for platform admins and only when both the installer and the lookup Apps are configured (see [Apps](#the-two-apps) above). In place of the Sync button it shows the reason: no `GH_APP_ID` on the agent (shown first), or no bound `githubUsername`. If the agent App is found on no org the installer can reach, yet the Installations card lists an installation, the card shows a mismatch message instead: no installation of the agent App was found, the App is matched by client id or slug, so check the App installation and the agent's `GH_APP_CLIENT_ID` / `GH_APP_SLUG`.
+**Card gating.** The card renders only for platform admins and only when the lookup App is configured with its key (see [Apps](#the-two-apps) above). When the installer App is missing or has no enterprise slug, the card shows a lookup-only reason (`appsState: lookup_only`) in place of Sync: repo access is still visible, but Sync and the agent App's installation repos need the installer. When the lookup App is missing, the card shows a lookup-missing reason (`appsState: lookup_missing`). Otherwise, in place of the Sync button it shows the reason: no `GH_APP_ID` on the agent (shown first), or no bound `githubUsername`. If the agent App is found on no org the installer can reach, yet the Installations card lists an installation, the card shows a mismatch message instead: no installation of the agent App was found, the App is matched by client id or slug, so check the App installation and the agent's `GH_APP_CLIENT_ID` / `GH_APP_SLUG`.
 
 **How the agent App's installation is matched.** The enterprise installations endpoint does not return `app_id`, so the numeric `GH_APP_ID` cannot identify an installation on its own. Matching tries, in order: the agent's `GH_APP_CLIENT_ID`, then its `GH_APP_SLUG`, then `GH_APP_ID`. The first identity that matches an installation wins; `GH_APP_ID` is only a last-resort fallback, and applies only if the installation reports an `app_id` (the enterprise endpoint omits it, so in practice it does not match).
 
@@ -92,13 +108,25 @@ Same auth as above. Sync works on three lists for the agent's bound `githubUsern
 - `GET /agents/{id}/github-sync/preview` is read-only (nothing changed or audited). It returns `appAdds`, `appRemoves`, `agentRemoves`, `skippedOrgs`, `warnings` and `openWork`: the agent's open tasks and PRs on the removed repos that the removals would block (empty with no open-work port; a port failure is a warning).
 - `POST /agents/{id}/github-sync/apply` takes `{appAdds, appRemoves, agentRemoves, confirmRemovals?}`, the exact lists the admin confirmed. Before anything is written, every removal candidate (app and agent removes) gets one live permission call for the bound user. A removal is dropped, and reported in `notApplied`, when the user can still push to the repo or when the check fails or cannot tell; only a definitive "cannot push" stays. Adds are not re-checked live. A second preview afterwards shows nothing to do.
 
+**All-to-selected switch.** An org where the agent App is installed on **All repositories** cannot take per-repo adds or removes, so Sync first switches it to **Selected repositories** automatically, before any add or remove. The new selection is the installed repos minus the org's confirmed removals; the first 50 go in the switch call (GitHub's cap) and the rest are added in batches. The org's removals fold into the switch but still count as removed. The switch is listed in the confirm step and in the preview as `selectionSwitches`. The current selection comes from the installation crawl cache, and an unknown selection is never treated as All. This needs `enterprise_organization_installation_repositories` (write) on the installer App.
+
+**Empty target skip.** If the bound user can push to none of an All-repositories org's repos, the target selection would be empty, so Sync skips that org with a warning and leaves it on All repositories. Use **Uninstall** (below) to remove the agent App from such an org.
+
 Access for preview and apply is built from the background-synced repo/access cache, not from a live GitHub call. An org is used only while its data is usable: every crawl it depends on has completed, every repo has an `ok` access row, and every crawl and row was checked within the freshness bound (`SHIPWRIGHT_ADMIN_GITHUB_REFRESH_STALENESS_CAP_MS` by default; see [admin-service.md](./admin-service.md)). Incomplete data wins over stale data when both apply. Such an org is reported in `skippedOrgs` with a reason (for stale data, when it was checked) and contributes nothing to adds or removes.
 
 Safety rules: an org whose cached data is incomplete or stale, whose listing is missing, `partial` or failed, or whose lookup App is not installed or is installed on selected repositories only, is skipped and reported, for adds too; an unbound, not-found or unverified user (or no `GH_APP_ID`, unconfigured Apps, or no installation matching the agent App, which reports a reason instead of looking in sync) makes the whole call `skipped` with nothing changed and no audit row; more than 10 removals (distinct repos) without `confirmRemovals: true` is `422`. `noop` when nothing confirmed still applies. Order of effects: installation adds, installation removals, the agent's `repos`, one `GitHubReconcileAudit` row (operation label `sync:apply`), then the agent's open work on the removed repos is blocked through the `OpenWorkPort` (a port failure is a warning, not a failed call). GitHub refusing a change is `502`, with a `failed` audit row recording only what landed.
 
+### Uninstall from an org
+
+`DELETE /github-enterprise/orgs/{org}/install` removes the agent App from an org (the **Uninstall** button next to **Install on org** on the agent's GitHub card). It needs the installer App on Enterprise Cloud, and the agent App's installation is matched the same way as for install (client id, slug, then app id). `preview=true` lists what would change without changing it. Cleanup follows Sync's removal handling:
+
+- The agent's `repos` in that org are removed from the agent. More than 10 need `confirmRemovals`, as in Sync.
+- The agent's open tasks and PRs on those repos are blocked through the `OpenWorkPort`, with a reason saying the App was uninstalled from the org (a port failure is a warning).
+- One `GitHubReconcileAudit` row records the uninstall (plan hash `uninstall:org`).
+
 ### Audit entry
 
-Every sync apply writes one `GitHubReconcileAudit` row: `agentId`, `caller` (the API key or session name), an operation label (`sync:apply`, kept in a legacy-named column of the table), `diff`, `result` (`{status: "applied"}` or `{status: "failed", error}`) and `createdAt`, indexed on `(agentId, createdAt)`. Skipped and no-op calls write nothing.
+Every sync apply (and org uninstall) writes one `GitHubReconcileAudit` row: `agentId`, `caller` (the API key or session name), an operation label (`sync:apply`, kept in a legacy-named column of the table), `diff`, `result` (`{status: "applied"}` or `{status: "failed", error}`) and `createdAt`, indexed on `(agentId, createdAt)`. Skipped and no-op calls write nothing.
 
 ### Open work
 

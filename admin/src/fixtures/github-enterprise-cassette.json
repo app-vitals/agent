@@ -1587,5 +1587,21 @@
     "body": {
       "message": "Service Unavailable"
     }
+  },
+  "uninstall_success": {
+    "status": 204,
+    "body": null
+  },
+  "uninstall_403": {
+    "status": 403,
+    "body": {
+      "message": "Resource not accessible by integration"
+    }
+  },
+  "uninstall_404": {
+    "status": 404,
+    "body": {
+      "message": "Not Found"
+    }
   }
 }

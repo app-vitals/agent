@@ -618,7 +618,7 @@ const GithubAccessPreviewSchema = z
   .object({
     status: z.enum(["ok", "user_not_found", "unconfigured"]).openapi({
       description:
-        "`unconfigured` when the installer or lookup App is not set (no GitHub call was made).",
+        "`unconfigured` when the lookup App or its key is not set (no GitHub call was made). The installer App is optional.",
     }),
     access: z
       .object({
@@ -683,9 +683,19 @@ const InstallationSyncDetailShape = {
     .openapi({ description: "Last refresh tick on the snapshot (ISO 8601)." }),
 };
 
+const AppsStateSchema = z.enum(["lookup_only", "lookup_missing"]).openapi({
+  description:
+    "Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text.",
+});
+
 const GithubInstallationReposListSchema = z
   .object({
     appId: z.number().int(),
+    appsState: AppsStateSchema.optional(),
+    reason: z.string().optional().openapi({
+      description:
+        "Set with `appsState`: why the installation repos cannot be changed here. The listing is the cached lookup crawl.",
+    }),
     ...InstallationSyncDetailShape,
     orgs: z.array(
       z.object({
@@ -756,6 +766,13 @@ const SkippedOrgsSchema = z.array(
   }),
 );
 
+const SelectionSwitchesSchema = z
+  .array(z.object({ org: z.string(), repos: z.array(z.string()) }))
+  .openapi({
+    description:
+      "Orgs whose agent App installation is on All repositories. Sync switches each to Selected repositories (first 50 repos in the switch, the rest added in batches) before any add or remove; `repos` is the resulting list: the installed repos minus the org's confirmed removals. An org the bound user can push to nothing in is skipped (see `skippedOrgs`) and stays on All repositories.",
+  });
+
 const GithubSyncPreviewSchema = z
   .object({
     status: z.enum(["previewed", "skipped"]).openapi({
@@ -763,6 +780,7 @@ const GithubSyncPreviewSchema = z
         "`skipped` (not an error) when no GitHub username is bound, the user is not found or unverified, the agent has no GH_APP_ID, or the Apps are not configured; `reason` says why.",
     }),
     reason: z.string().optional(),
+    appsState: AppsStateSchema.optional(),
     appAdds: z.array(z.string()).optional().openapi({
       description:
         "Repos the bound user can push to, in orgs the agent App is installed on with a complete access listing, that are not on the installation. No cap.",
@@ -774,6 +792,7 @@ const GithubSyncPreviewSchema = z
       description:
         "Configured agent repos the bound user can no longer push to. The agent's repos are never added to.",
     }),
+    selectionSwitches: SelectionSwitchesSchema.optional(),
     skippedOrgs: SkippedOrgsSchema.optional().openapi({
       description:
         "Orgs whose access listing is missing, partial or failed, whose cached access data is incomplete or stale, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed. `reason` says why (for stale data, when it was checked).",
@@ -811,10 +830,12 @@ const GithubSyncApplyResultSchema = z
   .object({
     status: z.enum(["applied", "noop", "skipped"]),
     reason: z.string().optional(),
+    appsState: AppsStateSchema.optional(),
     auditId: z.string().optional(),
     appAdds: z.array(z.string()).optional(),
     appRemoves: z.array(z.string()).optional(),
     agentRemoves: z.array(z.string()).optional(),
+    selectionSwitches: SelectionSwitchesSchema.optional(),
     notApplied: z
       .array(z.object({ repo: z.string(), reason: z.string() }))
       .optional()
@@ -1847,7 +1868,7 @@ const getGithubAccessRoute = createRoute({
   path: "/agents/{id}/github-access",
   summary: "Preview the repos the agent's bound GitHub user can reach",
   description:
-    "Platform-admin only (session members, ops keys and agent keys get 403): the response lists repo names the bound user can reach. Read-only; nothing is stored. 404 for an unknown agent; 422 when no githubUsername is bound. Returns `status: unconfigured` (not an error, no GitHub call) when the enterprise Apps are not configured, and `status: user_not_found` when the user does not exist on GitHub; otherwise `access` is the resolver output (per-org status, repos with level and canPush, unresolved count, complete flag).",
+    "Platform-admin only (session members, ops keys and agent keys get 403): the response lists repo names the bound user can reach. Read-only; nothing is stored. 404 for an unknown agent; 422 when no githubUsername is bound. Returns `status: unconfigured` (not an error, no GitHub call) when the lookup App is not configured (the installer App is optional), and `status: user_not_found` when the user does not exist on GitHub; otherwise `access` is the resolver output (per-org status, repos with level and canPush, unresolved count, complete flag).",
   request: { params: AgentIdParamSchema },
   responses: {
     200: {
@@ -3561,7 +3582,14 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
       throw new NotFoundError(`agent ${agentId} not found`);
     }
     if (result.status === "skipped") {
-      return c.json({ status: "skipped" as const, reason: result.reason }, 200);
+      return c.json(
+        {
+          status: "skipped" as const,
+          reason: result.reason,
+          ...(result.appsState ? { appsState: result.appsState } : {}),
+        },
+        200,
+      );
     }
     const { plan } = result;
     return c.json(
@@ -3570,6 +3598,9 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         appAdds: plan.appAdds,
         appRemoves: plan.appRemoves,
         agentRemoves: plan.agentRemoves,
+        ...(plan.selectionSwitches?.length
+          ? { selectionSwitches: plan.selectionSwitches }
+          : {}),
         skippedOrgs: plan.skippedOrgs,
         openWork: result.openWork,
         warnings: result.warnings,
@@ -3596,7 +3627,11 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         throw new NotFoundError(`agent ${agentId} not found`);
       case "skipped":
         return c.json(
-          { status: "skipped" as const, reason: result.reason },
+          {
+            status: "skipped" as const,
+            reason: result.reason,
+            ...(result.appsState ? { appsState: result.appsState } : {}),
+          },
           200,
         );
       case "removal_cap":
@@ -3625,6 +3660,9 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
             appAdds: plan.appAdds,
             appRemoves: plan.appRemoves,
             agentRemoves: plan.agentRemoves,
+            ...(plan.selectionSwitches?.length
+              ? { selectionSwitches: plan.selectionSwitches }
+              : {}),
             notApplied: plan.notApplied,
             skippedOrgs: plan.skippedOrgs,
             warnings:

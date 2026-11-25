@@ -19,31 +19,45 @@
  * not-found or unverified user skips the whole call. More than
  * MAX_UNCONFIRMED_REMOVALS removals need confirmRemovals.
  *
- * Order: installation adds, installation removals, agent-repo removals, one
- * audit entry, then the agent's open work on the removed repos is blocked
- * through the optional OpenWorkPort (a port failure is a warning).
+ * An org whose agent installation is on "All repositories" (read from the
+ * crawl cache; unknown is never "all") cannot take add/remove calls, so Sync
+ * switches it to "selected" first (GIS-1.2): target = installed repos minus the
+ * confirmed app removes for that org. The first MAX_SELECTION_PATCH_REPOS go in
+ * the PATCH, the rest through the batched add. The org's removes fold into the
+ * switch but still count in removedRepos. An empty target skips the org with a
+ * warning and leaves it on "all".
+ *
+ * Order: selection switches, installation adds, installation removals,
+ * agent-repo removals, one audit entry, then the agent's open work on the
+ * removed repos is blocked through the optional OpenWorkPort (a port failure is
+ * a warning).
  */
 
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import { DEPLOYMENT_WIDE_ACCOUNT_KEY } from "./github-agent-installation-crawler.ts";
+import {
+  GITHUB_APPS_STATE_REASONS,
+  type GithubAppsState,
+  type GithubAppsStateFn,
+} from "./github-apps-state.ts";
 import { DEFAULT_REFRESH_STALENESS_CAP_MS } from "./github-repo-refresher.ts";
 import {
   buildCachedAccess,
   type CachedOrgInput,
 } from "./github-sync-cached-access.ts";
 import {
-  identityOf,
-  type InstallationCachePort,
-  type InstallationReposPort,
-  NO_INSTALLATION_REASON,
-} from "./installation-repos-service.ts";
-import {
-  MAX_UNCONFIRMED_REMOVALS,
-  MISSING_APP_ID_REASON,
   type InstallationAgentRecord,
   type InstallationAgentsPort,
   type InstallationAuditPort,
+  MAX_UNCONFIRMED_REMOVALS,
+  MISSING_APP_ID_REASON,
 } from "./installation-ports.ts";
+import {
+  type InstallationCachePort,
+  type InstallationReposPort,
+  identityOf,
+  NO_INSTALLATION_REASON,
+} from "./installation-repos-service.ts";
 import type { OpenWorkItem, OpenWorkPort } from "./reconcile-open-work.ts";
 import {
   accessSkipReason,
@@ -77,6 +91,22 @@ export const NOT_PRESENT_REASON =
 export const ARCHIVED_REASON =
   "the repo is archived (read-only), so it is not added to the installation";
 
+/** GitHub caps the repositories in a selection-switch PATCH at 50. */
+export const MAX_SELECTION_PATCH_REPOS = 50;
+
+export const EMPTY_SWITCH_TARGET_REASON =
+  "the bound user can push to none of this org's repos, so it cannot be switched to selected repositories and stays on All repositories; use Uninstall to remove the agent App from this org";
+
+/** The installer App's permission a selection switch needs. */
+export const SWITCH_PERMISSION_MESSAGE = (org: string): string =>
+  `GitHub refused to switch the agent App on ${org} to selected repositories (403): the installer App needs the enterprise_organization_installation_repositories permission with write access`;
+
+/** An "all" installation Sync switches to "selected" with this repo list. */
+export interface SelectionSwitch {
+  org: string;
+  repos: string[];
+}
+
 export interface SyncLists {
   appAdds: readonly string[];
   appRemoves: readonly string[];
@@ -90,6 +120,11 @@ export interface GithubSyncPlanInput {
   agentRepos: readonly string[];
   /** Repos the agent App's installation covers, per org login it is installed on. */
   installationRepos: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The agent installation's repository selection per org (any case); a
+   * missing or null entry is unknown and is never treated as "all".
+   */
+  selections?: Readonly<Record<string, "all" | "selected" | null | undefined>>;
   /**
    * The lists the admin confirmed. When set, only these are candidates and
    * every one left alone is reported in `notApplied`; when unset (preview),
@@ -113,11 +148,15 @@ export interface NotAppliedRepo {
 export interface GithubSyncPlan {
   skipped: boolean;
   skipReason?: string;
+  /** Set when the skip is because an App role is missing (additive). */
+  appsState?: Exclude<GithubAppsState, "both">;
   appAdds: string[];
   appRemoves: string[];
   agentRemoves: string[];
   /** Every repo removed from either place, sorted. */
   removedRepos: string[];
+  /** "All" installations to switch to "selected" first (additive). */
+  selectionSwitches?: SelectionSwitch[];
   skippedOrgs: OrgSkip[];
   notApplied: NotAppliedRepo[];
   warnings: string[];
@@ -134,9 +173,40 @@ function skippedPlan(reason: string): GithubSyncPlan {
     appRemoves: [],
     agentRemoves: [],
     removedRepos: [],
+    selectionSwitches: [],
     skippedOrgs: [],
     notApplied: [],
     warnings: [],
+  };
+}
+
+/**
+ * Pure: the orgs on "all" and the "selected" list each switches to (installed
+ * repos minus `appRemoves`). An org with an empty target is returned in
+ * `emptyOrgs` instead. Only orgs `eligible` returns true for are considered.
+ */
+export function planSelectionSwitches(input: {
+  installationRepos: Readonly<Record<string, readonly string[]>>;
+  selections?: GithubSyncPlanInput["selections"];
+  appRemoves: readonly string[];
+  eligible?: (org: string) => boolean;
+}): { switches: SelectionSwitch[]; emptyOrgs: string[] } {
+  const selections = new Map(
+    Object.entries(input.selections ?? {}).map(([o, v]) => [lower(o), v]),
+  );
+  const removed = new Set(input.appRemoves.map(lower));
+  const switches: SelectionSwitch[] = [];
+  const emptyOrgs: string[] = [];
+  for (const [org, repos] of Object.entries(input.installationRepos)) {
+    if (selections.get(lower(org)) !== "all") continue;
+    if (input.eligible && !input.eligible(org)) continue;
+    const target = sorted(repos.filter((r) => !removed.has(lower(r))));
+    if (target.length === 0) emptyOrgs.push(org);
+    else switches.push({ org, repos: target });
+  }
+  return {
+    switches: switches.sort((a, b) => a.org.localeCompare(b.org)),
+    emptyOrgs: emptyOrgs.sort(),
   };
 }
 
@@ -245,8 +315,23 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
   };
   // An archived repo still on the installation is removed like any other once
   // the user lacks push (least privilege); only adds skip archived repos.
-  const appRemoves = removable(appRemoveCandidates, installed);
+  const confirmedAppRemoves = removable(appRemoveCandidates, installed);
   const agentRemoves = removable(agentRemoveCandidates, configured);
+
+  const { switches, emptyOrgs } = planSelectionSwitches({
+    installationRepos: input.installationRepos,
+    ...(input.selections ? { selections: input.selections } : {}),
+    appRemoves: [...confirmedAppRemoves],
+    eligible: (o) => !orgSkipReason(orgResults.get(lower(o))),
+  });
+  // An empty target leaves the org on "all", where removes cannot be applied.
+  const emptySet = new Set(emptyOrgs.map(lower));
+  const appRemoves = new Set<string>();
+  for (const r of confirmedAppRemoves) {
+    if (emptySet.has(lower(repoOrg(r)))) leave(r, EMPTY_SWITCH_TARGET_REASON);
+    else appRemoves.add(r);
+  }
+  for (const o of emptyOrgs) skipReasons.set(o, EMPTY_SWITCH_TARGET_REASON);
 
   const skippedOrgs = sorted(skipReasons.keys()).map((org) => ({
     org,
@@ -259,6 +344,7 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
     appRemoves: sorted(appRemoves),
     agentRemoves: sorted(agentRemoves),
     removedRepos: sorted(new Set([...appRemoves, ...agentRemoves])),
+    selectionSwitches: switches,
     skippedOrgs,
     notApplied: [...notApplied.values()].sort((a, b) =>
       a.repo.localeCompare(b.repo),
@@ -314,16 +400,22 @@ export interface GithubSyncDeps {
   ) => Promise<boolean | undefined>;
   installation: Pick<
     InstallationReposPort,
-    "listInstalled" | "addRepos" | "removeRepos"
+    "listInstalled" | "addRepos" | "removeRepos" | "setRepositorySelection"
   >;
   audit: InstallationAuditPort;
   /** Optional: with none, nothing is listed or blocked. */
   openWork?: OpenWorkPort;
+  /** Optional: which Apps are usable; without both, Sync is skipped with a specific reason. */
+  appsState?: GithubAppsStateFn;
 }
 
 export type GithubSyncPreviewResult =
   | { status: "agent_not_found" }
-  | { status: "skipped"; reason: string }
+  | {
+      status: "skipped";
+      reason: string;
+      appsState?: Exclude<GithubAppsState, "both">;
+    }
   | {
       status: "previewed";
       plan: GithubSyncPlan;
@@ -340,7 +432,11 @@ export interface GithubSyncApplyInput extends SyncLists {
 
 export type GithubSyncApplyResult =
   | { status: "agent_not_found" }
-  | { status: "skipped"; reason: string }
+  | {
+      status: "skipped";
+      reason: string;
+      appsState?: Exclude<GithubAppsState, "both">;
+    }
   | { status: "noop"; plan: GithubSyncPlan }
   | { status: "removal_cap"; plan: GithubSyncPlan; removals: number }
   | {
@@ -350,6 +446,22 @@ export type GithubSyncApplyResult =
       warnings: string[];
     }
   | { status: "failed"; plan: GithubSyncPlan; auditId: string; error: string };
+
+/** A plan plus the installation context a re-verified plan recomputes switches from. */
+interface PlannedSync {
+  plan: GithubSyncPlan;
+  installationRepos: Record<string, string[]>;
+  selections?: Record<string, "all" | "selected" | null>;
+}
+
+/** A 403 on a selection switch becomes a message naming the missing permission. */
+function switchError(org: string, err: unknown): Error {
+  const e = err as { kind?: string; status?: number } | undefined;
+  if (e?.kind === "permission" || (e?.status === 403 && e.kind === undefined)) {
+    return new Error(SWITCH_PERMISSION_MESSAGE(org));
+  }
+  return err instanceof Error ? err : new Error(String(err));
+}
 
 function groupByOrg(repos: readonly string[]): Map<string, string[]> {
   const byOrg = new Map<string, string[]>();
@@ -367,9 +479,13 @@ export class GithubSyncService {
   async preview(agentId: string): Promise<GithubSyncPreviewResult> {
     const agent = await this.deps.agents.get(agentId);
     if (!agent) return { status: "agent_not_found" };
-    const plan = await this.planFor(agent);
+    const { plan } = await this.planFor(agent);
     if (plan.skipped) {
-      return { status: "skipped", reason: plan.skipReason ?? "skipped" };
+      return {
+        status: "skipped",
+        reason: plan.skipReason ?? "skipped",
+        ...(plan.appsState ? { appsState: plan.appsState } : {}),
+      };
     }
     const work = await previewRepoRemovalWork(
       this.deps.openWork,
@@ -387,12 +503,21 @@ export class GithubSyncService {
   async apply(input: GithubSyncApplyInput): Promise<GithubSyncApplyResult> {
     const agent = await this.deps.agents.get(input.agentId);
     if (!agent) return { status: "agent_not_found" };
-    let plan = await this.planFor(agent, input);
+    const planned = await this.planFor(agent, input);
+    let plan = planned.plan;
     if (plan.skipped) {
-      return { status: "skipped", reason: plan.skipReason ?? "skipped" };
+      return {
+        status: "skipped",
+        reason: plan.skipReason ?? "skipped",
+        ...(plan.appsState ? { appsState: plan.appsState } : {}),
+      };
     }
-    plan = await this.reverifyRemovals(plan, agent);
-    if (plan.appAdds.length + plan.removedRepos.length === 0) {
+    plan = await this.reverifyRemovals(plan, agent, planned);
+    const switches = plan.selectionSwitches ?? [];
+    if (
+      plan.appAdds.length + plan.removedRepos.length + switches.length ===
+      0
+    ) {
       return { status: "noop", plan };
     }
     const removals = plan.removedRepos.length;
@@ -404,14 +529,49 @@ export class GithubSyncService {
     const identity = identityOf(agent);
     const added: string[] = [];
     const removed: string[] = [];
+    const switchRecords: SelectionSwitch[] = [];
+    const switchedOrgs = new Set(switches.map((s) => lower(s.org)));
     let configDone = false;
     let error: string | undefined;
     try {
+      for (const sw of switches) {
+        const record: SelectionSwitch = { org: sw.org, repos: [] };
+        const head = sw.repos.slice(0, MAX_SELECTION_PATCH_REPOS);
+        const rest = sw.repos.slice(MAX_SELECTION_PATCH_REPOS);
+        const setSelection = this.deps.installation.setRepositorySelection;
+        if (!setSelection) {
+          throw new Error(
+            `cannot switch ${sw.org} to selected repositories: the installation port does not support it`,
+          );
+        }
+        try {
+          await setSelection.call(
+            this.deps.installation,
+            appId,
+            sw.org,
+            head,
+            identity,
+          );
+        } catch (err) {
+          throw switchError(sw.org, err);
+        }
+        // The switch landed: the org's confirmed removes are now off the installation.
+        record.repos = head;
+        switchRecords.push(record);
+        removed.push(
+          ...plan.appRemoves.filter((r) => lower(repoOrg(r)) === lower(sw.org)),
+        );
+        if (rest.length > 0) {
+          await this.deps.installation.addRepos(appId, sw.org, rest, identity);
+          record.repos = sw.repos;
+        }
+      }
       for (const [org, repos] of groupByOrg(plan.appAdds)) {
         await this.deps.installation.addRepos(appId, org, repos, identity);
         added.push(...repos);
       }
       for (const [org, repos] of groupByOrg(plan.appRemoves)) {
+        if (switchedOrgs.has(lower(org))) continue;
         await this.deps.installation.removeRepos(appId, org, repos, identity);
         removed.push(...repos);
       }
@@ -436,6 +596,9 @@ export class GithubSyncService {
         installationRemoves: removed,
         configAdds: [],
         configRemoves: configDone ? plan.agentRemoves : [],
+        ...(switchRecords.length > 0
+          ? { selectionSwitches: switchRecords }
+          : {}),
       },
       result:
         error === undefined
@@ -458,6 +621,7 @@ export class GithubSyncService {
   private async reverifyRemovals(
     plan: GithubSyncPlan,
     agent: InstallationAgentRecord,
+    planned: PlannedSync,
   ): Promise<GithubSyncPlan> {
     const verify = this.deps.verifyPush;
     const username = agent.githubUsername?.trim();
@@ -480,10 +644,21 @@ export class GithubSyncService {
     const keep = (repos: string[]) => repos.filter((r) => !dropped.has(r));
     const appRemoves = keep(plan.appRemoves);
     const agentRemoves = keep(plan.agentRemoves);
+    // A removal the user can still push to goes back on the switch target.
+    const switchOrgs = new Set(
+      (plan.selectionSwitches ?? []).map((s) => lower(s.org)),
+    );
+    const { switches } = planSelectionSwitches({
+      installationRepos: planned.installationRepos,
+      ...(planned.selections ? { selections: planned.selections } : {}),
+      appRemoves,
+      eligible: (o) => switchOrgs.has(lower(o)),
+    });
     return {
       ...plan,
       appRemoves,
       agentRemoves,
+      selectionSwitches: switches,
       removedRepos: sorted(new Set([...appRemoves, ...agentRemoves])),
       notApplied: [
         ...plan.notApplied,
@@ -503,7 +678,11 @@ export class GithubSyncService {
     agent: InstallationAgentRecord,
     username: string,
     installed: { org: string; repos: string[] }[],
-  ): Promise<{ access: UserRepoAccessResult; archivedRepos: string[] }> {
+  ): Promise<{
+    access: UserRepoAccessResult;
+    archivedRepos: string[];
+    selections: Record<string, "all" | "selected" | null>;
+  }> {
     const cache = this.deps.cache as InstallationCachePort;
     const accountId = agent.accountId || DEPLOYMENT_WIDE_ACCOUNT_KEY;
     const now = (this.deps.now ?? (() => new Date()))();
@@ -601,52 +780,79 @@ export class GithubSyncService {
         rows,
       });
     }
+    // Unknown (a read failure, no crawl, no recorded value) is never "all".
+    const selections: Record<string, "all" | "selected" | null> = {};
+    for (const s of agentSnaps) {
+      selections[s.org] = s.repositorySelection ?? null;
+    }
     return {
       access: buildCachedAccess({ username, now, maxAgeMs, orgs: inputs }),
       archivedRepos,
+      selections,
     };
   }
 
   private async planFor(
     agent: InstallationAgentRecord,
     requested?: SyncLists,
-  ): Promise<GithubSyncPlan> {
+  ): Promise<PlannedSync> {
+    const none = (plan: GithubSyncPlan): PlannedSync => ({
+      plan,
+      installationRepos: {},
+    });
     const username = agent.githubUsername?.trim();
     if (!username) {
-      return skippedPlan(accessSkipReason(username, null) as string);
+      return none(skippedPlan(accessSkipReason(username, null) as string));
+    }
+    if (this.deps.appsState) {
+      const state = await this.deps.appsState(agent.accountId);
+      if (state !== "both") {
+        return none({
+          ...skippedPlan(GITHUB_APPS_STATE_REASONS[state]),
+          appsState: state,
+        });
+      }
     }
     let liveAccess: UserRepoAccessResult | null = null;
     if (!this.deps.cache) {
       const preview = await this.deps.access(username, agent.accountId);
       if (preview.status === "unconfigured") {
-        return skippedPlan("GitHub Apps are not configured");
+        return none(skippedPlan("GitHub Apps are not configured"));
       }
       // Whole-call skips need no installation calls.
       const skip = accessSkipReason(username, preview.access);
-      if (skip) return skippedPlan(skip);
+      if (skip) return none(skippedPlan(skip));
       liveAccess = preview.access;
     }
-    if (agent.appId === undefined) return skippedPlan(MISSING_APP_ID_REASON);
+    if (agent.appId === undefined) {
+      return none(skippedPlan(MISSING_APP_ID_REASON));
+    }
     const installed = await this.deps.installation.listInstalled(
       agent.appId,
       identityOf(agent),
     );
-    if (installed.status === "none") return skippedPlan(NO_INSTALLATION_REASON);
+    if (installed.status === "none") {
+      return none(skippedPlan(NO_INSTALLATION_REASON));
+    }
     // The live resolver reports no archived flag, so only the cached path
     // leaves archived repos alone.
     const cached = liveAccess
-      ? null
+      ? undefined
       : await this.cachedAccess(agent, username, installed.orgs);
-    return planGithubSync({
+    // The live path never reads the crawl cache, so every selection is unknown.
+    const selections = cached?.selections;
+    const installationRepos = Object.fromEntries(
+      installed.orgs.map(({ org, repos }) => [org, repos]),
+    );
+    const plan = planGithubSync({
       username,
       access: liveAccess ?? (cached?.access as UserRepoAccessResult),
       ...(cached && cached.archivedRepos.length > 0
         ? { archivedRepos: cached.archivedRepos }
         : {}),
       agentRepos: agent.repos,
-      installationRepos: Object.fromEntries(
-        installed.orgs.map(({ org, repos }) => [org, repos]),
-      ),
+      installationRepos,
+      ...(selections ? { selections } : {}),
       ...(requested
         ? {
             requested: {
@@ -657,5 +863,10 @@ export class GithubSyncService {
           }
         : {}),
     });
+    return {
+      plan,
+      installationRepos,
+      ...(selections ? { selections } : {}),
+    };
   }
 }

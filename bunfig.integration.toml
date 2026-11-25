@@ -1,0 +1,5 @@
+# Runner config for `bun run test:integration`: same as bunfig.toml but only ignores
+# the layers that are not integration, so the suffix glob can select its files.
+[test]
+pathIgnorePatterns = ["**/admin/e2e/**", "**/*.canary.test.ts", "**/*.smoke.test.ts"]
+preload = ["./scripts/test-env-preload.ts"]

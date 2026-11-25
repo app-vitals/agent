@@ -3178,7 +3178,7 @@ export interface paths {
         };
         /**
          * Preview the repos the agent's bound GitHub user can reach
-         * @description Platform-admin only (session members, ops keys and agent keys get 403): the response lists repo names the bound user can reach. Read-only; nothing is stored. 404 for an unknown agent; 422 when no githubUsername is bound. Returns `status: unconfigured` (not an error, no GitHub call) when the enterprise Apps are not configured, and `status: user_not_found` when the user does not exist on GitHub; otherwise `access` is the resolver output (per-org status, repos with level and canPush, unresolved count, complete flag).
+         * @description Platform-admin only (session members, ops keys and agent keys get 403): the response lists repo names the bound user can reach. Read-only; nothing is stored. 404 for an unknown agent; 422 when no githubUsername is bound. Returns `status: unconfigured` (not an error, no GitHub call) when the lookup App is not configured (the installer App is optional), and `status: user_not_found` when the user does not exist on GitHub; otherwise `access` is the resolver output (per-org status, repos with level and canPush, unresolved count, complete flag).
          */
         get: {
             parameters: {
@@ -4171,7 +4171,139 @@ export interface paths {
                 };
             };
         };
-        delete?: never;
+        /**
+         * Uninstall an agent's App from an organization
+         * @description Admin-only. Finds the agent App's installation on the org (client id, slug or app id) and deletes it with the installer App, removes that org's repos from the agent's repos, blocks the agent's open tasks and PRs on them through the open-work port (a port failure is a warning) and writes one audit row (uninstall:org). `preview=true` lists the repos and open work that would be affected and changes nothing. 404 when the App is not installed on the org; 422 when more than 10 repos would be removed without `confirmRemovals=true`; 502 (with a failed audit row) when GitHub refuses.
+         */
+        delete: {
+            parameters: {
+                query: {
+                    /** @description Account whose App pair to read/write. Omit for the deployment-wide pair. */
+                    accountId?: string;
+                    agentId: string;
+                    /** @description true: list the repos and open work an uninstall would affect and change nothing. */
+                    preview?: "true" | "false";
+                    /** @description Required when more than 10 agent repos would be removed. */
+                    confirmRemovals?: "true" | "false";
+                };
+                header?: never;
+                path: {
+                    org: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Uninstalled, or the preview */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubEnterpriseUninstallResult"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (non-admin caller) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found (or not found at GitHub) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Installer App not configured */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused or rejected by GitHub */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub refused the configured App credentials or permission */
+                424: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub rate limit */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or returned an unexpected response */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Uninstall is not available */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unreachable */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -5994,7 +6126,7 @@ export interface components {
         };
         GithubAccessPreview: {
             /**
-             * @description `unconfigured` when the installer or lookup App is not set (no GitHub call was made).
+             * @description `unconfigured` when the lookup App or its key is not set (no GitHub call was made). The installer App is optional.
              * @enum {string}
              */
             status: "ok" | "user_not_found" | "unconfigured";
@@ -6023,6 +6155,13 @@ export interface components {
         };
         GithubInstallationReposList: {
             appId: number;
+            /**
+             * @description Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text.
+             * @enum {string}
+             */
+            appsState?: "lookup_only" | "lookup_missing";
+            /** @description Set with `appsState`: why the installation repos cannot be changed here. The listing is the cached lookup crawl. */
+            reason?: string;
             /** @description Whether the cached crawl is complete. While false the list may be partial. */
             complete?: boolean;
             /** @description When the completed crawl finished (ISO 8601). */
@@ -6083,12 +6222,22 @@ export interface components {
              */
             status: "previewed" | "skipped";
             reason?: string;
+            /**
+             * @description Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text.
+             * @enum {string}
+             */
+            appsState?: "lookup_only" | "lookup_missing";
             /** @description Repos the bound user can push to, in orgs the agent App is installed on with a complete access listing, that are not on the installation. No cap. */
             appAdds?: string[];
             /** @description Installation repos the bound user can no longer push to. */
             appRemoves?: string[];
             /** @description Configured agent repos the bound user can no longer push to. The agent's repos are never added to. */
             agentRemoves?: string[];
+            /** @description Orgs whose agent App installation is on All repositories. Sync switches each to Selected repositories (first 50 repos in the switch, the rest added in batches) before any add or remove; `repos` is the resulting list: the installed repos minus the org's confirmed removals. An org the bound user can push to nothing in is skipped (see `skippedOrgs`) and stays on All repositories. */
+            selectionSwitches?: {
+                org: string;
+                repos: string[];
+            }[];
             /** @description Orgs whose access listing is missing, partial or failed, whose cached access data is incomplete or stale, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed. `reason` says why (for stale data, when it was checked). */
             skippedOrgs?: {
                 org: string;
@@ -6124,10 +6273,20 @@ export interface components {
             /** @enum {string} */
             status: "applied" | "noop" | "skipped";
             reason?: string;
+            /**
+             * @description Present only when an App role is missing: `lookup_only` (the enterprise installer App is not configured: repo access is visible but Sync and the agent App's installation repos are unavailable) or `lookup_missing` (the lookup App is not configured). `reason` carries the matching text.
+             * @enum {string}
+             */
+            appsState?: "lookup_only" | "lookup_missing";
             auditId?: string;
             appAdds?: string[];
             appRemoves?: string[];
             agentRemoves?: string[];
+            /** @description Orgs whose agent App installation is on All repositories. Sync switches each to Selected repositories (first 50 repos in the switch, the rest added in batches) before any add or remove; `repos` is the resulting list: the installed repos minus the org's confirmed removals. An org the bound user can push to nothing in is skipped (see `skippedOrgs`) and stays on All repositories. */
+            selectionSwitches?: {
+                org: string;
+                repos: string[];
+            }[];
             /** @description Confirmed repos left alone: access changed since the preview, the org was skipped, or the repo is not where the change expected it. */
             notApplied?: {
                 repo: string;
@@ -6367,6 +6526,21 @@ export interface components {
              */
             repositorySelection: "all" | "selected" | "none";
             repositories?: string[];
+        };
+        GithubEnterpriseUninstallResult: {
+            /** @enum {string} */
+            status: "preview" | "uninstalled";
+            org: string;
+            installationId: number;
+            /** @description The agent's repos in the org, removed from the agent. */
+            repos: string[];
+            openWork: {
+                id: string;
+                repo: string;
+                title?: string;
+            }[];
+            warnings: string[];
+            auditId?: string;
         };
         AgentTemplatesList: {
             templates: components["schemas"]["AgentTemplate"][];

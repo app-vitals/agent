@@ -24,6 +24,7 @@ import type { AgentTokenService } from "./agent-tokens.ts";
 import type { AdminDeps } from "./agents-api.ts";
 import { createAdminApp, parseAdminApiKeys } from "./agents-api.ts";
 import { PLATFORM_OPS_ROUTES } from "./api-auth.ts";
+import { createGithubAccessPreview } from "./github-enterprise-api.ts";
 import { accessFor, envWith } from "./github-installation.fixtures.ts";
 import {
   createGithubInstallationRepos,
@@ -7246,6 +7247,134 @@ describe("admin API — GET /agents/:id/github-access (GHE-2.4)", () => {
     expect(await res.json()).toEqual({ status: "unconfigured" });
   });
 
+  describe("real preview over a fake GitHub (lookup-only and both Apps)", () => {
+    const { privateKey: PEM } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+      publicKeyEncoding: { type: "spki", format: "pem" },
+    });
+    type Role = "installer" | "lookup";
+    const record = (role: Role) => ({
+      role,
+      appId: role === "lookup" ? "555" : "12345",
+      slug: `example-${role}`,
+      enterpriseSlug: role === "installer" ? "acme" : null,
+    });
+
+    function preview(roles: Role[]) {
+      const paths: string[] = [];
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        });
+      const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(input.toString()).pathname;
+        paths.push(`${init?.method ?? "GET"} ${path}`);
+        if (path === "/app/installations")
+          return json([
+            { id: 7001, account: { login: "acme-eng", type: "Organization" } },
+          ]);
+        if (path === "/enterprises/acme/installation")
+          return json({
+            id: 4242,
+            access_tokens_url:
+              "https://ghe.test/app/installations/4242/access_tokens",
+          });
+        if (path === "/app/installations/4242/access_tokens")
+          return json({ token: "ghs_i", expires_at: "2099-01-01T00:00:00Z" });
+        if (path === "/enterprises/acme/apps/installable_organizations")
+          return json([{ id: 1, login: "acme-eng" }]);
+        if (path === "/orgs/acme-eng/installation")
+          return json({ id: 7001, repository_selection: "all" });
+        if (path === "/app/installations/7001/access_tokens")
+          return json({ token: "ghs_l", expires_at: "2099-01-01T00:00:00Z" });
+        if (path === "/installation/repositories")
+          return json({
+            total_count: 1,
+            repositories: [
+              {
+                id: 1,
+                name: "api",
+                full_name: "acme-eng/api",
+                private: true,
+                archived: false,
+              },
+            ],
+          });
+        if (path === "/users/octocat")
+          return json({ id: 9, login: "octocat", type: "User" });
+        if (path === "/repos/acme-eng/api/collaborators/octocat/permission")
+          return json({ permission: "write", role_name: "write" });
+        return json({ message: "Not Found" }, 404);
+      }) as typeof fetch;
+      const appService = {
+        get: async (role: Role) => (roles.includes(role) ? record(role) : null),
+        getPrivateKey: async (role: Role) =>
+          roles.includes(role) ? PEM : null,
+      } as unknown as Parameters<
+        typeof createGithubAccessPreview
+      >[0]["appService"];
+      return {
+        paths,
+        fn: createGithubAccessPreview({
+          appService,
+          fetchFn,
+          apiBase: "https://ghe.test",
+          now: () => new Date("2026-11-09T12:00:00Z"),
+        }),
+      };
+    }
+
+    const expectedOrgs = [
+      {
+        org: "acme-eng",
+        status: "ok",
+        repos: [{ fullName: "acme-eng/api", level: "write", canPush: true }],
+        unresolved: 0,
+      },
+    ];
+
+    it("lookup-only: status ok with the repos the lookup App sees", async () => {
+      const p = preview(["lookup"]);
+      const { app } = setup({ githubUsername: "octocat", preview: p.fn });
+      const res = await get(app, asAdmin);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        access: { orgs: unknown[]; complete: boolean };
+      };
+      expect(body.status).toBe("ok");
+      expect(body.access.orgs).toEqual(expectedOrgs);
+      expect(body.access.complete).toBe(true);
+      expect(p.paths).toContain("GET /app/installations");
+      expect(p.paths.some((x) => x.includes("/enterprises/"))).toBe(false);
+    });
+
+    it("both Apps: same result, orgs come from the installer", async () => {
+      const p = preview(["installer", "lookup"]);
+      const { app } = setup({ githubUsername: "octocat", preview: p.fn });
+      const body = (await (await get(app, asAdmin)).json()) as {
+        status: string;
+        access: { orgs: unknown[] };
+      };
+      expect(body.status).toBe("ok");
+      expect(body.access.orgs).toEqual(expectedOrgs);
+      expect(p.paths).toContain(
+        "GET /enterprises/acme/apps/installable_organizations",
+      );
+      expect(p.paths).not.toContain("GET /app/installations");
+    });
+
+    it("installer-only is unconfigured with no GitHub call", async () => {
+      const p = preview(["installer"]);
+      const { app } = setup({ githubUsername: "octocat", preview: p.fn });
+      const res = await get(app, asAdmin);
+      expect(await res.json()).toEqual({ status: "unconfigured" });
+      expect(p.paths).toEqual([]);
+    });
+  });
+
   it("user_not_found is passed through", async () => {
     const access = { ...ACCESS, outcome: "user_not_found" as const, orgs: [] };
     const { app } = setup({
@@ -7289,6 +7418,7 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
       "installable_orgs_success",
     [`GET ${INST}`]: "org_installations_success",
     [`GET ${INST}/501/repositories`]: "install_repos_success",
+    [`PATCH ${INST}/501/repositories`]: "install_selection_success",
     [`PATCH ${INST}/501/repositories/add`]: "install_repos_add_success",
     [`PATCH ${INST}/501/repositories/remove`]: "install_repos_remove_success",
   };
@@ -7306,6 +7436,8 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
       /** Seeded GLC cache rows read by the list route. */
       snapshots?: Array<Record<string, unknown>>;
       accessRows?: Array<Record<string, unknown>>;
+      /** Which Apps are stored (GFU-2.2); default both. */
+      apps?: "both" | "lookup_only" | "lookup_missing";
     } = {},
   ) {
     const audits: Array<Record<string, unknown>> = [];
@@ -7343,6 +7475,24 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
           ),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
+      }
+      if (key === `PATCH ${INST}/501/repositories`) {
+        // GIS-1.2: the "all" to "selected" switch (installation repos become the list).
+        if (entry.status === 200) {
+          const names =
+            (
+              JSON.parse(String(init?.body ?? "{}")) as {
+                repositories?: string[];
+              }
+            ).repositories ?? [];
+          patches.push({ key, names });
+          events.push(["switch", names]);
+          state.installed = names.map((n) => `acme-eng/${n}`);
+        }
+        return new Response(JSON.stringify(entry.body), {
+          status: entry.status,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (key.startsWith("PATCH") && entry.status === 200) {
         const body = JSON.parse(String(init?.body ?? "{}")) as {
@@ -7441,8 +7591,16 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
     const wiring = {
       prisma,
       appService: {
-        get: async () => ({ appId: 12345, enterpriseSlug: "acme" }) as never,
-        getPrivateKey: async () => PEM,
+        get: async (role: string) =>
+          (opts.apps === "lookup_missing" ||
+          (opts.apps === "lookup_only" && role === "installer")
+            ? null
+            : { appId: 12345, enterpriseSlug: "acme" }) as never,
+        getPrivateKey: async (role: string) =>
+          opts.apps === "lookup_missing" ||
+          (opts.apps === "lookup_only" && role === "installer")
+            ? null
+            : PEM,
       },
       access: async (username: string) => {
         const base = await accessFor(
@@ -7689,6 +7847,102 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
     expect(audits).toEqual([]);
   });
 
+  describe("App roles (GFU-2.2)", () => {
+    const LOOKUP_ONLY = "Only the lookup GitHub App is configured";
+    const LOOKUP_MISSING = "The lookup GitHub App is not configured";
+
+    it("both Apps: no appsState or reason on any response", async () => {
+      const { app } = setup();
+      const list = await (
+        await app.request(url(), { headers: asAdmin })
+      ).json();
+      expect(list).not.toHaveProperty("appsState");
+      expect(list).not.toHaveProperty("reason");
+      const pre = await (
+        await app.request(previewUrl, { headers: asAdmin })
+      ).json();
+      expect(pre).toMatchObject({ status: "previewed" });
+      expect(pre).not.toHaveProperty("appsState");
+    });
+
+    it("lookup-only: list is the cached crawl with a lookup-only reason; no GitHub call", async () => {
+      const { app, gh } = setup({ apps: "lookup_only" });
+      const res = await app.request(url(), { headers: asAdmin });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        appsState: string;
+        reason: string;
+        orgs: unknown[];
+      };
+      expect(body.appsState).toBe("lookup_only");
+      expect(body.reason).toContain(LOOKUP_ONLY);
+      expect(body.orgs.length).toBeGreaterThan(0);
+      expect(gh).toEqual([]);
+    });
+
+    it("lookup-missing: list carries a distinct lookup-missing reason", async () => {
+      const { app } = setup({ apps: "lookup_missing" });
+      const body = (await (
+        await app.request(url(), { headers: asAdmin })
+      ).json()) as { appsState: string; reason: string };
+      expect(body.appsState).toBe("lookup_missing");
+      expect(body.reason).toContain(LOOKUP_MISSING);
+      expect(body.reason).not.toContain(LOOKUP_ONLY);
+    });
+
+    it("lookup-only: sync preview and apply are skipped with the lookup-only reason; nothing changed", async () => {
+      const { app, audits, gh } = setup({ apps: "lookup_only" });
+      const pre = await (
+        await app.request(previewUrl, { headers: asAdmin })
+      ).json();
+      expect(pre).toMatchObject({
+        status: "skipped",
+        appsState: "lookup_only",
+      });
+      expect((pre as { reason: string }).reason).toContain(LOOKUP_ONLY);
+      const ap = await apply(app, { appAdds: ["acme-eng/repo-3"] });
+      expect(await ap.json()).toMatchObject({
+        status: "skipped",
+        appsState: "lookup_only",
+      });
+      expect(audits).toEqual([]);
+      expect(gh).toEqual([]);
+    });
+
+    it("lookup-missing: sync preview and apply are skipped with a distinct reason", async () => {
+      const { app, audits } = setup({ apps: "lookup_missing" });
+      const pre = (await (
+        await app.request(previewUrl, { headers: asAdmin })
+      ).json()) as { status: string; appsState: string; reason: string };
+      expect(pre.status).toBe("skipped");
+      expect(pre.appsState).toBe("lookup_missing");
+      expect(pre.reason).toContain(LOOKUP_MISSING);
+      expect(pre.reason).not.toContain(LOOKUP_ONLY);
+      const ap = (await (
+        await apply(app, { appAdds: ["acme-eng/repo-3"] })
+      ).json()) as { appsState: string };
+      expect(ap.appsState).toBe("lookup_missing");
+      expect(audits).toEqual([]);
+    });
+
+    it("an unbound user still gets the existing no-username reason first", async () => {
+      const { app } = setup({ apps: "lookup_only", username: null });
+      const pre = (await (
+        await app.request(previewUrl, { headers: asAdmin })
+      ).json()) as { reason: string };
+      expect(pre.reason).not.toContain(LOOKUP_ONLY);
+    });
+
+    it("the 422 for a missing GH_APP_ID keeps its text in every state", async () => {
+      for (const apps of ["both", "lookup_only", "lookup_missing"] as const) {
+        const { app } = setup({ env: {}, apps });
+        const res = await app.request(url(), { headers: asAdmin });
+        expect(res.status).toBe(422);
+        expect(JSON.stringify(await res.json())).toContain("GH_APP_ID");
+      }
+    });
+  });
+
   it("503 when the Apps are not wired", async () => {
     const app = createAdminApp({
       ...makeMockDeps(),
@@ -7880,6 +8134,75 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
     const ok = await apply(app, { agentRemoves: many, confirmRemovals: true });
     expect(ok.status).toBe(200);
     expect(state.repos).toEqual([]);
+  });
+
+  // GIS-1.2: an agent App installed on All repositories is switched to Selected.
+  const allSnapshot = () => [
+    {
+      org: "acme-eng",
+      completedAt: new Date(),
+      totalCount: 2,
+      lastError: null,
+      rateLimitResetAt: null,
+      repositorySelection: "all",
+      repos: [{ fullName: "acme-eng/repo-1" }, { fullName: "acme-eng/repo-2" }],
+    },
+  ];
+
+  it("sync preview lists the selection switch for an 'all' installation", async () => {
+    const { app, events } = setup({ snapshots: allSnapshot() });
+    const res = await app.request(previewUrl, { headers: asAdmin });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      selectionSwitches: unknown[];
+      appRemoves: string[];
+    };
+    expect(body.selectionSwitches).toEqual([
+      { org: "acme-eng", repos: ["acme-eng/repo-1"] },
+    ]);
+    expect(body.appRemoves).toEqual(["acme-eng/repo-2"]);
+    // Read-only: only the open-work listing, no GitHub change.
+    expect(events.map((e) => e[0])).toEqual(["list"]);
+  });
+
+  it("sync apply switches before removing, folds the removal and audits once", async () => {
+    const { app, audits, events } = setup({ snapshots: allSnapshot() });
+    const res = await apply(app, {
+      appRemoves: ["acme-eng/repo-2"],
+      agentRemoves: ["acme-eng/repo-2"],
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: "applied",
+      appRemoves: ["acme-eng/repo-2"],
+      selectionSwitches: [{ org: "acme-eng", repos: ["acme-eng/repo-1"] }],
+    });
+    expect(events.map((e) => e[0])).toEqual([
+      "switch",
+      "setRepos",
+      "audit",
+      "block",
+    ]);
+    expect(events[0]).toEqual(["switch", ["repo-1"]]);
+    expect(audits[0]?.diff).toMatchObject({
+      installationRemoves: ["acme-eng/repo-2"],
+      selectionSwitches: [{ org: "acme-eng", repos: ["acme-eng/repo-1"] }],
+    });
+  });
+
+  it("sync apply: a 403 on the switch is a 502 naming the missing permission, with a failed audit", async () => {
+    const { app, audits } = setup({
+      snapshots: allSnapshot(),
+      override: { [`PATCH ${INST}/501/repositories`]: "install_selection_403" },
+    });
+    const res = await apply(app, { appRemoves: ["acme-eng/repo-2"] });
+    expect(res.status).toBe(502);
+    expect(JSON.stringify(await res.json())).toContain(
+      "enterprise_organization_installation_repositories",
+    );
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ result: { status: "failed" } });
+    expect(audits[0]?.diff).toMatchObject({ installationRemoves: [] });
   });
 
   it("sync apply: noop when nothing confirmed still applies; 400 for bad names", async () => {

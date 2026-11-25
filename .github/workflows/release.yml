@@ -433,7 +433,7 @@ jobs:
 
       - name: Base-image contract smoke test
         if: ${{ matrix.image == 'agent' && steps.exists.outputs.exists != 'true' }}
-        run: SHIPWRIGHT_CONTRACT_BASE_IMAGE="$IMAGE:$VERSION" bun test runtime/base-image-contract.smoke.test.ts
+        run: SHIPWRIGHT_CONTRACT_BASE_IMAGE="$IMAGE:$VERSION" bun test --config=bunfig.smoke.toml runtime/base-image-contract.smoke.test.ts
 
       # The pushed digest is written to a file and uploaded per matrix entry: a
       # matrix job cannot expose one output per entry, only the last writer wins.

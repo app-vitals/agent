@@ -12,7 +12,7 @@ export type GheValidationStatus = "valid" | "missing_permission" | "error";
 /** Warning code -> message. Codes are stable; the UI carries them in a redirect. */
 export const GHE_WARNINGS = {
   installer_repositories_write:
-    "The installer App lacks enterprise_organization_installation_repositories (write). It is not needed yet but will be required for repository management.",
+    "The installer App lacks enterprise_organization_installation_repositories (write). Sync needs it to add, remove and switch the agent App's repositories; without it those changes fail. Validation still passes.",
   lookup_members_read:
     "The lookup App lacks the Organization Members (read) permission. Validation still passes; grant it to let the lookup see organization membership.",
 } as const;

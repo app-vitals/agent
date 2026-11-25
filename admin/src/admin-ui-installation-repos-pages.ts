@@ -14,6 +14,11 @@
 import type { components } from "@app-vitals/agent-lib/admin-types";
 import { escapeHtml } from "./admin-ui-styles.ts";
 import {
+  type GithubAppsState,
+  LOOKUP_MISSING_REASON,
+  LOOKUP_ONLY_REASON,
+} from "./github-apps-state.ts";
+import {
   MAX_UNCONFIRMED_REMOVALS,
   MISSING_APP_ID_REASON,
 } from "./installation-ports.ts";
@@ -199,9 +204,11 @@ export const APP_ID_MISMATCH_MESSAGE =
 export interface GithubSyncPreviewView {
   status: "previewed" | "skipped";
   reason?: string;
+  appsState?: "lookup_only" | "lookup_missing";
   appAdds?: string[];
   appRemoves?: string[];
   agentRemoves?: string[];
+  selectionSwitches?: { org: string; repos: string[] }[];
   skippedOrgs?: { org: string; reason: string; detail?: SkipDetail }[];
   openWork?: OpenWorkView[];
   warnings?: string[];
@@ -211,6 +218,7 @@ export interface GithubSyncPreviewView {
 export interface GithubSyncApplyView {
   status: "applied" | "noop" | "skipped";
   reason?: string;
+  appsState?: "lookup_only" | "lookup_missing";
   appAdds?: string[];
   appRemoves?: string[];
   agentRemoves?: string[];
@@ -223,6 +231,12 @@ export interface GithubSyncCardState {
   /** The agent has a GH_APP_ID in its env. */
   hasAppId: boolean;
   githubUsername?: string | null;
+  /**
+   * Which enterprise Apps are configured. Default "both" (today's card).
+   * "lookup_only" explains that Sync needs an installer App; "lookup_missing"
+   * says the lookup App is missing. Neither loads installer-backed data.
+   */
+  appsState?: GithubAppsState;
 }
 
 /**
@@ -236,18 +250,27 @@ export function renderGithubSyncCard(
 ): string {
   const id = escapeHtml(agentId);
   const base = `/admin/agents/${id}/github-installation`;
+  const appsState = state.appsState ?? "both";
   let action: string;
-  if (!state.hasAppId) {
+  if (appsState === "lookup_only") {
+    action = `<div class="alert alert-warning" data-reason="lookup-only">${escapeHtml(LOOKUP_ONLY_REASON)}</div>`;
+  } else if (appsState === "lookup_missing") {
+    action = `<div class="alert alert-warning" data-reason="lookup-missing">${escapeHtml(LOOKUP_MISSING_REASON)}</div>`;
+  } else if (!state.hasAppId) {
     action = `<div class="alert alert-warning" data-reason="missing-app-id">${escapeHtml(MISSING_APP_ID_REASON)}</div>`;
   } else if (!state.githubUsername?.trim()) {
     action = `<div class="alert alert-warning" data-reason="no-username">${escapeHtml(NO_USERNAME_REASON)}</div>`;
   } else {
     action = `<button type="button" class="btn btn-primary" id="github-sync-btn" data-url="/admin/agents/${id}/github-sync/confirm">Sync</button><div id="github-sync-confirm" style="margin-top:12px"></div>`;
   }
-  const loader = state.hasAppId
-    ? `<div id="github-installation-body">Loading...</div>`
-    : "";
-  const refresh = `<div style="margin:0 0 12px"><button type="button" class="btn btn-secondary" id="github-refresh-btn" data-url="/admin/agents/${id}/github-cache/refresh">Refresh</button> <span style="color:#6b7280;font-size:12px">Re-reads the cached repo lists in the background. Reload the page to see progress.</span></div>`;
+  const loader =
+    state.hasAppId && appsState === "both"
+      ? `<div id="github-installation-body">Loading...</div>`
+      : "";
+  const refresh =
+    appsState === "lookup_missing"
+      ? ""
+      : `<div style="margin:0 0 12px"><button type="button" class="btn btn-secondary" id="github-refresh-btn" data-url="/admin/agents/${id}/github-cache/refresh">Refresh</button> <span style="color:#6b7280;font-size:12px">Re-reads the cached repo lists in the background. Reload the page to see progress.</span></div>`;
   return `<div id="github-installation-card" data-base-url="${base}" style="margin-top:20px">
       <div class="form-label" style="font-weight:600;margin-bottom:6px">GitHub sync</div>
       <p style="color:#6b7280;font-size:12px;margin:0 0 12px">Brings this agent's App installation and its repos in line with what the bound GitHub user can push to.</p>
@@ -443,6 +466,19 @@ const repoList = (kind: string, title: string, repos: readonly string[]) =>
 const plural = (n: number, one: string, many: string) =>
   `${n} ${n === 1 ? one : many}`;
 
+/** Orgs the confirmed sync switches from "all repositories" to "selected repositories". */
+const selectionSwitchesHtml = (
+  switches: readonly { org: string; repos: readonly string[] }[],
+) =>
+  switches.length === 0
+    ? ""
+    : `<div data-list="selection-switches" style="margin-top:8px"><div style="font-weight:600">Switch from all repositories to selected repositories (${switches.length})</div><ul style="margin:4px 0 0 18px">${switches
+        .map(
+          (s) =>
+            `<li data-switch-org="${escapeHtml(s.org)}"><span class="mono">${escapeHtml(s.org)}</span>: keeps ${plural(s.repos.length, "repo", "repos")}</li>`,
+        )
+        .join("")}</ul></div>`;
+
 /** One readable sentence-list describing why an org's cached access was skipped. */
 function skipDetailText(d: SkipDetail, timezone?: string): string {
   const out: string[] = [];
@@ -506,8 +542,8 @@ const skippedOrgsHtml = (
         .join("")}</div>`;
 
 /**
- * The single confirm step of Sync: the installation adds, installation
- * removes, agent-repo removes and the open work the removals would block. One
+ * The single confirm step of Sync: the selection switches, installation adds,
+ * installation removes, agent-repo removes and the open work the removals would block. One
  * confirmation applies them all; more than the removal cap needs the extra
  * checkbox (confirmRemovals).
  */
@@ -517,17 +553,24 @@ export function renderSyncConfirm(
   timezone?: string,
 ): string {
   if (preview.status === "skipped") {
-    return `<div class="alert alert-warning" data-sync="skipped">Sync was skipped: ${escapeHtml(preview.reason ?? "unknown reason")}</div>`;
+    return `<div class="alert alert-warning" data-sync="skipped"${preview.appsState ? ` data-apps-state="${escapeHtml(preview.appsState)}"` : ""}>Sync was skipped: ${escapeHtml(preview.reason ?? "unknown reason")}</div>`;
   }
   const appAdds = preview.appAdds ?? [];
   const appRemoves = preview.appRemoves ?? [];
   const agentRemoves = preview.agentRemoves ?? [];
+  const switches = preview.selectionSwitches ?? [];
   const skippedList = preview.skippedOrgs ?? [];
   const skipped = skippedOrgsHtml(skippedList, timezone);
   const warnings = warningsHtml(
     withoutSkipWarnings(preview.warnings, skippedList),
   );
-  if (appAdds.length + appRemoves.length + agentRemoves.length === 0) {
+  if (
+    appAdds.length +
+      appRemoves.length +
+      agentRemoves.length +
+      switches.length ===
+    0
+  ) {
     if (skippedList.length > 0) {
       return `<div class="alert alert-warning" data-sync="nothing-synced">Nothing was synced: ${skippedList.length} org(s) skipped, see below.</div>${skipped}${warnings}`;
     }
@@ -542,7 +585,7 @@ export function renderSyncConfirm(
   const capBox = overCap
     ? `<label style="display:block;margin:12px 0"><input type="checkbox" id="github-sync-confirm-removals" /> I confirm removing ${removals} repos (more than ${MAX_UNCONFIRMED_REMOVALS}).</label>`
     : "";
-  return `<div class="alert alert-warning" data-sync="confirm">Apply these changes?</div>${repoList("app-adds", "Add to the agent App installation", appAdds)}${repoList("app-removes", "Remove from the agent App installation", appRemoves)}${repoList("agent-removes", "Remove from the agent's repos", agentRemoves)}${renderOpenWorkByRepo(
+  return `<div class="alert alert-warning" data-sync="confirm">Apply these changes?</div>${selectionSwitchesHtml(switches)}${repoList("app-adds", "Add to the agent App installation", appAdds)}${repoList("app-removes", "Remove from the agent App installation", appRemoves)}${repoList("agent-removes", "Remove from the agent's repos", agentRemoves)}${renderOpenWorkByRepo(
     preview.openWork ?? [],
     "Open tasks and PRs that will be blocked",
     "No open tasks or PRs would be blocked.",
@@ -556,7 +599,7 @@ export function renderSyncResult(
   timezone?: string,
 ): string {
   if (result.status === "skipped") {
-    return `<div class="alert alert-warning" data-sync="skipped">Sync was skipped: ${escapeHtml(result.reason ?? "unknown reason")}</div>`;
+    return `<div class="alert alert-warning" data-sync="skipped"${result.appsState ? ` data-apps-state="${escapeHtml(result.appsState)}"` : ""}>Sync was skipped: ${escapeHtml(result.reason ?? "unknown reason")}</div>`;
   }
   if (result.status === "noop") {
     const skippedList = result.skippedOrgs ?? [];

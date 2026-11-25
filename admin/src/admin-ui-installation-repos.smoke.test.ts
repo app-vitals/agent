@@ -126,7 +126,49 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
       expect(cardHtml).not.toContain("<input");
     });
 
-    it("is absent when only the installer App is configured", async () => {
+    it("lookup-only: shows the access preview and the plain installer explanation, no Sync button or installer-backed body", async () => {
+      const { app, calls } = setup({
+        enterprise: {
+          configured: true,
+          installer: null,
+          lookup: { role: "lookup" },
+        },
+      });
+      const html = await (await get(app, "/access")).text();
+      expect(html).toContain('id="github-access-btn"');
+      const card = html.slice(html.indexOf('id="github-installation-card"'));
+      const cardHtml = card.slice(0, card.indexOf("</script>"));
+      expect(cardHtml).toContain('data-reason="lookup-only"');
+      expect(cardHtml).toContain(
+        "Sync and the agent App&#39;s installation repos need an enterprise installer App",
+      );
+      expect(cardHtml).not.toContain('id="github-sync-btn"');
+      expect(cardHtml).not.toContain('id="github-installation-body"');
+      expect(html).toContain('id="github-install-card"');
+      expect(html).toContain('data-reason="lookup-only"');
+      expect(html).not.toContain(
+        "is not configured, so repo access cannot be checked",
+      );
+      // No installer-backed list was requested for the page render.
+      expect(
+        calls.some((c) => c.path.includes("/github-installation/repos")),
+      ).toBe(false);
+    });
+
+    it("both Apps: renders as before, with no lookup-only or lookup-missing text", async () => {
+      const { app } = setup({ agentsApi: () => json(INSTALLED) });
+      const html = await (await get(app, "/access")).text();
+      expect(html).toContain('id="github-access-btn"');
+      expect(html).toContain('id="github-sync-btn"');
+      expect(html).toContain('id="github-installation-body"');
+      expect(html).toContain(
+        'data-url="/admin/agents/' + AGENT_ID + '/github-orgs"',
+      );
+      expect(html).not.toContain('data-reason="lookup-only"');
+      expect(html).not.toContain('data-reason="lookup-missing"');
+    });
+
+    it("lookup App missing (installer only): the Sync card says the lookup App is missing", async () => {
       const { app } = setup({
         enterprise: {
           configured: true,
@@ -135,19 +177,14 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
         },
       });
       const html = await (await get(app, "/access")).text();
-      expect(html).not.toContain("github-installation-card");
-    });
-
-    it("is absent when only the lookup App is configured", async () => {
-      const { app } = setup({
-        enterprise: {
-          configured: true,
-          installer: null,
-          lookup: { role: "lookup" },
-        },
-      });
-      const html = await (await get(app, "/access")).text();
-      expect(html).not.toContain("github-installation-card");
+      const card = html.slice(html.indexOf('id="github-installation-card"'));
+      const cardHtml = card.slice(0, card.indexOf("</script>"));
+      expect(cardHtml).toContain('data-reason="lookup-missing"');
+      expect(cardHtml).toContain("The lookup GitHub App is not configured");
+      expect(cardHtml).not.toContain("installer");
+      expect(cardHtml).not.toContain('id="github-sync-btn"');
+      expect(html).not.toContain('id="github-access-btn"');
+      expect(html).not.toContain('data-reason="lookup-only"');
     });
 
     it("is absent when no App is configured", async () => {
@@ -225,6 +262,37 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
       const html = await res.text();
       expect(html).toContain('data-reason="installer-unconfigured"');
       expect(html).not.toContain('data-reason="no-username"');
+    });
+
+    it("renders the lookup-only skip reason from the agents API in the sync confirm fragment", async () => {
+      const { app } = setup({
+        agentsApi: () =>
+          json({
+            status: "skipped",
+            appsState: "lookup_only",
+            reason:
+              "Only the lookup GitHub App is configured, so repo access is visible",
+          }),
+      });
+      const html = await (await get(app, "/github-sync/confirm")).text();
+      expect(html).toContain('data-apps-state="lookup_only"');
+      expect(html).toContain("Only the lookup GitHub App is configured");
+    });
+
+    it("renders the lookup-missing skip reason distinctly", async () => {
+      const { app } = setup({
+        agentsApi: () =>
+          json({
+            status: "skipped",
+            appsState: "lookup_missing",
+            reason:
+              "The lookup GitHub App is not configured, so repo access cannot be checked.",
+          }),
+      });
+      const html = await (await get(app, "/github-sync/confirm")).text();
+      expect(html).toContain('data-apps-state="lookup_missing"');
+      expect(html).toContain("The lookup GitHub App is not configured");
+      expect(html).not.toContain("Only the lookup");
     });
 
     it("is forbidden for a non-admin and makes no call", async () => {
@@ -327,6 +395,20 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
       const html = await (await get(app, "/github-sync/confirm")).text();
       expect(html).toContain("Lookup crawl complete (31 repos).");
       expect(html).toContain("30 repos have no access answer yet.");
+    });
+
+    it("renders a selection switch row in the Sync confirm fragment", async () => {
+      const { app } = setup({
+        agentsApi: () =>
+          json({
+            status: "previewed",
+            selectionSwitches: [{ org: "acme", repos: ["acme/a", "acme/b"] }],
+          }),
+      });
+      const html = await (await get(app, "/github-sync/confirm")).text();
+      expect(html).toContain('data-list="selection-switches"');
+      expect(html).toContain('data-switch-org="acme"');
+      expect(html).toContain("keeps 2 repos");
     });
 
     it("shows the reason for a skipped preview", async () => {

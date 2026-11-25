@@ -9,6 +9,10 @@
 
 import type { PrismaClient } from "../prisma/client/client.ts";
 import type { AgentEnvService } from "./agent-envs.ts";
+import type {
+  GithubAppsState,
+  GithubAppsStateFn,
+} from "./github-apps-state.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import type { Clock } from "./clock.ts";
 import type { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
@@ -90,7 +94,41 @@ export function lazyInstallerClient(
       (await client(accountId)).addRepositories(org, id, names),
     removeRepositories: async (org, id, names, accountId) =>
       (await client(accountId)).removeRepositories(org, id, names),
+    setRepositorySelection: async (org, id, input, accountId) =>
+      (await client(accountId)).setRepositorySelection(org, id, {
+        repositorySelection: input.repositorySelection,
+        repositories: [...input.repositories],
+      }),
   };
+}
+
+/**
+ * Which Apps are usable for an account: the lookup App needs metadata and its
+ * key; the installer App also needs its enterprise slug (same test as
+ * lazyInstallerClient). Probed per call so config changes are picked up.
+ */
+export function githubAppsStateProbe(
+  deps: Pick<GithubInstallationWiringDeps, "appService">,
+): GithubAppsStateFn {
+  return async (accountId): Promise<GithubAppsState> => {
+    const [lookup, lookupKey, installer, installerKey] = await Promise.all([
+      deps.appService.get("lookup", accountId),
+      deps.appService.getPrivateKey("lookup", accountId),
+      deps.appService.get("installer", accountId),
+      deps.appService.getPrivateKey("installer", accountId),
+    ]);
+    if (!lookup || !lookupKey) return "lookup_missing";
+    return installer?.enterpriseSlug && installerKey ? "both" : "lookup_only";
+  };
+}
+
+/** The probe only guards the real installer-backed port; a replaced port has no installer to probe. */
+function appsStateDep(
+  deps: Pick<InstallationReposWiringDeps, "appService" | "installationRepos">,
+): { appsState?: GithubAppsStateFn } {
+  return deps.installationRepos
+    ? {}
+    : { appsState: githubAppsStateProbe(deps) };
 }
 
 export interface InstallationReposWiringDeps
@@ -116,6 +154,7 @@ export function createGithubInstallationRepos(
       deps.installationRepos ??
       createInstallationReposPort(createInstallationPort(client), client),
     cache: new GitHubRepoCacheService(deps.prisma),
+    ...appsStateDep(deps),
   });
 }
 
@@ -197,6 +236,7 @@ export function createGithubSync(
       deps.installationRepos ??
       createInstallationReposPort(createInstallationPort(client), client),
     audit: new PrismaInstallationAudit(deps.prisma),
+    ...appsStateDep(deps),
     ...(deps.openWork ? { openWork: deps.openWork } : {}),
   });
 }

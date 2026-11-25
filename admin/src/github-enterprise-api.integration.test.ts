@@ -23,6 +23,10 @@ import { type AdminUIEnv } from "./admin-ui.ts";
 import { registerAdminGithubEnterpriseRoutes } from "./admin-ui-github-enterprise.ts";
 import { createGithubEnterpriseApp } from "./github-enterprise-api.ts";
 import { GitHubEnterpriseAppService } from "./github-enterprise-apps.ts";
+import {
+  PrismaInstallationAgents,
+  PrismaInstallationAudit,
+} from "./installation-ports.ts";
 import { createAdminPrismaClient } from "./prisma-client.ts";
 import { identityCrypto, makeStrictTokenCrypto } from "./token-crypto.ts";
 
@@ -352,5 +356,128 @@ describeOrSkip("github-enterprise API (integration)", () => {
       headers: { Authorization: "Bearer agent-tok" },
     });
     expect(denied.status).toBe(403);
+  });
+});
+
+describeOrSkip("DELETE /orgs/{org}/install (integration)", () => {
+  let prisma: PrismaClient;
+
+  beforeEach(async () => {
+    prisma = createAdminPrismaClient(TEST_DB as string);
+    await prisma.gitHubReconcileAudit.deleteMany();
+    await prisma.gitHubEnterpriseApp.deleteMany();
+    await prisma.agentEnv.deleteMany();
+    await prisma.agentToken.deleteMany();
+    await prisma.agentCronJob.deleteMany();
+    await prisma.agentTool.deleteMany();
+    await prisma.agent.deleteMany();
+  });
+
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+
+  async function setup(deleteStatus: number) {
+    const appService = new GitHubEnterpriseAppService(
+      prisma,
+      makeStrictTokenCrypto(ENC_KEY),
+    );
+    await appService.save({
+      role: "installer",
+      appId: "12345",
+      slug: "example-installer",
+      enterpriseSlug: "acme",
+      privateKey: PEM,
+    });
+    const envService = new AgentEnvService(prisma, identityCrypto);
+    const agent = await prisma.agent.create({
+      data: {
+        name: "Uninstall Agent",
+        repos: ["acme-eng/a", "acme-eng/b", "other/c"],
+      },
+    });
+    await envService.upsert(agent.id, { GH_APP_SLUG: "target-app" });
+    const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = new URL(input.toString());
+      const key = `${init?.method ?? "GET"} ${u.pathname}`;
+      const json = (k: string) =>
+        new Response(JSON.stringify(cassette[k]?.body), {
+          status: cassette[k]?.status,
+        });
+      switch (key) {
+        case "GET /enterprises/acme/installation":
+          return json("enterprise_installation_success");
+        case "POST /app/installations/4242/access_tokens":
+          return json("access_token_success");
+        case "GET /enterprises/acme/apps/organizations/acme-eng/installations":
+          return json("org_installations_success");
+        case "DELETE /enterprises/acme/apps/organizations/acme-eng/installations/501":
+          return deleteStatus === 204
+            ? new Response(null, { status: 204 })
+            : json("uninstall_403");
+      }
+      throw new Error(`no route for ${key}`);
+    }) as typeof fetch;
+    const blocked: string[] = [];
+    const app = createGithubEnterpriseApp({
+      appService,
+      agentService: new AgentService(prisma),
+      agentEnvService: envService,
+      sessionSecret: "test-secret-32chars-for-ghe-api!!",
+      adminApiKeys: parseAdminApiKeys("root:tok-admin:*"),
+      agentTokenService: { validate: async () => null },
+      uninstall: {
+        agents: new PrismaInstallationAgents(prisma, envService),
+        audit: new PrismaInstallationAudit(prisma),
+        openWork: {
+          listOpenWork: async () => [],
+          blockOpenWork: async (_a, repos) => {
+            blocked.push(...repos);
+          },
+        },
+      },
+      fetchFn,
+      apiBase: "https://ghe.test",
+    });
+    const del = () =>
+      app.request(
+        `/github-enterprise/orgs/acme-eng/install?agentId=${agent.id}`,
+        { method: "DELETE", headers: ADMIN },
+      );
+    return { agent, del, blocked };
+  }
+
+  it("updates the agent's repos and writes an applied audit row", async () => {
+    const { agent, del, blocked } = await setup(204);
+    const res = await del();
+    expect(res.status).toBe(200);
+    const row = await prisma.agent.findUniqueOrThrow({
+      where: { id: agent.id },
+    });
+    expect(row.repos).toEqual(["other/c"]);
+    const audits = await prisma.gitHubReconcileAudit.findMany({
+      where: { agentId: agent.id },
+    });
+    expect(audits).toHaveLength(1);
+    expect(audits[0]?.planHash).toBe("uninstall:org");
+    expect(audits[0]?.result).toEqual({ status: "applied" });
+    expect(blocked.sort()).toEqual(["acme-eng/a", "acme-eng/b"]);
+  });
+
+  it("a GitHub refusal writes a failed audit row and keeps the repos", async () => {
+    const { agent, del } = await setup(403);
+    const res = await del();
+    expect(res.status).toBe(502);
+    const row = await prisma.agent.findUniqueOrThrow({
+      where: { id: agent.id },
+    });
+    expect(row.repos).toHaveLength(3);
+    const audits = await prisma.gitHubReconcileAudit.findMany({
+      where: { agentId: agent.id },
+    });
+    expect(audits).toHaveLength(1);
+    expect((audits[0]?.result as { status: string } | undefined)?.status).toBe(
+      "failed",
+    );
   });
 });
