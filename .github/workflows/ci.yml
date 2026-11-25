@@ -12,12 +12,9 @@ permissions:
 
 jobs:
   # Fast gates (layer 0). The unit job needs this one, so a lint / type /
-  # boundary failure skips every test layer. The display name is kept as-is on
-  # purpose: release.yml and scripts/release-workflow.unit.test.ts match it by
-  # name, and branch protection requires it. It no longer runs tests; rename it
-  # together with those consumers in T-004.
-  ci:
-    name: lint / typecheck / boundary / test
+  # boundary failure skips every test layer.
+  gates:
+    name: gates (lint / typecheck / boundary)
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -75,7 +72,7 @@ jobs:
   # level stays generous to cover setup.
   unit:
     name: unit
-    needs: ci
+    needs: gates
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
@@ -239,6 +236,30 @@ jobs:
           bun run test:smoke
           end=$(date +%s)
           echo "| smoke | $((end - start))s |" >> "$GITHUB_STEP_SUMMARY"
+
+  # Aggregate result under the original check name. Branch protection and
+  # release.yml (and scripts/release-workflow.unit.test.ts) match
+  # "lint / typecheck / boundary / test" by name, so it keeps meaning "gates and
+  # every test layer passed" until T-004 moves the required checks onto the
+  # split jobs. `always()` so a skipped layer fails it instead of skipping it.
+  ci:
+    name: lint / typecheck / boundary / test
+    needs: [gates, unit, integration, smoke]
+    if: always()
+    timeout-minutes: 2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every layer to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needs results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a gate or test layer did not succeed ($RESULTS)"
+              exit 1
+            fi
+          done
 
   admin-e2e:
     name: admin e2e
