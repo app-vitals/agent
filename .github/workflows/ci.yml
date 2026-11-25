@@ -11,28 +11,12 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    name: lint / typecheck / boundary / test
+  # Fast gates (layer 0). The unit job needs this one, so a lint / type /
+  # boundary failure skips every test layer.
+  gates:
+    name: gates (lint / typecheck / boundary)
     timeout-minutes: 15
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18@sha256:a47637053e65dc7112aeb7353feb8b87954982ad5fd4524908c284d90d71b5e3
-        env:
-          POSTGRES_USER: agent
-          POSTGRES_PASSWORD: agent
-          POSTGRES_DB: agent_admin_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      DATABASE_URL_ADMIN_TEST: postgres://agent:agent@localhost:5432/agent_admin_test
-      DATABASE_URL_SHIPWRIGHT_ADMIN: postgres://agent:agent@localhost:5432/agent_admin_test
-      DATABASE_URL_SHIPWRIGHT_CHAT: postgres://agent:agent@localhost:5432/shipwright_chat_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -80,28 +64,44 @@ jobs:
             exit 1
           fi
 
-      - name: Sync test DB schema
-        run: cd admin && bunx prisma migrate deploy --schema=prisma/schema
+  # Layer 1. No database or browser: unit tests mock Prisma and only read the
+  # DATABASE_URL_* names as strings (verified by grep over *.unit.test.ts).
+  # Timeout decision: the plan sets the layer budget as suite target x 1.5
+  # (unit 1 min), which covers the test command only, not checkout + install.
+  # So `timeout-minutes` is per test step with the per-layer value, and the job
+  # level stays generous to cover setup.
+  unit:
+    name: unit
+    needs: gates
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      # Dedicated chat database; the chat unit, integration and smoke suites
-      # run against it in the Test step (DATABASE_URL_SHIPWRIGHT_CHAT above).
-      - name: Create chat test database
-        run: createdb -h localhost -U agent shipwright_chat_test
-        env:
-          PGPASSWORD: agent
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # Pinned, not floating: Bun 1.4.0 changed `process.env.KEY = undefined`
+          # to coerce to the string "undefined" instead of deleting the key.
+          bun-version: "1.4.5"
 
-      - name: Sync chat test DB schema
-        run: cd chat && bunx prisma migrate deploy
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Install Playwright chromium-headless-shell
-        run: bunx playwright install --with-deps chromium-headless-shell
-
-      - name: Test
-        # Coverage is measured on the unit layer (the default bunfig.toml run).
+      # Wall-clock of the layer's test command goes to the job summary (the
+      # first Tier 1 speed measurement; see docs/test-readiness/test-readiness-plan.md).
+      - name: Unit tests
+        timeout-minutes: 1
         run: |
-          bun run test:unit --coverage --coverage-reporter=lcov
-          bun run test:integration
-          bun run test:smoke
+          echo "| Layer | Wall-clock |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          start=$(date +%s)
+          rc=0
+          bun run test:unit --coverage --coverage-reporter=lcov || rc=$?
+          end=$(date +%s)
+          echo "| unit | $((end - start))s (exit $rc) |" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
       # Published for the cross-repo coverage gate, which reads exclusions from
       # .shipwright/coverage.json rather than hardcoding them.
@@ -112,6 +112,160 @@ jobs:
           name: shipwright-coverage
           path: coverage/lcov.info
           if-no-files-found: error
+
+  # Layer 2: real Postgres. Skipped when unit (or the gates) fail. Timeout is
+  # on the test step (budget 5 min); job level covers setup, see unit job.
+  integration:
+    name: integration
+    needs: unit
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18@sha256:a47637053e65dc7112aeb7353feb8b87954982ad5fd4524908c284d90d71b5e3
+        env:
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent
+          POSTGRES_DB: agent_admin_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL_ADMIN_TEST: postgres://agent:agent@localhost:5432/agent_admin_test
+      DATABASE_URL_SHIPWRIGHT_ADMIN: postgres://agent:agent@localhost:5432/agent_admin_test
+      DATABASE_URL_SHIPWRIGHT_CHAT: postgres://agent:agent@localhost:5432/shipwright_chat_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # Pinned, not floating: Bun 1.4.0 changed `process.env.KEY = undefined`
+          # to coerce to the string "undefined" instead of deleting the key.
+          bun-version: "1.4.5"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Sync test DB schema
+        run: cd admin && bunx prisma migrate deploy --schema=prisma/schema
+
+      # Dedicated chat database (DATABASE_URL_SHIPWRIGHT_CHAT above).
+      - name: Create chat test database
+        run: createdb -h localhost -U agent shipwright_chat_test
+        env:
+          PGPASSWORD: agent
+
+      - name: Sync chat test DB schema
+        run: cd chat && bunx prisma migrate deploy
+
+      # Needed by runtime/browser*.integration.test.ts only.
+      - name: Install Playwright chromium-headless-shell
+        run: bunx playwright install --with-deps chromium-headless-shell
+
+      - name: Integration tests
+        timeout-minutes: 5
+        run: |
+          echo "| Layer | Wall-clock |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          start=$(date +%s)
+          rc=0
+          bun run test:integration || rc=$?
+          end=$(date +%s)
+          echo "| integration | $((end - start))s (exit $rc) |" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+  # Layer 3: in-process apps against the Postgres service. Skipped when
+  # integration (and so unit / gates) fail. Step-level timeout, see unit job.
+  smoke:
+    name: smoke
+    needs: integration
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18@sha256:a47637053e65dc7112aeb7353feb8b87954982ad5fd4524908c284d90d71b5e3
+        env:
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent
+          POSTGRES_DB: agent_admin_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL_ADMIN_TEST: postgres://agent:agent@localhost:5432/agent_admin_test
+      DATABASE_URL_SHIPWRIGHT_ADMIN: postgres://agent:agent@localhost:5432/agent_admin_test
+      DATABASE_URL_SHIPWRIGHT_CHAT: postgres://agent:agent@localhost:5432/shipwright_chat_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # Pinned, not floating: Bun 1.4.0 changed `process.env.KEY = undefined`
+          # to coerce to the string "undefined" instead of deleting the key.
+          bun-version: "1.4.5"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Sync test DB schema
+        run: cd admin && bunx prisma migrate deploy --schema=prisma/schema
+
+      # Dedicated chat database (DATABASE_URL_SHIPWRIGHT_CHAT above).
+      - name: Create chat test database
+        run: createdb -h localhost -U agent shipwright_chat_test
+        env:
+          PGPASSWORD: agent
+
+      - name: Sync chat test DB schema
+        run: cd chat && bunx prisma migrate deploy
+
+      - name: Smoke tests
+        timeout-minutes: 2
+        run: |
+          echo "| Layer | Wall-clock |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          start=$(date +%s)
+          rc=0
+          bun run test:smoke || rc=$?
+          end=$(date +%s)
+          echo "| smoke | $((end - start))s (exit $rc) |" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+  # Aggregate result under the original check name. Branch protection and
+  # release.yml (and scripts/release-workflow.unit.test.ts) match
+  # "lint / typecheck / boundary / test" by name, so it keeps meaning "gates and
+  # every test layer passed" until T-004 moves the required checks onto the
+  # split jobs. `always()` so a skipped layer fails it instead of skipping it.
+  ci:
+    name: lint / typecheck / boundary / test
+    needs: [gates, unit, integration, smoke]
+    if: always()
+    timeout-minutes: 2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every layer to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needs results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a gate or test layer did not succeed ($RESULTS)"
+              exit 1
+            fi
+          done
 
   admin-e2e:
     name: admin e2e
