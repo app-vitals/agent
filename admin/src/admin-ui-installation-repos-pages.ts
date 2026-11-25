@@ -139,7 +139,7 @@ export function renderInstallationSyncStatus(
   if (v.leaseHolder) parts.push(`Refreshing (${escapeHtml(v.leaseHolder)})`);
   if (v.lastTickAt) parts.push(`Last tick ${fmt(v.lastTickAt, timezone)}`);
   const cls = v.lastError || v.rateLimitResetAt ? "alert alert-warning" : "";
-  return `<div class="${cls}" data-installation-sync="${complete ? "complete" : "incomplete"}" style="color:#6b7280;font-size:12px;margin:8px 0">${parts.join(" &middot; ")}</div>`;
+  return `<div class="${cls}" data-installation-sync="${complete ? "complete" : "incomplete"}" style="color:var(--vos-text-muted);font-size:12px;margin:8px 0">${parts.join(" &middot; ")}</div>`;
 }
 
 /** JSON body of GET /agents/:id/repos/:owner/:name/removal-preview. */
@@ -270,10 +270,10 @@ export function renderGithubSyncCard(
   const refresh =
     appsState === "lookup_missing"
       ? ""
-      : `<div style="margin:0 0 12px"><button type="button" class="btn btn-secondary" id="github-refresh-btn" data-url="/admin/agents/${id}/github-cache/refresh">Refresh</button> <span style="color:#6b7280;font-size:12px">Re-reads the cached repo lists in the background. Reload the page to see progress.</span></div>`;
+      : `<div style="margin:0 0 12px"><button type="button" class="btn btn-secondary" id="github-refresh-btn" data-url="/admin/agents/${id}/github-cache/refresh">Refresh</button> <span style="color:var(--vos-text-muted);font-size:12px">Re-reads the cached repo lists in the background. Reload the page to see progress.</span></div>`;
   return `<div id="github-installation-card" data-base-url="${base}" style="margin-top:20px">
       <div class="form-label" style="font-weight:600;margin-bottom:6px">GitHub sync</div>
-      <p style="color:#6b7280;font-size:12px;margin:0 0 12px">Brings this agent's App installation and its repos in line with what the bound GitHub user can push to.</p>
+      <p style="color:var(--vos-text-muted);font-size:12px;margin:0 0 12px">Brings this agent's App installation and its repos in line with what the bound GitHub user can push to.</p>
       ${refresh}
       ${action}
       ${loader}
@@ -374,7 +374,7 @@ export function renderInstallationReposBody(
                     r.accessError ? `error: ${escapeHtml(r.accessError)}` : "",
                   ].filter(Boolean);
                   const meta = detail.length
-                    ? ` <span style="color:#6b7280;font-size:12px">${detail.join("; ")}</span>`
+                    ? ` <span style="color:var(--vos-text-muted);font-size:12px">${detail.join("; ")}</span>`
                     : "";
                   return `<tr><td class="mono">${escapeHtml(r.fullName)}</td><td>${hint}${meta}</td></tr>`;
                 })

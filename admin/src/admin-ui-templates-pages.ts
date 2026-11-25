@@ -137,7 +137,7 @@ function kindCard(o: TemplatesPageOpts, kind: TemplateItemRow["kind"]): string {
     .map(
       (
         i,
-      ) => `<form method="POST" action="${BASE}/items" class="template-item" data-kind="${kind}" data-key="${escapeHtml(i.key)}" style="display:grid;gap:6px;padding:8px 0;border-bottom:1px solid #e5e7eb">
+      ) => `<form method="POST" action="${BASE}/items" class="template-item" data-kind="${kind}" data-key="${escapeHtml(i.key)}" style="display:grid;gap:6px;padding:8px 0;border-bottom:1px solid var(--vos-border)">
         ${scopeFields(o)}<input type="hidden" name="kind" value="${kind}" /><input type="hidden" name="key" value="${escapeHtml(i.key)}" />
         <strong>${escapeHtml(i.key)}${managedByBadge(i)}</strong>
         ${itemFields(kind, i.payload)}

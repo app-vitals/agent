@@ -79,7 +79,7 @@ export function renderGithubUsernameRow(
           <button type="submit" class="btn btn-danger" id="clear-github-username">Clear</button>
         </form>`
     : "";
-  return `<tr><td style="color:#6b7280;width:200px">GitHub username</td><td>
+  return `<tr><td style="color:var(--vos-text-muted);width:200px">GitHub username</td><td>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <form method="POST" action="${action}" id="github-username-form" style="display:flex;gap:8px;align-items:center">
             <input name="githubUsername" type="text" class="form-input mono" maxlength="39" placeholder="GitHub login" value="${escapeHtml(username ?? "")}" required />
@@ -95,7 +95,7 @@ export function renderGithubAccessCard(agentId: string): string {
   const url = `/admin/agents/${escapeHtml(agentId)}/github-access`;
   return `<div id="github-access-card" style="margin-top:20px">
       <div class="form-label" style="font-weight:600;margin-bottom:6px">Preview access</div>
-      <p style="color:#6b7280;font-size:12px;margin:0 0 12px">Shows the repos this agent's GitHub user can reach. Read-only; nothing is stored.</p>
+      <p style="color:var(--vos-text-muted);font-size:12px;margin:0 0 12px">Shows the repos this agent's GitHub user can reach. Read-only; nothing is stored.</p>
       <button type="button" class="btn btn-primary" id="github-access-btn" data-url="${url}">Preview access</button>
       <div id="github-access-result" style="margin-top:12px"></div>
       <script>
@@ -159,7 +159,7 @@ export function renderGithubAccessResult(
               .join("");
       const unresolved =
         o.unresolved > 0
-          ? ` <span style="color:#6b7280;font-size:12px">${o.unresolved} unresolved</span>`
+          ? ` <span style="color:var(--vos-text-muted);font-size:12px">${o.unresolved} unresolved</span>`
           : "";
       return `<div class="github-access-org" style="margin-bottom:16px">
         <div style="font-weight:600;margin-bottom:6px">${escapeHtml(o.org)} ${statusBadge(o.status)}${unresolved}</div>
@@ -192,7 +192,7 @@ export function renderGithubInstallCard(
   const url = `/admin/agents/${escapeHtml(agentId)}/github-orgs`;
   return `<div id="github-install-card" style="margin-top:20px">
       <div class="form-label" style="font-weight:600;margin-bottom:6px">Install on org</div>
-      <p style="color:#6b7280;font-size:12px;margin:0 0 12px">Installs this agent's GitHub App on an organization.</p>
+      <p style="color:var(--vos-text-muted);font-size:12px;margin:0 0 12px">Installs this agent's GitHub App on an organization.</p>
       <div id="github-install-result" data-url="${url}">Loading...</div>
       <script>
         (function() {

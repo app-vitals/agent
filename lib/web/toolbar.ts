@@ -62,21 +62,145 @@ export interface ShipwrightToolbarOptions {
   tasksUrl?: string;
 }
 
+/** localStorage key holding the visitor's saved theme: "light" or "dark". */
+export const THEME_STORAGE_KEY = "shipwright-theme";
+
+/** Light palette (`:root`) and dark palette (`:root[data-theme="dark"]`). */
+const THEME_LIGHT: Record<string, string> = {
+  bg: "#f7f7fb",
+  surface: "#ffffff",
+  "surface-muted": "#f9fafb",
+  "surface-subtle": "#f3f4f6",
+  border: "#e8e8ee",
+  "border-strong": "#d1d5db",
+  text: "#1a1a2e",
+  "text-body": "#374151",
+  "text-muted": "#6b7280",
+  "text-faint": "#9ca3af",
+  brand: "#4f46e5",
+  "brand-strong": "#4338ca",
+  "brand-bg": "#eef2ff",
+  "brand-border": "#c7d2fe",
+  primary: "#1a1a2e",
+  "primary-hover": "#2d2d4e",
+  "primary-text": "#ffffff",
+  "success-bg": "#d1fae5",
+  "success-text": "#065f46",
+  "success-border": "#a7f3d0",
+  "warning-bg": "#fef3c7",
+  "warning-text": "#92400e",
+  "warning-border": "#fde68a",
+  danger: "#dc2626",
+  "danger-text": "#b91c1c",
+  "danger-bg": "#fee2e2",
+  "danger-border": "#fecaca",
+  "info-bg": "#dbeafe",
+  "info-text": "#1e40af",
+  "info-border": "#93c5fd",
+  "violet-bg": "#ede9fe",
+  "violet-text": "#5b21b6",
+  "teal-bg": "#ccfbf1",
+  "teal-text": "#0f766e",
+};
+
+const THEME_DARK: Record<string, string> = {
+  bg: "#0f1117",
+  surface: "#171a22",
+  "surface-muted": "#1b1f29",
+  "surface-subtle": "#1f2330",
+  border: "#2a2f3d",
+  "border-strong": "#3a4052",
+  text: "#e6e8ef",
+  "text-body": "#c9cdd8",
+  "text-muted": "#a3a9b8",
+  "text-faint": "#8891a3",
+  brand: "#818cf8",
+  "brand-strong": "#a5b4fc",
+  "brand-bg": "#23264a",
+  "brand-border": "#3b3f7a",
+  primary: "#e6e8ef",
+  "primary-hover": "#ffffff",
+  "primary-text": "#0f1117",
+  "success-bg": "#0f2e1d",
+  "success-text": "#86efac",
+  "success-border": "#14532d",
+  "warning-bg": "#3a2a0c",
+  "warning-text": "#fcd34d",
+  "warning-border": "#78350f",
+  danger: "#f87171",
+  "danger-text": "#fca5a5",
+  "danger-bg": "#3b1518",
+  "danger-border": "#7f1d1d",
+  "info-bg": "#16264a",
+  "info-text": "#93c5fd",
+  "info-border": "#1e3a8a",
+  "violet-bg": "#2a1f4d",
+  "violet-text": "#c4b5fd",
+  "teal-bg": "#0f2f2c",
+  "teal-text": "#5eead4",
+};
+
+/** The two palettes as plain objects, keyed by token name (no `--vos-` prefix). */
+export const THEME_PALETTES = { light: THEME_LIGHT, dark: THEME_DARK } as const;
+
+function declarations(palette: Record<string, string>): string {
+  return Object.entries(palette)
+    .map(([name, value]) => `--vos-${name}: ${value};`)
+    .join(" ");
+}
+
+/**
+ * CSS custom properties for both themes. Every page that includes
+ * {@link baseStyles} gets them; `data-theme` on `<html>` picks the palette
+ * and is set by the script in {@link renderShipwrightToolbar}.
+ */
+export function themeVariables(): string {
+  return `:root { color-scheme: light; ${declarations(THEME_LIGHT)} }
+    :root[data-theme="dark"] { color-scheme: dark; ${declarations(THEME_DARK)} }
+    :root[data-theme="dark"] textarea, :root[data-theme="dark"] select, :root[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { background-color: var(--vos-surface); color: var(--vos-text); }`;
+}
+
+/**
+ * Minimal `<head>` script: sets `data-theme` before the first paint, for pages
+ * that render their own document shell (and for pages with no toolbar, such as
+ * sign-in). Same resolution order as {@link themeScript}.
+ */
+export function themeBootScript(): string {
+  const key = JSON.stringify(THEME_STORAGE_KEY);
+  return `<script>(function(){var t="light";try{var s=localStorage.getItem(${key});if(s==="dark"||s==="light"){t=s}else if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches){t="dark"}}catch(e){}document.documentElement.setAttribute("data-theme",t)})();</script>`;
+}
+
+/**
+ * Inline script that applies the theme and wires the toolbar toggle. It runs
+ * as the toolbar is parsed, at the top of <body>, so the page does not paint
+ * light first. A saved choice wins; otherwise the system preference; storage
+ * or matchMedia being unavailable falls back to light. Changing the theme
+ * fires a `vos-theme-change` event on `document` for pages that draw to canvas.
+ */
+export function themeScript(): string {
+  const key = JSON.stringify(THEME_STORAGE_KEY);
+  return `<script>(function(){var d=document,r=d.documentElement,k=${key},q=window.matchMedia?window.matchMedia("(prefers-color-scheme: dark)"):null;function saved(){try{var s=localStorage.getItem(k);return s==="dark"||s==="light"?s:null}catch(e){return null}}function apply(t){r.setAttribute("data-theme",t);var b=d.getElementById("vos-theme-toggle");if(b)b.setAttribute("aria-pressed",t==="dark"?"true":"false");d.dispatchEvent(new CustomEvent("vos-theme-change",{detail:{theme:t}}))}apply(saved()||(q&&q.matches?"dark":"light"));var b=d.getElementById("vos-theme-toggle");if(b)b.addEventListener("click",function(){var t=r.getAttribute("data-theme")==="dark"?"light":"dark";try{localStorage.setItem(k,t)}catch(e){}apply(t)});if(q&&q.addEventListener)q.addEventListener("change",function(e){if(!saved())apply(e.matches?"dark":"light")})})();</script>`;
+}
+
+const THEME_TOGGLE =
+  '<button type="button" id="vos-theme-toggle" class="vos-theme-toggle" aria-pressed="false">Dark mode</button>';
+
 export function baseStyles(): string {
   return `
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    ${themeVariables()}
     html { font-size: 16px; -webkit-font-smoothing: antialiased; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: #f7f7fb;
-      color: #1a1a2e;
+      background: var(--vos-bg);
+      color: var(--vos-text);
       min-height: 100vh;
     }
 
     /* ─── Toolbar ───────────────────────────────────────── */
     .vos-toolbar {
-      background: #fff;
-      border-bottom: 1px solid #e8e8ee;
+      background: var(--vos-surface);
+      border-bottom: 1px solid var(--vos-border);
       height: 52px;
       display: flex;
       align-items: center;
@@ -89,12 +213,12 @@ export function baseStyles(): string {
     .vos-wordmark {
       font-size: 15px;
       font-weight: 700;
-      color: #1a1a2e;
+      color: var(--vos-text);
       text-decoration: none;
       letter-spacing: -0.3px;
       flex-shrink: 0;
     }
-    .vos-wordmark:hover { color: #4f46e5; }
+    .vos-wordmark:hover { color: var(--vos-brand); }
     .vos-nav {
       display: flex;
       align-items: center;
@@ -106,15 +230,15 @@ export function baseStyles(): string {
       border-radius: 6px;
       font-size: 13px;
       font-weight: 500;
-      color: #6b7280;
+      color: var(--vos-text-muted);
       text-decoration: none;
       transition: background 0.1s, color 0.1s;
       white-space: nowrap;
     }
-    .vos-nav-link:hover { background: #f3f4f6; color: #1a1a2e; }
+    .vos-nav-link:hover { background: var(--vos-surface-subtle); color: var(--vos-text); }
     .vos-nav-link.active {
-      background: #eef2ff;
-      color: #4f46e5;
+      background: var(--vos-brand-bg);
+      color: var(--vos-brand);
       font-weight: 600;
     }
     .vos-user {
@@ -126,7 +250,7 @@ export function baseStyles(): string {
     }
     .vos-username {
       font-size: 13px;
-      color: #6b7280;
+      color: var(--vos-text-muted);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -135,9 +259,9 @@ export function baseStyles(): string {
     .vos-signout-btn {
       font-size: 13px;
       font-weight: 500;
-      color: #6b7280;
+      color: var(--vos-text-muted);
       background: none;
-      border: 1px solid #e8e8ee;
+      border: 1px solid var(--vos-border);
       border-radius: 6px;
       padding: 5px 12px;
       cursor: pointer;
@@ -145,9 +269,24 @@ export function baseStyles(): string {
       transition: background 0.1s, color 0.1s, border-color 0.1s;
       white-space: nowrap;
     }
-    .vos-signout-btn:hover { background: #f7f7fb; color: #1a1a2e; border-color: #d1d5db; }
+    .vos-signout-btn:hover { background: var(--vos-bg); color: var(--vos-text); border-color: var(--vos-border-strong); }
 
     /* ─── Page body ─────────────────────────────────────── */
+    .vos-theme-toggle {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--vos-text-muted);
+      background: none;
+      border: 1px solid var(--vos-border);
+      border-radius: 6px;
+      padding: 5px 12px;
+      min-height: 28px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
+    }
+    .vos-theme-toggle:hover { background: var(--vos-bg); color: var(--vos-text); border-color: var(--vos-border-strong); }
+    .vos-theme-toggle[aria-pressed="true"] { background: var(--vos-brand-bg); color: var(--vos-brand); border-color: var(--vos-brand-border); }
     .vos-page {
       max-width: 960px;
       margin: 0 auto;
@@ -163,12 +302,12 @@ export function baseStyles(): string {
       border: none;
       font-size: 20px;
       cursor: pointer;
-      color: #1a1a2e;
+      color: var(--vos-text);
       padding: 4px 8px;
       line-height: 1;
       font-family: inherit;
     }
-    .vos-hamburger:hover { color: #4f46e5; }
+    .vos-hamburger:hover { color: var(--vos-brand); }
 
     @media (max-width: 640px) {
       .vos-toolbar { padding: 0 16px; gap: 12px; flex-wrap: wrap; height: auto; min-height: 52px; align-items: center; }
@@ -196,8 +335,8 @@ export function baseStyles(): string {
         font-size: 14px;
       }
       .vos-nav-link.active {
-        background: #eef2ff;
-        color: #4f46e5;
+        background: var(--vos-brand-bg);
+        color: var(--vos-brand);
         font-weight: 600;
       }
       /* Show hamburger on mobile */
@@ -254,9 +393,13 @@ export function renderShipwrightToolbar(
       <a href="${metricsUrl}" class="vos-nav-link${active(metricsUrl)}">Metrics</a>
       <a href="${tasksUrl}" class="vos-nav-link${active(tasksUrl)}">Tasks</a>
     </div>
+    <div class="vos-user">
+      ${THEME_TOGGLE}
+    </div>
     <label for="vos-nav-toggle" class="vos-hamburger" aria-label="Toggle navigation" aria-expanded="false" aria-controls="vos-nav-content">☰</label>
   </nav>
-  <script>(function(){var t=document.getElementById('vos-nav-toggle');if(t)t.addEventListener('change',function(){var l=document.querySelector('label[for="vos-nav-toggle"]');if(l)l.setAttribute('aria-expanded',t.checked?'true':'false');});})();</script>`;
+  <script>(function(){var t=document.getElementById('vos-nav-toggle');if(t)t.addEventListener('change',function(){var l=document.querySelector('label[for="vos-nav-toggle"]');if(l)l.setAttribute('aria-expanded',t.checked?'true':'false');});})();</script>
+  ${themeScript()}`;
   }
 
   const hrefs: Record<string, string> = {
@@ -298,11 +441,13 @@ export function renderShipwrightToolbar(
     </div>
     <div class="vos-user">
       <span class="vos-username">${escapeHtml(userName)}</span>
+      ${THEME_TOGGLE}
       <form method="POST" action="${logoutAction}" style="margin:0">
         <button type="submit" class="vos-signout-btn">Sign out</button>
       </form>
     </div>
     <label for="vos-nav-toggle" class="vos-hamburger" aria-label="Toggle navigation" aria-expanded="false" aria-controls="vos-nav-content">☰</label>
   </nav>
-  <script>(function(){var t=document.getElementById('vos-nav-toggle');if(t)t.addEventListener('change',function(){var l=document.querySelector('label[for="vos-nav-toggle"]');if(l)l.setAttribute('aria-expanded',t.checked?'true':'false');});})();</script>`;
+  <script>(function(){var t=document.getElementById('vos-nav-toggle');if(t)t.addEventListener('change',function(){var l=document.querySelector('label[for="vos-nav-toggle"]');if(l)l.setAttribute('aria-expanded',t.checked?'true':'false');});})();</script>
+  ${themeScript()}`;
 }

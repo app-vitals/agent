@@ -53,9 +53,8 @@ export function registerPushTestRoute(
     if (!deps.pushEnabled || !deps.pushService) {
       return c.json({ error: "push_disabled" }, 503);
     }
-    const result = await deps.pushService.sendToUsers(
-      [c.var.userEmail],
-      () => JSON.stringify(PUSH_TEST_PAYLOAD),
+    const result = await deps.pushService.sendToUsers([c.var.userEmail], () =>
+      JSON.stringify(PUSH_TEST_PAYLOAD),
     );
     const body: PushTestResponse = { ok: true, ...result };
     return c.json(body, 200);
@@ -70,10 +69,10 @@ export function registerPushTestRoute(
  */
 export function renderPushTestControl(): string {
   return `
-  <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb">
+  <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--vos-border)">
     <button type="button" id="push-test-btn" class="btn btn-secondary">Send test notification</button>
-    <span id="push-test-status" style="font-size:12px;color:#6b7280;margin-left:8px"></span>
-    <p style="font-size:12px;color:#6b7280;margin:8px 0 0">Following a session does not subscribe this device. Enable notifications above first, then send a test to confirm it reaches this phone.</p>
+    <span id="push-test-status" style="font-size:12px;color:var(--vos-text-muted);margin-left:8px"></span>
+    <p style="font-size:12px;color:var(--vos-text-muted);margin:8px 0 0">Following a session does not subscribe this device. Enable notifications above first, then send a test to confirm it reaches this phone.</p>
   </div>
   <script>
   (function() {

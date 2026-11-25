@@ -138,46 +138,11 @@ describe("baseStyles — SGL-1.1 settings layout", () => {
     expect(media).toContain(".settings-nav-mobile");
   });
 
-  test("uses only allowed hex colors", () => {
-    const allowed = new Set(
-      [
-        "#1a1a2e",
-        "#4f46e5",
-        "#eef2ff",
-        "#e8e8ee",
-        "#f7f7fb",
-        "#dc2626",
-        "#fee2e2",
-        "#6b7280",
-        "#fff",
-        "#f3f4f6",
-        "#065f46",
-        "#0f766e",
-        "#22c55e",
-        "#2d2d4e",
-        "#374151",
-        "#4338ca",
-        "#5b21b6",
-        "#92400e",
-        "#9ca3af",
-        "#a7f3d0",
-        "#c7d2fe",
-        "#ccfbf1",
-        "#d1d5db",
-        "#d1fae5",
-        "#e5e7eb",
-        "#ede9fe",
-        "#ef4444",
-        "#f59e0b",
-        "#f9fafb",
-        "#fafafa",
-        "#fde68a",
-        "#fecaca",
-        "#fef3c7",
-      ].map((c) => c.toLowerCase()),
-    );
+  test("takes every colour from a theme variable, bar the fixed status dots", () => {
+    // Heartbeat dots are solid mid-tones that read on both themes.
+    const allowed = new Set(["#22c55e", "#f59e0b", "#ef4444"]);
     const found = block.match(/#[0-9a-fA-F]{3,8}\b/g) ?? [];
-    expect(found.length).toBeGreaterThan(0);
-    for (const c of found) expect(allowed.has(c.toLowerCase())).toBe(true);
+    for (const c of found) expect(allowed.has(c.toLowerCase()), c).toBe(true);
+    expect(block).toContain("var(--vos-");
   });
 });
