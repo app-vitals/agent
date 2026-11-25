@@ -3661,8 +3661,8 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
             appRemoves: plan.appRemoves,
             agentRemoves: plan.agentRemoves,
             ...(plan.selectionSwitches?.length
-          ? { selectionSwitches: plan.selectionSwitches }
-          : {}),
+              ? { selectionSwitches: plan.selectionSwitches }
+              : {}),
             notApplied: plan.notApplied,
             skippedOrgs: plan.skippedOrgs,
             warnings:

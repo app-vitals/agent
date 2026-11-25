@@ -7480,8 +7480,11 @@ describe("admin API — agent App installation repos and GitHub Sync (IRM-1.2, I
         // GIS-1.2: the "all" to "selected" switch (installation repos become the list).
         if (entry.status === 200) {
           const names =
-            (JSON.parse(String(init?.body ?? "{}")) as { repositories?: string[] })
-              .repositories ?? [];
+            (
+              JSON.parse(String(init?.body ?? "{}")) as {
+                repositories?: string[];
+              }
+            ).repositories ?? [];
           patches.push({ key, names });
           events.push(["switch", names]);
           state.installed = names.map((n) => `acme-eng/${n}`);

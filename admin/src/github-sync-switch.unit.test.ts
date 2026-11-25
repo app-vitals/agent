@@ -41,7 +41,9 @@ const accessFor = (
       repos: all.map((fullName) => ({
         fullName,
         canPush: pushable.includes(fullName),
-        level: pushable.includes(fullName) ? ("write" as const) : ("read" as const),
+        level: pushable.includes(fullName)
+          ? ("write" as const)
+          : ("read" as const),
       })),
     },
   ],
@@ -56,7 +58,11 @@ const plan = (
   over: {
     pushable?: string[];
     installed?: string[];
-    requested?: { appAdds: string[]; appRemoves: string[]; agentRemoves: string[] };
+    requested?: {
+      appAdds: string[];
+      appRemoves: string[];
+      agentRemoves: string[];
+    };
   } = {},
 ) => {
   const installed = over.installed ?? INSTALLED;
@@ -121,7 +127,10 @@ describe("planGithubSync selection switches", () => {
   });
 
   it("lists more than 50 repos in full (the apply splits them)", () => {
-    const many = Array.from({ length: 60 }, (_, i) => `acme/r${String(i).padStart(2, "0")}`);
+    const many = Array.from(
+      { length: 60 },
+      (_, i) => `acme/r${String(i).padStart(2, "0")}`,
+    );
     const p = plan("all", { installed: many, pushable: many });
     expect(p.selectionSwitches?.[0]?.repos).toHaveLength(60);
   });
@@ -207,7 +216,8 @@ function harness(opts: {
         id: "ag",
         githubUsername: "octo",
         appId: 7,
-        repos: opts.agentRepos ?? (installed.includes("acme/b") ? ["acme/b"] : []),
+        repos:
+          opts.agentRepos ?? (installed.includes("acme/b") ? ["acme/b"] : []),
       }),
       setRepos: async (_id, repos) => {
         calls.push(["setRepos", [...repos]]);
@@ -261,7 +271,11 @@ function harness(opts: {
 
 const apply = (
   svc: GithubSyncService,
-  lists: { appAdds?: string[]; appRemoves?: string[]; agentRemoves?: string[] } = {},
+  lists: {
+    appAdds?: string[];
+    appRemoves?: string[];
+    agentRemoves?: string[];
+  } = {},
   confirmRemovals?: boolean,
 ) =>
   svc.apply({
@@ -312,7 +326,13 @@ describe("GithubSyncService selection switch", () => {
   it("a 'selected' org still removes the usual way and records no switch", async () => {
     const { svc, calls, audits } = harness({ selection: "selected" });
     await apply(svc);
-    expect(calls.map((c) => c[0])).toEqual(["removeRepos", "setRepos", "audit", "block", "block"]);
+    expect(calls.map((c) => c[0])).toEqual([
+      "removeRepos",
+      "setRepos",
+      "audit",
+      "block",
+      "block",
+    ]);
     expect(audits[0]?.diff.selectionSwitches).toBeUndefined();
   });
 
@@ -332,7 +352,11 @@ describe("GithubSyncService selection switch", () => {
     const r = await apply(svc, { appRemoves: installed, agentRemoves: [] });
     expect(r.status).toBe("removal_cap");
     expect(calls).toEqual([]);
-    const ok = await apply(svc, { appRemoves: installed, agentRemoves: [] }, true);
+    const ok = await apply(
+      svc,
+      { appRemoves: installed, agentRemoves: [] },
+      true,
+    );
     expect(ok.status).toBe("applied");
     expect(calls[0]).toEqual(["switch", "acme", ["acme/keep"]]);
   });
@@ -371,7 +395,10 @@ describe("GithubSyncService selection switch", () => {
   });
 
   it("sends the first 50 in the PATCH and the rest through the batched add", async () => {
-    const many = Array.from({ length: 120 }, (_, i) => `acme/r${String(i).padStart(3, "0")}`);
+    const many = Array.from(
+      { length: 120 },
+      (_, i) => `acme/r${String(i).padStart(3, "0")}`,
+    );
     const { svc, calls, audits } = harness({
       selection: "all",
       installed: many,
@@ -383,11 +410,16 @@ describe("GithubSyncService selection switch", () => {
     const sw = calls[0] as [string, string, string[]];
     expect(sw[2]).toHaveLength(MAX_SELECTION_PATCH_REPOS);
     expect(calls[1]).toEqual(["addRepos", "acme", many.slice(50)]);
-    expect(audits[0]?.diff.selectionSwitches?.[0]?.repos).toEqual([...many].sort());
+    expect(audits[0]?.diff.selectionSwitches?.[0]?.repos).toEqual(
+      [...many].sort(),
+    );
   });
 
   it("a failed add after the PATCH records only the repos that landed", async () => {
-    const many = Array.from({ length: 60 }, (_, i) => `acme/r${String(i).padStart(2, "0")}`);
+    const many = Array.from(
+      { length: 60 },
+      (_, i) => `acme/r${String(i).padStart(2, "0")}`,
+    );
     const { svc, audits } = harness({
       selection: "all",
       installed: many,
@@ -406,11 +438,16 @@ describe("GithubSyncService selection switch", () => {
       kind: "permission",
       status: 403,
     });
-    const { svc, calls, audits } = harness({ selection: "all", switchError: err });
+    const { svc, calls, audits } = harness({
+      selection: "all",
+      switchError: err,
+    });
     const r = await apply(svc);
     if (r.status !== "failed") throw new Error(r.status);
     expect(r.error).toBe(SWITCH_PERMISSION_MESSAGE("acme"));
-    expect(r.error).toContain("enterprise_organization_installation_repositories");
+    expect(r.error).toContain(
+      "enterprise_organization_installation_repositories",
+    );
     expect(audits[0]?.result).toEqual({ status: "failed", error: r.error });
     expect(audits[0]?.diff).toEqual({
       installationAdds: [],

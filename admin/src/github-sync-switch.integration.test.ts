@@ -62,8 +62,12 @@ describeOrSkip("GitHub Sync all-to-selected switch (integration)", () => {
   const checkedAt = new Date(Date.now() - 60_000);
 
   const clean = async () => {
-    await prisma.gitHubReconcileAudit.deleteMany({ where: { agentId: AGENT_ID } });
-    await prisma.gitHubRepoAccess.deleteMany({ where: { accountId: DEPLOYMENT_WIDE_ACCOUNT_KEY, org: ORG } });
+    await prisma.gitHubReconcileAudit.deleteMany({
+      where: { agentId: AGENT_ID },
+    });
+    await prisma.gitHubRepoAccess.deleteMany({
+      where: { accountId: DEPLOYMENT_WIDE_ACCOUNT_KEY, org: ORG },
+    });
     await prisma.gitHubCachedRepo.deleteMany();
     await prisma.gitHubRepoSnapshot.deleteMany();
   };
@@ -119,7 +123,9 @@ describeOrSkip("GitHub Sync all-to-selected switch (integration)", () => {
       const u = new URL(input.toString());
       const key = `${init?.method ?? "GET"} ${u.pathname}`;
       if (key === "GET /enterprises/acme/apps/installable_organizations") {
-        return new Response(JSON.stringify([{ id: 5010, login: ORG }]), { status: 200 });
+        return new Response(JSON.stringify([{ id: 5010, login: ORG }]), {
+          status: 200,
+        });
       }
       const name = table[key];
       if (!name) throw new Error(`no route for ${key}`);
@@ -142,9 +148,9 @@ describeOrSkip("GitHub Sync all-to-selected switch (integration)", () => {
         );
       }
       if (key === `PATCH ${INST}/501/repositories` && entry.status === 200) {
-        installed = ((patchBodies.at(-1) as { repositories: string[] }).repositories).map(
-          (n) => `${ORG}/${n}`,
-        );
+        installed = (
+          patchBodies.at(-1) as { repositories: string[] }
+        ).repositories.map((n) => `${ORG}/${n}`);
       }
       return new Response(JSON.stringify(entry.body), {
         status: entry.status,
@@ -180,7 +186,10 @@ describeOrSkip("GitHub Sync all-to-selected switch (integration)", () => {
         { org: ORG, completedAt: checkedAt, repos: REPOS },
       ],
       verifyPush: async (_u, repo) => repo === "acme-eng/repo-1",
-      installation: createInstallationReposPort(createInstallationPort(client), client),
+      installation: createInstallationReposPort(
+        createInstallationPort(client),
+        client,
+      ),
       audit: new PrismaInstallationAudit(prisma),
     });
   }
@@ -255,7 +264,8 @@ describeOrSkip("GitHub Sync all-to-selected switch (integration)", () => {
     const svc = service(requests, []);
     // Swap the recorded success for the recorded 403 on the PATCH.
     const original = cassette.install_selection_success;
-    cassette.install_selection_success = cassette.install_selection_403 as never;
+    cassette.install_selection_success =
+      cassette.install_selection_403 as never;
     try {
       const r = await svc.apply({
         agentId: AGENT_ID,
@@ -265,7 +275,9 @@ describeOrSkip("GitHub Sync all-to-selected switch (integration)", () => {
         agentRemoves: [],
       });
       if (r.status !== "failed") throw new Error(r.status);
-      expect(r.error).toContain("enterprise_organization_installation_repositories");
+      expect(r.error).toContain(
+        "enterprise_organization_installation_repositories",
+      );
     } finally {
       cassette.install_selection_success = original as never;
     }

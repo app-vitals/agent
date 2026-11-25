@@ -568,7 +568,9 @@ export class GithubSyncService {
         installationRemoves: removed,
         configAdds: [],
         configRemoves: configDone ? plan.agentRemoves : [],
-        ...(switchRecords.length > 0 ? { selectionSwitches: switchRecords } : {}),
+        ...(switchRecords.length > 0
+          ? { selectionSwitches: switchRecords }
+          : {}),
       },
       result:
         error === undefined
@@ -789,7 +791,8 @@ export class GithubSyncService {
     const cached = liveAccess
       ? undefined
       : await this.cachedAccess(agent, username, installed.orgs);
-    const resolved = liveAccess ?? (cached as { access: UserRepoAccessResult }).access;
+    const resolved =
+      liveAccess ?? (cached as { access: UserRepoAccessResult }).access;
     // The live path never reads the crawl cache, so every selection is unknown.
     const selections = cached?.selections;
     const installationRepos = Object.fromEntries(
