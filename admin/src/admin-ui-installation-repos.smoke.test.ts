@@ -397,6 +397,20 @@ describe("admin UI — GitHub sync card (IRM-3.2)", () => {
       expect(html).toContain("30 repos have no access answer yet.");
     });
 
+    it("renders a selection switch row in the Sync confirm fragment", async () => {
+      const { app } = setup({
+        agentsApi: () =>
+          json({
+            status: "previewed",
+            selectionSwitches: [{ org: "acme", repos: ["acme/a", "acme/b"] }],
+          }),
+      });
+      const html = await (await get(app, "/github-sync/confirm")).text();
+      expect(html).toContain('data-list="selection-switches"');
+      expect(html).toContain('data-switch-org="acme"');
+      expect(html).toContain("keeps 2 repos");
+    });
+
     it("shows the reason for a skipped preview", async () => {
       const { app } = setup({
         agentsApi: () => json({ status: "skipped", reason: "user not found" }),

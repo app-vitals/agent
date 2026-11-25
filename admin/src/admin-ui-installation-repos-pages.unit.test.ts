@@ -187,6 +187,47 @@ describe("renderSyncConfirm", () => {
     });
   });
 
+  it("lists each selection switch with org and kept repo count in the one confirm", () => {
+    const html = renderSyncConfirm("a1", {
+      ...preview,
+      selectionSwitches: [
+        { org: "acme", repos: ["acme/a", "acme/b"] },
+        { org: "solo<x>", repos: ["solo/a"] },
+      ],
+    });
+    expect(html).toContain('data-list="selection-switches"');
+    expect(html).toContain("all repositories to selected repositories (2)");
+    expect(html).toContain('data-switch-org="acme"');
+    expect(html).toContain("keeps 2 repos");
+    expect(html).toContain("solo&lt;x&gt;");
+    expect(html).toContain("keeps 1 repo<");
+    expect(html.match(/id="github-sync-confirm-btn"/g)?.length).toBe(1);
+  });
+
+  it("confirms a switch-only plan instead of saying in sync", () => {
+    const html = renderSyncConfirm("a1", {
+      status: "previewed",
+      selectionSwitches: [{ org: "acme", repos: ["acme/a"] }],
+    });
+    expect(html).toContain('data-sync="confirm"');
+    expect(html).not.toContain("in-sync");
+  });
+
+  it("shows the empty-target skip warning with the Uninstall hint", () => {
+    const html = renderSyncConfirm("a1", {
+      ...preview,
+      skippedOrgs: [
+        {
+          org: "empty-org",
+          reason:
+            "the bound user can push to none of this org's repos, so it stays on All repositories; use Uninstall to remove the agent App from this org",
+        },
+      ],
+    });
+    expect(html).toContain("empty-org");
+    expect(html).toContain("use Uninstall to remove the agent App");
+  });
+
   it("requires the over-cap checkbox for more than 10 removals", () => {
     const many = Array.from({ length: 11 }, (_, i) => `acme/r${i}`);
     const html = renderSyncConfirm("a1", {
