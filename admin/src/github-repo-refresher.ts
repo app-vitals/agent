@@ -127,7 +127,10 @@ export interface RefreshStore extends AccessBackfillStore {
     ttlMs: number,
   ): Promise<boolean>;
   releaseLease(snapshotId: string, holder: string): Promise<void>;
-  listRepoFullNames(snapshotId: string): Promise<string[]>;
+  listRepoFullNames(
+    snapshotId: string,
+    opts?: { excludeArchived?: boolean },
+  ): Promise<string[]>;
 }
 
 /** What a crawl or backfill step reported. */
@@ -143,7 +146,12 @@ export interface RefreshTarget {
   /** One resumable crawl run of this snapshot's repo list. */
   crawl(ctx: { shouldStop: () => boolean }): Promise<StepOutcome>;
   /** Present on lookup targets with GitHub-user-bound agents. */
-  access?: { probe: AccessProbe; users: BackfillUser[] };
+  access?: {
+    probe: AccessProbe;
+    users: BackfillUser[];
+    /** Agent-installation snapshots of this org; their archived repos are probed too. */
+    installationKeys?: SnapshotKey[];
+  };
 }
 
 export interface RefreshDiscovery {
@@ -441,9 +449,41 @@ export class GithubRepoRefresher {
     return { target, snapshot, steps };
   }
 
+  /**
+   * The repos whose access the backfill checks: the snapshot's non-archived
+   * repos, plus any archived repo an agent bound to one of the target's users
+   * has configured or that is on one of those agents' installations (GitHub
+   * Sync needs an answer for those: an installed archived repo is removed once
+   * the user loses access). Checking every archived repo is wasted calls.
+   */
   private async repoNames(target: RefreshTarget, snapshotId: string) {
     const prefix = `${target.key.org.toLowerCase()}/`;
-    return (await this.deps.store.listRepoFullNames(snapshotId))
+    const { store } = this.deps;
+    const configured = new Set(
+      (target.access?.users ?? []).flatMap((u) =>
+        (u.configuredRepos ?? []).map((r) => r.toLowerCase()),
+      ),
+    );
+    for (const k of target.access?.installationKeys ?? []) {
+      const snap = await store.getSnapshot(k);
+      if (!snap) continue;
+      for (const n of await store.listRepoFullNames(snap.id)) {
+        configured.add(n.slice(n.indexOf("/") + 1).toLowerCase());
+      }
+    }
+    const active = await store.listRepoFullNames(snapshotId, {
+      excludeArchived: true,
+    });
+    let names = active;
+    if (configured.size > 0) {
+      const activeSet = new Set(active);
+      names = (await store.listRepoFullNames(snapshotId)).filter(
+        (n) =>
+          activeSet.has(n) ||
+          configured.has(n.slice(n.indexOf("/") + 1).toLowerCase()),
+      );
+    }
+    return names
       .filter((n) => n.toLowerCase().startsWith(prefix))
       .map((n) => n.slice(prefix.length));
   }

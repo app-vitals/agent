@@ -158,7 +158,7 @@ export class GitHubRepoCacheService {
     requireNonEmpty("appRef", appRef);
     const rows = await this.prisma.gitHubRepoSnapshot.findMany({
       where: { accountId: { in: accountIds }, appKind: "lookup", appRef },
-      include: { repos: { select: { fullName: true } } },
+      include: { repos: { select: { fullName: true, archived: true } } },
       orderBy: { org: "asc" },
     });
     return rows.map((r) => ({
@@ -243,11 +243,20 @@ export class GitHubRepoCacheService {
     });
   }
 
-  /** Full names (owner/repo) of every repo cached for the snapshot, sorted. */
-  async listRepoFullNames(snapshotId: string): Promise<string[]> {
+  /**
+   * Full names (owner/repo) of the repos cached for the snapshot, sorted.
+   * Every repo by default; `excludeArchived` leaves out archived ones.
+   */
+  async listRepoFullNames(
+    snapshotId: string,
+    opts: { excludeArchived?: boolean } = {},
+  ): Promise<string[]> {
     requireNonEmpty("snapshotId", snapshotId);
     const rows = await this.prisma.gitHubCachedRepo.findMany({
-      where: { snapshotId },
+      where: {
+        snapshotId,
+        ...(opts.excludeArchived ? { archived: false } : {}),
+      },
       select: { fullName: true },
       orderBy: { fullName: "asc" },
     });

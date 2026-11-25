@@ -5,6 +5,7 @@ import type {
 } from "./installation-repos-service.ts";
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
 import {
+  ARCHIVED_REASON,
   GITHUB_SYNC_AUDIT_PLAN_HASH,
   type CachedLookupOrg,
   GithubSyncService,
@@ -247,6 +248,70 @@ describe("planGithubSync (confirmed lists)", () => {
     );
     expect(p.appAdds).toEqual(["acme/d"]);
     expect(p.agentRemoves).toEqual([]);
+  });
+});
+
+describe("planGithubSync (archived repos)", () => {
+  // acme/d is pushable and acme/c is not; both are archived.
+  const archivedRepos = ["ACME/d", "acme/c"];
+
+  test("an archived repo is never an add, but an installed one the user cannot push is removed", () => {
+    const p = planGithubSync(base({ archivedRepos }));
+    expect(p.appAdds).toEqual(["acme/e"]);
+    expect(p.appRemoves).toEqual(["acme/b", "acme/c"]);
+    expect(p.skippedOrgs).toEqual([]);
+  });
+
+  test("the agent's own archived repo keeps the normal removal rule", () => {
+    const p = planGithubSync(
+      base({ archivedRepos, agentRepos: ["acme/a", "acme/c"] }),
+    );
+    expect(p.agentRemoves).toEqual(["acme/c"]);
+    expect(p.appRemoves).toEqual(["acme/b", "acme/c"]);
+  });
+
+  test("an archived add does not skip its org when the org has no access answer for it", () => {
+    const p = planGithubSync(
+      base({
+        archivedRepos: ["other/old"],
+        installationRepos: { acme: ["acme/a"] },
+        requested: { appAdds: ["other/old"], appRemoves: [], agentRemoves: [] },
+      }),
+    );
+    expect(p.skippedOrgs).toEqual([]);
+    expect(p.notApplied).toEqual([{ repo: "other/old", reason: ARCHIVED_REASON }]);
+  });
+
+  test("an installed archived repo in an unchecked org is kept, not removed", () => {
+    const p = planGithubSync(
+      base({
+        archivedRepos: ["other/old"],
+        installationRepos: { acme: ["acme/a"], other: ["other/old"] },
+      }),
+    );
+    expect(p.appRemoves).toEqual([]);
+    expect(p.skippedOrgs.map((o) => o.org)).toEqual(["other"]);
+  });
+
+  test("confirmed archived adds are reported as left alone; removals proceed", () => {
+    const p = planGithubSync(
+      base({
+        archivedRepos,
+        requested: {
+          appAdds: ["acme/d"],
+          appRemoves: ["acme/c"],
+          agentRemoves: [],
+        },
+      }),
+    );
+    expect([p.appAdds, p.appRemoves]).toEqual([[], ["acme/c"]]);
+    expect(p.notApplied).toEqual([{ repo: "acme/d", reason: ARCHIVED_REASON }]);
+  });
+
+  test("without archivedRepos nothing changes", () => {
+    expect(planGithubSync(base({ archivedRepos: [] }))).toEqual(
+      planGithubSync(base()),
+    );
   });
 });
 

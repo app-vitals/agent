@@ -114,8 +114,16 @@ class MemoryStore implements RefreshStore {
     }
   }
 
-  async listRepoFullNames(id: string) {
-    return [...(this.repos.get(id) ?? [])].sort();
+  /** Full names (owner/repo) the crawl reported as archived. */
+  archived = new Set<string>();
+
+  async listRepoFullNames(
+    id: string,
+    opts: { excludeArchived?: boolean } = {},
+  ) {
+    return [...(this.repos.get(id) ?? [])]
+      .filter((r) => !(opts.excludeArchived && this.archived.has(r)))
+      .sort();
   }
 
   async getAccessRows(q: {
@@ -431,6 +439,50 @@ describe("planOrgWork", () => {
 });
 
 // ─── tick ────────────────────────────────────────────────────────────────────
+
+describe("GithubRepoRefresher access backfill and archived repos", () => {
+  it("checks no archived repo when no agent has one configured", async () => {
+    const t = target("acme", { users: [{ username: "octocat" }] });
+    await seedCrawl(t.key, ["acme/a", "acme/b", "acme/c"], T0);
+    store.archived = new Set(["acme/b", "acme/c"]);
+    const res = await refresher([t]).tick();
+    expect(events).toEqual(["probe:acme/a@octocat"]);
+    expect(res.targets[0]?.steps).toEqual(["access:missing"]);
+    // Nothing is left missing afterwards, so the next tick has no work.
+    events = [];
+    clock.advance(MIN);
+    await refresher([t]).tick();
+    expect(events).toEqual([]);
+  });
+
+  it("still checks an archived repo an agent has configured", async () => {
+    const t = target("acme", {
+      users: [{ username: "octocat", configuredRepos: ["c"] }],
+    });
+    await seedCrawl(t.key, ["acme/a", "acme/b", "acme/c"], T0);
+    store.archived = new Set(["acme/b", "acme/c"]);
+    await refresher([t]).tick();
+    // Configured repos first; the unconfigured archived acme/b is skipped.
+    expect(events).toEqual(["probe:acme/c@octocat", "probe:acme/a@octocat"]);
+  });
+
+  it("checks an archived repo that is on a bound agent's installation", async () => {
+    const agentKey: SnapshotKey = {
+      accountId: "acct",
+      appKind: "agent",
+      appRef: "7",
+      org: "acme",
+    };
+    const t = target("acme", { users: [{ username: "octocat" }] });
+    t.access = { ...(t.access as NonNullable<typeof t.access>), installationKeys: [agentKey] };
+    await seedCrawl(t.key, ["acme/a", "acme/b", "acme/c"], T0);
+    await seedCrawl(agentKey, ["acme/c"], T0);
+    store.archived = new Set(["acme/b", "acme/c"]);
+    await refresher([t]).tick();
+    // Installed archived acme/c is probed; the other archived acme/b is not.
+    expect(events.sort()).toEqual(["probe:acme/a@octocat", "probe:acme/c@octocat"]);
+  });
+});
 
 describe("GithubRepoRefresher.tick", () => {
   it("runs missing work before expired: crawl, unanswered pairs, then expired", async () => {

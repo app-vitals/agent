@@ -207,7 +207,10 @@ export function createGithubSync(
         completedAt: s.completedAt,
         lastError: s.lastError,
         rateLimitResetAt: s.rateLimitResetAt,
-        repos: s.repos.map((r) => r.fullName),
+        // Archived repos are read-only: never an add, and kept apart so
+        // GitHub Sync leaves them alone (see CachedLookupOrg.archivedRepos).
+        repos: s.repos.filter((r) => !r.archived).map((r) => r.fullName),
+        archivedRepos: s.repos.filter((r) => r.archived).map((r) => r.fullName),
       }));
     },
     // One permission call per removal candidate; undefined on any failure.

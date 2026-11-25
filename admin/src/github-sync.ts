@@ -34,30 +34,30 @@
  */
 
 import type { GithubAccessPreviewFn } from "./github-access-preview.ts";
+import { DEPLOYMENT_WIDE_ACCOUNT_KEY } from "./github-agent-installation-crawler.ts";
 import {
   GITHUB_APPS_STATE_REASONS,
   type GithubAppsState,
   type GithubAppsStateFn,
 } from "./github-apps-state.ts";
-import { DEPLOYMENT_WIDE_ACCOUNT_KEY } from "./github-agent-installation-crawler.ts";
 import { DEFAULT_REFRESH_STALENESS_CAP_MS } from "./github-repo-refresher.ts";
 import {
   buildCachedAccess,
   type CachedOrgInput,
 } from "./github-sync-cached-access.ts";
 import {
-  identityOf,
-  type InstallationCachePort,
-  type InstallationReposPort,
-  NO_INSTALLATION_REASON,
-} from "./installation-repos-service.ts";
-import {
-  MAX_UNCONFIRMED_REMOVALS,
-  MISSING_APP_ID_REASON,
   type InstallationAgentRecord,
   type InstallationAgentsPort,
   type InstallationAuditPort,
+  MAX_UNCONFIRMED_REMOVALS,
+  MISSING_APP_ID_REASON,
 } from "./installation-ports.ts";
+import {
+  type InstallationCachePort,
+  type InstallationReposPort,
+  identityOf,
+  NO_INSTALLATION_REASON,
+} from "./installation-repos-service.ts";
 import type { OpenWorkItem, OpenWorkPort } from "./reconcile-open-work.ts";
 import {
   accessSkipReason,
@@ -88,6 +88,8 @@ export const REVERIFY_FAILED_REASON =
   "the live permission re-check failed, so the removal was dropped";
 export const NOT_PRESENT_REASON =
   "not on the agent installation or in the agent's repos";
+export const ARCHIVED_REASON =
+  "the repo is archived (read-only), so it is not added to the installation";
 
 /** GitHub caps the repositories in a selection-switch PATCH at 50. */
 export const MAX_SELECTION_PATCH_REPOS = 50;
@@ -129,6 +131,13 @@ export interface GithubSyncPlanInput {
    * every eligible repo is a candidate.
    */
   requested?: SyncLists;
+  /**
+   * Archived repos (owner/repo). They are never an installation add: an
+   * archived repo is read-only. An archived repo already on the installation
+   * is still removed when the access answer says the user cannot push. The
+   * agent's own repos are unaffected.
+   */
+  archivedRepos?: readonly string[];
 }
 
 export interface NotAppliedRepo {
@@ -254,8 +263,18 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
     return false;
   };
 
+  const archived = new Set((input.archivedRepos ?? []).map(lower));
+  // Adds only; checked before orgUsable, so an archived repo never reports its
+  // org skipped. Removals of installed archived repos take the normal path.
+  const isArchived = (repo: string): boolean => {
+    if (!archived.has(lower(repo))) return false;
+    leave(repo, ARCHIVED_REASON);
+    return true;
+  };
+
   const appAdds = new Set<string>();
   for (const repo of new Set(addCandidates)) {
+    if (isArchived(repo)) continue;
     if (!orgUsable(repo)) continue;
     if (!installedOrgs.has(lower(repoOrg(repo)))) {
       leave(repo, NOT_INSTALLED_ORG_REASON);
@@ -294,6 +313,8 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
     }
     return out;
   };
+  // An archived repo still on the installation is removed like any other once
+  // the user lacks push (least privilege); only adds skip archived repos.
   const confirmedAppRemoves = removable(appRemoveCandidates, installed);
   const agentRemoves = removable(agentRemoveCandidates, configured);
 
@@ -336,7 +357,14 @@ export function planGithubSync(input: GithubSyncPlanInput): GithubSyncPlan {
 export interface CachedLookupOrg {
   org: string;
   completedAt: Date | null;
+  /** The org's non-archived repos (owner/repo). */
   repos: readonly string[];
+  /**
+   * The org's archived repos (owner/repo), kept out of `repos`. GitHub Sync
+   * never adds or removes them and needs no access answer for them, except
+   * for one the agent has configured.
+   */
+  archivedRepos?: readonly string[];
   lastError?: string | null;
   rateLimitResetAt?: Date | null;
 }
@@ -639,13 +667,20 @@ export class GithubSyncService {
     };
   }
 
-  /** Access from the cache (complete and fresh orgs only), with the installed orgs. */
+  /**
+   * Access from the cache (complete and fresh orgs only), with the installed
+   * orgs, plus the archived repos the lookup crawl reported. An archived repo
+   * is left out of an org's required access rows unless the agent has it
+   * configured or it is on the installation (the refresher probes those so a
+   * removal has an answer), since it does not check the others.
+   */
   private async cachedAccess(
     agent: InstallationAgentRecord,
     username: string,
     installed: { org: string; repos: string[] }[],
   ): Promise<{
     access: UserRepoAccessResult;
+    archivedRepos: string[];
     selections: Record<string, "all" | "selected" | null>;
   }> {
     const cache = this.deps.cache as InstallationCachePort;
@@ -668,6 +703,10 @@ export class GithubSyncService {
       readFailed = true;
     }
     const key = (s: string) => s.toLowerCase();
+    const archivedRepos = lookup.flatMap((l) => l.archivedRepos ?? []);
+    const archived = new Set(archivedRepos.map(key));
+    const configuredKeys = new Set(agent.repos.map(key));
+    const installedKeys = new Set(installed.flatMap((i) => i.repos.map(key)));
     const orgNames = new Map<string, string>();
     for (const i of installed) orgNames.set(key(i.org), i.org);
     for (const r of agent.repos) {
@@ -685,6 +724,12 @@ export class GithubSyncService {
         ...agent.repos.filter((r) => key(repoOrg(r)) === k),
         ...lk.flatMap((l) => l.repos),
       ]) {
+        if (
+          archived.has(key(r)) &&
+          !configuredKeys.has(key(r)) &&
+          !installedKeys.has(key(r))
+        )
+          continue;
         repos.set(key(r), r);
       }
       const crawls = [
@@ -742,6 +787,7 @@ export class GithubSyncService {
     }
     return {
       access: buildCachedAccess({ username, now, maxAgeMs, orgs: inputs }),
+      archivedRepos,
       selections,
     };
   }
@@ -788,11 +834,11 @@ export class GithubSyncService {
     if (installed.status === "none") {
       return none(skippedPlan(NO_INSTALLATION_REASON));
     }
+    // The live resolver reports no archived flag, so only the cached path
+    // leaves archived repos alone.
     const cached = liveAccess
       ? undefined
       : await this.cachedAccess(agent, username, installed.orgs);
-    const resolved =
-      liveAccess ?? (cached as { access: UserRepoAccessResult }).access;
     // The live path never reads the crawl cache, so every selection is unknown.
     const selections = cached?.selections;
     const installationRepos = Object.fromEntries(
@@ -800,7 +846,10 @@ export class GithubSyncService {
     );
     const plan = planGithubSync({
       username,
-      access: resolved,
+      access: liveAccess ?? (cached?.access as UserRepoAccessResult),
+      ...(cached && cached.archivedRepos.length > 0
+        ? { archivedRepos: cached.archivedRepos }
+        : {}),
       agentRepos: agent.repos,
       installationRepos,
       ...(selections ? { selections } : {}),
