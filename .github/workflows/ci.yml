@@ -236,7 +236,7 @@ jobs:
           bun-version: "1.4.5"
 
       - name: Base-image contract smoke test
-        run: SHIPWRIGHT_CONTRACT_BASE_IMAGE=agent:ci bun test runtime/base-image-contract.smoke.test.ts
+        run: SHIPWRIGHT_CONTRACT_BASE_IMAGE=agent:ci bun test --config=bunfig.smoke.toml runtime/base-image-contract.smoke.test.ts
 
       # Boots the CI-built agent image through the consumer smoke's boot check
       # (packed tarballs, no release needed). Proves the image reaches
