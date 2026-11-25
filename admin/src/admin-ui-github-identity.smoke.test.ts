@@ -322,6 +322,80 @@ describe("admin UI — GitHub identity (GHE-2.5)", () => {
       expect(calls.length).toBe(0);
     });
 
+    it("uninstall-confirm proxies the preview and renders the lists", async () => {
+      const { app, calls } = setup({
+        enterpriseApi: () =>
+          json({
+            status: "preview",
+            org: "acme",
+            installationId: 9,
+            repos: ["acme/web"],
+            openWork: [{ id: "T-7", repo: "acme/web" }],
+            warnings: [],
+          }),
+      });
+      const res = await app.request(
+        `${orgsUrl}/acme/uninstall-confirm`,
+        opts(admin),
+      );
+      expect(res.status).toBe(200);
+      const c = calls.at(-1);
+      expect(c?.path).toBe(
+        `/github-enterprise/orgs/acme/install?agentId=${AGENT_ID}&preview=true`,
+      );
+      expect(c?.init?.method).toBe("DELETE");
+      const body = await res.text();
+      expect(body).toContain("acme/web");
+      expect(body).toContain("T-7");
+      expect(body).toContain(`${orgsUrl}/acme/uninstall`);
+    });
+
+    it("uninstall POST calls the DELETE route and redirects with a banner", async () => {
+      const { app, calls } = setup({
+        enterpriseApi: () => json({ status: "uninstalled" }),
+      });
+      const res = await app.request(`${orgsUrl}/acme/uninstall`, opts(admin, "POST"));
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe(
+        `/admin/agents/${AGENT_ID}/access?success=github_app_uninstalled`,
+      );
+      const c = calls.at(-1);
+      expect(c?.path).toBe(
+        `/github-enterprise/orgs/acme/install?agentId=${AGENT_ID}`,
+      );
+      expect(c?.init?.method).toBe("DELETE");
+    });
+
+    it("uninstall POST forwards confirmRemovals and surfaces errors", async () => {
+      const { app, calls } = setup({
+        enterpriseApi: () => json({ error: "GitHub refused" }, 502),
+      });
+      const res = await app.request(`${orgsUrl}/acme/uninstall`, {
+        ...opts(admin, "POST"),
+        headers: {
+          Cookie: `admin_session=${admin}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "confirmRemovals=true",
+      });
+      expect(calls.at(-1)?.path).toContain("&confirmRemovals=true");
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toContain(
+        encodeURIComponent("GitHub refused"),
+      );
+    });
+
+    it("uninstall routes are forbidden for a non-admin and make no call", async () => {
+      const { app, calls } = setup({});
+      expect(
+        (await app.request(`${orgsUrl}/acme/uninstall`, opts(member, "POST"))).status,
+      ).toBe(403);
+      expect(
+        (await app.request(`${orgsUrl}/acme/uninstall-confirm`, opts(member))).status,
+      ).toBe(403);
+      expect(calls.length).toBe(0);
+    });
+
     it("banners render on the Access tab", async () => {
       const { app } = setup({});
       const res = await app.request(

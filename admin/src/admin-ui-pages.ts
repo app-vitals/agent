@@ -1043,6 +1043,7 @@ export const AGENT_POST_SECTIONS: Readonly<Record<string, AgentSection>> = {
   "/github-sync/apply-confirmed": "access",
   "/github-cache/refresh": "access",
   "/github-orgs/:org/install": "access",
+  "/github-orgs/:org/uninstall": "access",
   "/repos/remove-confirmed": "configuration",
   "/envs": "configuration",
   "/template/detach": "configuration",

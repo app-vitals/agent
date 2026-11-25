@@ -231,14 +231,56 @@ export function renderGithubOrgsFragment(
   const disabled = data.agentAppReason ? " disabled" : "";
   const rows = data.orgs
     .map((o) => {
+      const base = `/admin/agents/${escapeHtml(agentId)}/github-orgs/${escapeHtml(encodeURIComponent(o.login))}`;
       const action = o.agentAppInstalled
-        ? ""
-        : `<form method="POST" action="/admin/agents/${escapeHtml(agentId)}/github-orgs/${escapeHtml(encodeURIComponent(o.login))}/install" style="display:inline;margin:0"><button type="submit" class="btn btn-primary" style="font-size:12px;padding:4px 10px"${disabled}>Install</button></form>`;
-      return `<tr><td>${escapeHtml(o.login)}</td><td>${installedBadge(o.lookupAppInstalled)}</td><td>${installedBadge(o.agentAppInstalled)}</td><td style="text-align:right">${action}</td></tr>`;
+        ? `<button type="button" class="btn btn-danger" style="font-size:12px;padding:4px 10px" data-url="${base}/uninstall-confirm" onclick="var b=this,t=document.getElementById('uninstall-confirm-'+b.getAttribute('data-org'));b.disabled=true;fetch(b.getAttribute('data-url'),{credentials:'same-origin'}).then(function(r){return r.text()}).then(function(h){t.innerHTML=h}).catch(function(){t.textContent='The request failed.'}).then(function(){b.disabled=false})" data-org="${escapeHtml(o.login)}"${disabled}>Uninstall</button>`
+        : `<form method="POST" action="${base}/install" style="display:inline;margin:0"><button type="submit" class="btn btn-primary" style="font-size:12px;padding:4px 10px"${disabled}>Install</button></form>`;
+      const confirmRow = o.agentAppInstalled
+        ? `<tr><td colspan="4" id="uninstall-confirm-${escapeHtml(o.login)}" style="padding:0"></td></tr>`
+        : "";
+      return `<tr><td>${escapeHtml(o.login)}</td><td>${installedBadge(o.lookupAppInstalled)}</td><td>${installedBadge(o.agentAppInstalled)}</td><td style="text-align:right">${action}</td></tr>${confirmRow}`;
     })
     .join("");
   return `${reason}<table class="data-table">
         <thead><tr><th>Organization</th><th>Lookup app</th><th>Agent app</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
+}
+
+export interface GithubUninstallPreviewView {
+  org: string;
+  repos: string[];
+  openWork: { id: string; repo: string; title?: string }[];
+  warnings?: string[];
+}
+
+/** The confirm step for uninstalling the agent App from an org (GIS-1.6). */
+export function renderGithubUninstallConfirm(
+  agentId: string,
+  view: GithubUninstallPreviewView,
+): string {
+  const org = escapeHtml(view.org);
+  const action = `/admin/agents/${escapeHtml(agentId)}/github-orgs/${escapeHtml(encodeURIComponent(view.org))}/uninstall`;
+  const repos =
+    view.repos.length === 0
+      ? `<p class="empty-state">No agent repos would be removed.</p>`
+      : `<ul>${view.repos.map((r) => `<li class="mono">${escapeHtml(r)}</li>`).join("")}</ul>`;
+  const work =
+    view.openWork.length === 0
+      ? `<p class="empty-state">No open tasks or PRs would be blocked.</p>`
+      : `<ul>${view.openWork.map((w) => `<li><span class="mono">${escapeHtml(w.id)}</span> (${escapeHtml(w.repo)})${w.title ? ` ${escapeHtml(w.title)}` : ""}</li>`).join("")}</ul>`;
+  const warnings = (view.warnings ?? [])
+    .map((w) => `<div class="alert alert-warning">${escapeHtml(w)}</div>`)
+    .join("");
+  const confirmAll =
+    view.repos.length > 10
+      ? `<input type="hidden" name="confirmRemovals" value="true" />`
+      : "";
+  return `<div class="alert alert-warning" data-reason="uninstall-confirm" style="margin:8px 0">
+      <div style="font-weight:600">Uninstall the agent App from ${org}?</div>
+      ${warnings}
+      <div style="margin-top:8px">Agent repos to be removed:</div>${repos}
+      <div>Open tasks and PRs to be blocked:</div>${work}
+      <form method="POST" action="${action}" style="margin:8px 0 0">${confirmAll}<button type="submit" class="btn btn-danger">Confirm uninstall</button></form>
+    </div>`;
 }
