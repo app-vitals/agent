@@ -97,9 +97,11 @@ jobs:
           echo "| Layer | Wall-clock |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           start=$(date +%s)
-          bun run test:unit --coverage --coverage-reporter=lcov
+          rc=0
+          bun run test:unit --coverage --coverage-reporter=lcov || rc=$?
           end=$(date +%s)
-          echo "| unit | $((end - start))s |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| unit | $((end - start))s (exit $rc) |" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
       # Published for the cross-repo coverage gate, which reads exclusions from
       # .shipwright/coverage.json rather than hardcoding them.
@@ -172,9 +174,11 @@ jobs:
           echo "| Layer | Wall-clock |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           start=$(date +%s)
-          bun run test:integration
+          rc=0
+          bun run test:integration || rc=$?
           end=$(date +%s)
-          echo "| integration | $((end - start))s |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| integration | $((end - start))s (exit $rc) |" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
   # Layer 3: in-process apps against the Postgres service. Skipped when
   # integration (and so unit / gates) fail. Step-level timeout, see unit job.
@@ -233,9 +237,11 @@ jobs:
           echo "| Layer | Wall-clock |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           start=$(date +%s)
-          bun run test:smoke
+          rc=0
+          bun run test:smoke || rc=$?
           end=$(date +%s)
-          echo "| smoke | $((end - start))s |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| smoke | $((end - start))s (exit $rc) |" >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
   # Aggregate result under the original check name. Branch protection and
   # release.yml (and scripts/release-workflow.unit.test.ts) match
