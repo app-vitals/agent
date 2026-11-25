@@ -11,6 +11,7 @@ import {
   renderGithubAccessResult,
   renderGithubInstallCard,
   renderGithubOrgsFragment,
+  renderGithubUninstallConfirm,
   renderGithubUsernameRow,
 } from "./admin-ui-github-identity-pages.ts";
 import {
@@ -301,8 +302,50 @@ describe("Install on org block (GHC-1.2)", () => {
     );
     expect(html).toContain("Installed");
     expect(html).toContain("Not installed");
-    expect(html).not.toContain("disabled");
+    expect(html).not.toMatch(/ disabled/);
     expect(html).not.toContain('name="agentId"');
+  });
+
+  test("installed org shows Uninstall, not installed keeps Install", () => {
+    const html = renderGithubOrgsFragment("agent-123", orgs());
+    expect(html.match(/>Uninstall<\/button>/g)?.length).toBe(1);
+    expect(html).toContain(
+      "/admin/agents/agent-123/github-orgs/%3Cb%3Ex%3C%2Fb%3E/uninstall-confirm",
+    );
+    expect(html.match(/>Install<\/button>/g)?.length).toBe(1);
+  });
+
+  test("Uninstall is disabled when the agent App reason is set", () => {
+    const html = renderGithubOrgsFragment(
+      "agent-123",
+      orgs({ agentAppReason: "nope" }),
+    );
+    expect(html).toMatch(/data-org="[^"]*" disabled>Uninstall</);
+  });
+
+  test("unconfigured installer renders no Uninstall", () => {
+    expect(
+      renderGithubOrgsFragment("a", { configured: false, orgs: orgs().orgs }),
+    ).not.toContain("Uninstall");
+  });
+
+  test("uninstall confirm lists repos and open work, escaped", () => {
+    const html = renderGithubUninstallConfirm("agent-123", {
+      org: "acme",
+      repos: ["acme/<r>"],
+      openWork: [{ id: "T-1", repo: "acme/<r>", title: "Do it" }],
+    });
+    expect(html).toContain("acme/&lt;r&gt;");
+    expect(html).toContain("T-1");
+    expect(html).toContain('action="/admin/agents/agent-123/github-orgs/acme/uninstall"');
+    expect(html).not.toContain("confirmRemovals");
+  });
+
+  test("uninstall confirm carries confirmRemovals for more than 10 repos", () => {
+    const repos = Array.from({ length: 11 }, (_, i) => `acme/r${i}`);
+    expect(
+      renderGithubUninstallConfirm("a", { org: "acme", repos, openWork: [] }),
+    ).toContain('name="confirmRemovals"');
   });
 
   test("installed org has no Install button; names are escaped", () => {

@@ -56,6 +56,8 @@ import {
   renderGithubAccessError,
   renderGithubAccessResult,
   renderGithubOrgsFragment,
+  renderGithubUninstallConfirm,
+  type GithubUninstallPreviewView,
 } from "./admin-ui-github-identity-pages.ts";
 import {
   actuallyBlockedWork,
@@ -2211,6 +2213,74 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
     },
   );
 
+  // GIS-1.6: Uninstall confirm (the GIS-1.5 preview) and the uninstall itself.
+  app.get(
+    "/admin/agents/:id/github-orgs/:org/uninstall-confirm",
+    requireAuth,
+    async (c) => {
+      const agentId = c.req.param("id");
+      if (!c.var.isAdmin || !githubEnterpriseApi) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const res = await callApi(
+        c,
+        githubEnterpriseApi,
+        `/github-enterprise/orgs/${encodeURIComponent(c.req.param("org"))}/install?agentId=${encodeURIComponent(agentId)}&preview=true`,
+        { method: "DELETE" },
+      );
+      if (!res?.ok) {
+        return html(
+          renderGithubAccessError(
+            await gheError(res, "Could not preview the uninstall."),
+          ),
+          { status: res && res.status >= 400 ? res.status : 502 },
+        );
+      }
+      return html(
+        renderGithubUninstallConfirm(
+          agentId,
+          (await res.json()) as GithubUninstallPreviewView,
+        ),
+      );
+    },
+  );
+
+  app.post(
+    "/admin/agents/:id/github-orgs/:org/uninstall",
+    requireAuth,
+    async (c) => {
+      const agentId = c.req.param("id");
+      if (!c.var.isAdmin || !githubEnterpriseApi) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      let confirm = "";
+      try {
+        const form = await c.req.parseBody();
+        if (form.confirmRemovals === "true") confirm = "&confirmRemovals=true";
+      } catch {
+        // no body: no confirmRemovals
+      }
+      const res = await callApi(
+        c,
+        githubEnterpriseApi,
+        `/github-enterprise/orgs/${encodeURIComponent(c.req.param("org"))}/install?agentId=${encodeURIComponent(agentId)}${confirm}`,
+        { method: "DELETE" },
+      );
+      if (!res?.ok) {
+        return c.redirect(
+          agentSectionPath(agentId, "access", {
+            error: await gheError(res, "Could not uninstall the agent app."),
+          }),
+          302,
+        );
+      }
+      return c.redirect(
+        `${agentSectionPath(agentId, "access")}?success=github_app_uninstalled`,
+        302,
+      );
+    },
+  );
+
   // IRM-1.4: thin proxies over the installation repos list (IRM-1.2) and
   // the repo-removal preview (IRM-1.7).
   // They return HTML fragments for the Installation repos card and the agent's
@@ -2507,7 +2577,9 @@ export function createAdminUIApp(deps: AdminUIDeps): Hono<AdminUIEnv> {
                   ? "Agent app installed."
                   : successParam === "github_app_already_installed"
                     ? "The agent app was already installed on that organization."
-                    : undefined;
+                    : successParam === "github_app_uninstalled"
+                      ? "Agent app uninstalled."
+                      : undefined;
     const warningParam = c.req.query("warning");
     const warning =
       warningParam === "restrict_slack_no_members"
