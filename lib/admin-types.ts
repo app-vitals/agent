@@ -4171,7 +4171,139 @@ export interface paths {
                 };
             };
         };
-        delete?: never;
+        /**
+         * Uninstall an agent's App from an organization
+         * @description Admin-only. Finds the agent App's installation on the org (client id, slug or app id) and deletes it with the installer App, removes that org's repos from the agent's repos, blocks the agent's open tasks and PRs on them through the open-work port (a port failure is a warning) and writes one audit row (uninstall:org). `preview=true` lists the repos and open work that would be affected and changes nothing. 404 when the App is not installed on the org; 422 when more than 10 repos would be removed without `confirmRemovals=true`; 502 (with a failed audit row) when GitHub refuses.
+         */
+        delete: {
+            parameters: {
+                query: {
+                    /** @description Account whose App pair to read/write. Omit for the deployment-wide pair. */
+                    accountId?: string;
+                    agentId: string;
+                    /** @description true: list the repos and open work an uninstall would affect and change nothing. */
+                    preview?: "true" | "false";
+                    /** @description Required when more than 10 agent repos would be removed. */
+                    confirmRemovals?: "true" | "false";
+                };
+                header?: never;
+                path: {
+                    org: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Uninstalled, or the preview */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GithubEnterpriseUninstallResult"];
+                    };
+                };
+                /** @description Bad request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Forbidden (non-admin caller) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found (or not found at GitHub) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Installer App not configured */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Refused or rejected by GitHub */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub refused the configured App credentials or permission */
+                424: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub rate limit */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unavailable or returned an unexpected response */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Uninstall is not available */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description GitHub unreachable */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -6384,6 +6516,21 @@ export interface components {
              */
             repositorySelection: "all" | "selected" | "none";
             repositories?: string[];
+        };
+        GithubEnterpriseUninstallResult: {
+            /** @enum {string} */
+            status: "preview" | "uninstalled";
+            org: string;
+            installationId: number;
+            /** @description The agent's repos in the org, removed from the agent. */
+            repos: string[];
+            openWork: {
+                id: string;
+                repo: string;
+                title?: string;
+            }[];
+            warnings: string[];
+            auditId?: string;
         };
         AgentTemplatesList: {
             templates: components["schemas"]["AgentTemplate"][];

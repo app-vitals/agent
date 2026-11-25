@@ -9,7 +9,10 @@ import { describe, expect, it } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseAdminApiKeys } from "./api-auth.ts";
-import { createGithubEnterpriseApp } from "./github-enterprise-api.ts";
+import {
+  createGithubEnterpriseApp,
+  type GithubEnterpriseApiDeps,
+} from "./github-enterprise-api.ts";
 import type {
   GitHubEnterpriseAppMetadata,
   GitHubEnterpriseAppRole,
@@ -100,10 +103,16 @@ function replayFetch(routes: Record<string, string>) {
     const key = routes[base];
     if (!key) throw new Error(`no route for ${base}`);
     const entry = cassette[key] as CassetteEntry;
-    return new Response(JSON.stringify(entry.body), {
-      status: entry.status,
-      headers: { "Content-Type": "application/json", ...(entry.headers ?? {}) },
-    });
+    return new Response(
+      entry.status === 204 ? null : JSON.stringify(entry.body),
+      {
+        status: entry.status,
+        headers: {
+          "Content-Type": "application/json",
+          ...(entry.headers ?? {}),
+        },
+      },
+    );
   }) as typeof fetch;
   return { fetchFn, calls };
 }
@@ -119,6 +128,7 @@ function build(
     routes?: Record<string, string>;
     agents?: Record<string, Record<string, string> | null>;
     refreshAction?: GithubRefreshAction;
+    uninstall?: GithubEnterpriseApiDeps["uninstall"];
   } = {},
 ) {
   const appService = fakeAppService();
@@ -154,6 +164,7 @@ function build(
     ),
     agentTokenService: { validate: async () => null },
     ...(opts.refreshAction ? { refreshAction: opts.refreshAction } : {}),
+    ...(opts.uninstall ? { uninstall: opts.uninstall } : {}),
     fetchFn,
     apiBase: "https://ghe.test",
   });
@@ -987,5 +998,177 @@ describe("refresh action (GLC-2.4)", () => {
       },
     );
     expect(res2.status).toBe(200);
+  });
+});
+
+describe("DELETE install (uninstall)", () => {
+  const DELETE_INST =
+    "DELETE /enterprises/acme/apps/organizations/org-1/installations/501";
+  const INSTS_ROUTE =
+    "GET /enterprises/acme/apps/organizations/org-1/installations";
+
+  function harness(
+    opts: {
+      repos?: string[];
+      deleteStatus?: number;
+      openWorkFails?: boolean;
+      noInstall?: boolean;
+    } = {},
+  ) {
+    const state = {
+      repos: opts.repos ?? ["org-1/a", "org-1/b", "other/c"],
+      audits: [] as {
+        planHash: string;
+        diff: unknown;
+        result: { status: string };
+      }[],
+      blocked: [] as string[],
+      deleted: 0,
+    };
+    const h = build({
+      agents: {
+        "agent-1": {
+          GH_APP_SLUG: "target-app",
+          GH_APP_CLIENT_ID: "Iv1.targetapp0001",
+        },
+      },
+      routes: {
+        [DELETE_INST]:
+          opts.deleteStatus === 403 ? "uninstall_403" : "uninstall_success",
+        [INSTS_ROUTE]: opts.noInstall
+          ? "installable_orgs_empty"
+          : "org_installations_success",
+      },
+      uninstall: {
+        agents: {
+          get: async (id: string) => ({
+            id,
+            repos: [...state.repos],
+            githubUsername: null,
+          }),
+          setRepos: async (_id: string, repos: string[]) => {
+            state.repos = repos;
+          },
+        },
+        audit: {
+          write: async (e: never) => {
+            state.audits.push(e);
+            return `audit-${state.audits.length}`;
+          },
+        },
+        openWork: {
+          listOpenWork: async (_a: string, repos: readonly string[]) => {
+            if (opts.openWorkFails) throw new Error("port down");
+            return repos.map((repo) => ({ id: `t-${repo}`, repo }));
+          },
+          blockOpenWork: async (_a: string, repos: readonly string[]) => {
+            if (opts.openWorkFails) throw new Error("port down");
+            state.blocked.push(...repos);
+          },
+        },
+      },
+    });
+    return { h, state, del: DELETE_INST, status: opts.deleteStatus ?? 204 };
+  }
+
+  async function run(
+    o: ReturnType<typeof harness>,
+    query: string,
+    headers: Record<string, string> = ADMIN,
+  ) {
+    return o.h.app.request(
+      `/github-enterprise/orgs/org-1/install?agentId=agent-1${query}`,
+      {
+        method: "DELETE",
+        headers,
+      },
+    );
+  }
+
+  it("uninstalls, removes the org's repos, blocks open work and audits", async () => {
+    const o = harness();
+    await seed(o.h);
+    const res = await run(o, "");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      status: "uninstalled",
+      org: "org-1",
+      installationId: 501,
+      repos: ["org-1/a", "org-1/b"],
+      auditId: "audit-1",
+    });
+    expect(o.h.calls).toContain(o.del);
+    expect(o.state.repos).toEqual(["other/c"]);
+    expect(o.state.blocked.sort()).toEqual(["org-1/a", "org-1/b"]);
+    expect(o.state.audits[0]).toMatchObject({
+      planHash: "uninstall:org",
+      result: { status: "applied" },
+    });
+  });
+
+  it("preview lists repos and open work and changes nothing", async () => {
+    const o = harness();
+    await seed(o.h);
+    const res = await run(o, "&preview=true");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; openWork: unknown[] };
+    expect(body.status).toBe("preview");
+    expect(body.openWork).toHaveLength(2);
+    expect(o.h.calls).not.toContain(o.del);
+    expect(o.state.repos).toHaveLength(3);
+    expect(o.state.audits).toHaveLength(0);
+    expect(o.state.blocked).toHaveLength(0);
+  });
+
+  it("a port failure on preview is a warning", async () => {
+    const o = harness({ openWorkFails: true });
+    await seed(o.h);
+    const body = (await (await run(o, "&preview=true")).json()) as {
+      warnings: string[];
+    };
+    expect(body.warnings.join()).toContain("port down");
+  });
+
+  it("not installed is a distinct 404 and changes nothing", async () => {
+    const o = harness({ noInstall: true });
+    await seed(o.h);
+    const res = await run(o, "");
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: string }).error).toContain(
+      "not installed",
+    );
+    expect(o.state.audits).toHaveLength(0);
+    expect(o.state.repos).toHaveLength(3);
+  });
+
+  it("a GitHub refusal is 502 with a failed audit row and repos untouched", async () => {
+    const o = harness({ deleteStatus: 403 });
+    await seed(o.h);
+    const res = await run(o, "");
+    expect(res.status).toBe(502);
+    expect(o.state.audits[0]?.result.status).toBe("failed");
+    expect(o.state.repos).toHaveLength(3);
+    expect(o.state.blocked).toHaveLength(0);
+  });
+
+  it("more than 10 repos need confirmRemovals", async () => {
+    const many = Array.from({ length: 11 }, (_, i) => `org-1/r${i}`);
+    const o = harness({ repos: many });
+    await seed(o.h);
+    const refused = await run(o, "");
+    expect(refused.status).toBe(422);
+    expect(o.h.calls).not.toContain(o.del);
+    const ok = await run(o, "&confirmRemovals=true");
+    expect(ok.status).toBe(200);
+    expect(o.state.repos).toEqual([]);
+  });
+
+  it("non-admin callers get 403 and nothing is called", async () => {
+    const o = harness();
+    await seed(o.h);
+    const res = await run(o, "", { Authorization: "Bearer tok-read" });
+    expect(res.status).toBe(403);
+    expect(o.h.calls).toHaveLength(0);
   });
 });

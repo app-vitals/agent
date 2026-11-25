@@ -361,6 +361,28 @@ export class GithubEnterpriseClient {
     return { installation: toInstallation(res.data), created: res.status === 201 };
   }
 
+  /**
+   * Uninstall an App from an enterprise-owned org (DELETE the org
+   * installation). Same `enterprise_organization_installations` write
+   * permission as install; GitHub answers 204.
+   */
+  async uninstallFromOrg(org: string, installationId: number): Promise<void> {
+    if (!Number.isInteger(installationId) || installationId <= 0) {
+      throw new GithubEnterpriseError(
+        "validation",
+        "installationId must be a positive integer",
+      );
+    }
+    const { token } = await this.getInstallationToken();
+    const ent = encodeURIComponent(this.enterprise);
+    await this.request<unknown>(
+      "DELETE",
+      `/enterprises/${ent}/apps/organizations/${encodeURIComponent(org)}/installations/${installationId}`,
+      token,
+      "GitHub uninstall App from org",
+    );
+  }
+
   /** List all repositories an installation can access (paginated). */
   async listInstallationRepositories(
     org: string,
@@ -514,7 +536,7 @@ export class GithubEnterpriseClient {
   }
 
   private async request<T>(
-    method: "GET" | "POST" | "PATCH",
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     bearer: string,
     context: string,
