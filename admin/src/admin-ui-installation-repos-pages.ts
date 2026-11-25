@@ -208,6 +208,7 @@ export interface GithubSyncPreviewView {
   appAdds?: string[];
   appRemoves?: string[];
   agentRemoves?: string[];
+  selectionSwitches?: { org: string; repos: string[] }[];
   skippedOrgs?: { org: string; reason: string; detail?: SkipDetail }[];
   openWork?: OpenWorkView[];
   warnings?: string[];
@@ -465,6 +466,19 @@ const repoList = (kind: string, title: string, repos: readonly string[]) =>
 const plural = (n: number, one: string, many: string) =>
   `${n} ${n === 1 ? one : many}`;
 
+/** Orgs the confirmed sync switches from "all repositories" to "selected repositories". */
+const selectionSwitchesHtml = (
+  switches: readonly { org: string; repos: readonly string[] }[],
+) =>
+  switches.length === 0
+    ? ""
+    : `<div data-list="selection-switches" style="margin-top:8px"><div style="font-weight:600">Switch from all repositories to selected repositories (${switches.length})</div><ul style="margin:4px 0 0 18px">${switches
+        .map(
+          (s) =>
+            `<li data-switch-org="${escapeHtml(s.org)}"><span class="mono">${escapeHtml(s.org)}</span>: keeps ${plural(s.repos.length, "repo", "repos")}</li>`,
+        )
+        .join("")}</ul></div>`;
+
 /** One readable sentence-list describing why an org's cached access was skipped. */
 function skipDetailText(d: SkipDetail, timezone?: string): string {
   const out: string[] = [];
@@ -528,8 +542,8 @@ const skippedOrgsHtml = (
         .join("")}</div>`;
 
 /**
- * The single confirm step of Sync: the installation adds, installation
- * removes, agent-repo removes and the open work the removals would block. One
+ * The single confirm step of Sync: the selection switches, installation adds,
+ * installation removes, agent-repo removes and the open work the removals would block. One
  * confirmation applies them all; more than the removal cap needs the extra
  * checkbox (confirmRemovals).
  */
@@ -544,12 +558,19 @@ export function renderSyncConfirm(
   const appAdds = preview.appAdds ?? [];
   const appRemoves = preview.appRemoves ?? [];
   const agentRemoves = preview.agentRemoves ?? [];
+  const switches = preview.selectionSwitches ?? [];
   const skippedList = preview.skippedOrgs ?? [];
   const skipped = skippedOrgsHtml(skippedList, timezone);
   const warnings = warningsHtml(
     withoutSkipWarnings(preview.warnings, skippedList),
   );
-  if (appAdds.length + appRemoves.length + agentRemoves.length === 0) {
+  if (
+    appAdds.length +
+      appRemoves.length +
+      agentRemoves.length +
+      switches.length ===
+    0
+  ) {
     if (skippedList.length > 0) {
       return `<div class="alert alert-warning" data-sync="nothing-synced">Nothing was synced: ${skippedList.length} org(s) skipped, see below.</div>${skipped}${warnings}`;
     }
@@ -564,7 +585,7 @@ export function renderSyncConfirm(
   const capBox = overCap
     ? `<label style="display:block;margin:12px 0"><input type="checkbox" id="github-sync-confirm-removals" /> I confirm removing ${removals} repos (more than ${MAX_UNCONFIRMED_REMOVALS}).</label>`
     : "";
-  return `<div class="alert alert-warning" data-sync="confirm">Apply these changes?</div>${repoList("app-adds", "Add to the agent App installation", appAdds)}${repoList("app-removes", "Remove from the agent App installation", appRemoves)}${repoList("agent-removes", "Remove from the agent's repos", agentRemoves)}${renderOpenWorkByRepo(
+  return `<div class="alert alert-warning" data-sync="confirm">Apply these changes?</div>${selectionSwitchesHtml(switches)}${repoList("app-adds", "Add to the agent App installation", appAdds)}${repoList("app-removes", "Remove from the agent App installation", appRemoves)}${repoList("agent-removes", "Remove from the agent's repos", agentRemoves)}${renderOpenWorkByRepo(
     preview.openWork ?? [],
     "Open tasks and PRs that will be blocked",
     "No open tasks or PRs would be blocked.",
