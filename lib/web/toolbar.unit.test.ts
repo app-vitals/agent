@@ -332,6 +332,7 @@ describe("theme palettes", () => {
     ["text-muted", "surface"],
     ["text-muted", "bg"],
     ["brand", "brand-bg"],
+    ["on-brand", "brand"],
     ["primary-text", "primary"],
     ["success-text", "success-bg"],
     ["warning-text", "warning-bg"],
