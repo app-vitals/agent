@@ -230,5 +230,6 @@ Dockerfile's module-resolution guard and base-image contract are covered by
 guards that the runtime stage copies `node_modules` from the production-only
 `prod-deps` stage (`bun install --frozen-lockfile --production`), so
 devDependency-only packages (handlebars, typescript, semantic-release, biome,
-a nested npm) never ship in the image while the Prisma client stays. Run single files with
-`bun test runtime/<file>`.
+a nested npm) never ship in the image while the Prisma client stays. Run single unit files with
+`bun test runtime/<file>`; integration and smoke files need
+`--config=bunfig.integration.toml` or `--config=bunfig.smoke.toml`.

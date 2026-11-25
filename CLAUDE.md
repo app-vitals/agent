@@ -20,7 +20,8 @@ bun run typecheck       # tsc --noEmit
 bun run check:boundary  # import-boundary gate + coding-vs-platform gate (scripts/coding-boundary-allowlist.txt may only shrink)
 bun run check:config-docs  # every runtime/admin env var documented
 bun run check:deps      # published packages declare every third-party import
-bun test                # single file: bun test path/to/file.test.ts
+bun run test            # unit layer only (bun test); also test:integration and test:smoke
+bun test path/to/file.unit.test.ts   # single file (integration/smoke files need --config=bunfig.<layer>.toml)
 ```
 
 `bun test --filter` is not a real flag; pass file paths.

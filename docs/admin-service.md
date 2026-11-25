@@ -238,8 +238,9 @@ cd admin && bunx prisma migrate deploy --schema=prisma/schema   # or let boot do
 bun run admin/src/main.ts                                       # from repo root, port 3000
 ```
 
-Tests (repo root): `bun run test` (sets `NODE_ENV=test`; `scripts/test-env-preload.ts`
-points specialties at a fixture). Integration tests need Postgres via
+Tests (repo root): `bun run test` runs the unit layer only (sets `NODE_ENV=test`;
+`scripts/test-env-preload.ts` points specialties at a fixture); `bun run test:integration`
+and `bun run test:smoke` run the other layers. Integration tests need Postgres via
 `DATABASE_URL_ADMIN_TEST` (CI also sets `DATABASE_URL_SHIPWRIGHT_ADMIN`).
 `cd admin && bun run typecheck` for types; `bun run test:e2e` runs the Playwright
 suite in `admin/e2e/` against a local server on port 3490. Docker:

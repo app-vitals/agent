@@ -42,7 +42,7 @@ The required `shipwright consumer compat` check (`scripts/consumer-compat.ts`) p
 ## Development workflow
 
 1. Branch from `main`; never commit to `main` directly.
-2. Run `bun run lint`, `bun run typecheck`, `bun run check:boundary` and `bun test` before pushing.
+2. Run `bun run lint`, `bun run typecheck`, `bun run check:boundary` and `bun run test` (unit layer; also `test:integration` and `test:smoke` when your change touches them) before pushing. CI runs the layers as separate `unit`, `integration` and `smoke` jobs.
 3. Open a PR with a Conventional Commit title.
 
 ## Release process
