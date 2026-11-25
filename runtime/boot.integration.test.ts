@@ -1,5 +1,5 @@
 /**
- * agent/src/runtime/boot.integration.test.ts
+ * runtime/boot.integration.test.ts
  *
  * Integration tests for the startup sequence in boot.ts (startAgent).
  * startAgent has no dependency-injection seam: it reads process.env, patches
