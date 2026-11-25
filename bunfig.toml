@@ -1,7 +1,23 @@
 # admin/e2e/ holds Playwright *.e2e.ts tests that run via `bunx playwright test`,
 # not the Bun runner. *.canary.test.ts is reserved for a future canary suite that
-# runs through its own entry point.
+# runs through its own entry point. The default run is the unit layer only:
+# integration and smoke suites run through the test:integration / test:smoke
+# scripts (see bunfig.integration.toml / bunfig.smoke.toml).
 [test]
-pathIgnorePatterns = ["**/admin/e2e/**", "**/*.canary.test.ts"]
+pathIgnorePatterns = [
+  "**/admin/e2e/**",
+  "**/*.integration.test.ts",
+  "**/*.smoke.test.ts",
+  "**/*.canary.test.ts",
+]
+# Generated, fixture and fake files are not product code worth measuring.
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = [
+  "**/*.fixtures.ts",
+  "**/test-support/**",
+  "chat/src/test-fakes.ts",
+  "lib/admin-types.ts",
+  "runtime/fixtures/**",
+]
 # Points the specialty lookup at the minimal fixture specialty (see the preload).
 preload = ["./scripts/test-env-preload.ts"]
