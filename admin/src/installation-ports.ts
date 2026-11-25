@@ -179,6 +179,8 @@ export interface InstallationRepoClient {
       appId?: number;
       appSlug?: string;
       clientId?: string;
+      /** "all" | "selected" | "none"; absent when the listing does not say. */
+      repositorySelection?: "all" | "selected" | "none";
     }[]
   >;
   listInstallationRepositories(

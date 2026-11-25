@@ -761,6 +761,8 @@ model GitHubRepoSnapshot {
   crawlStartedAt   DateTime?
   completedAt      DateTime?
   totalCount       Int?
+  // Agent App installation on the org: 'all' | 'selected'; null = unknown (never treated as 'all')
+  repositorySelection String?
   lastError        String?
   attempts         Int                @default(0)
   nextAttemptAt    DateTime?

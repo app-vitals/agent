@@ -55,6 +55,8 @@ export type AgentInstallationClient = Pick<
 export interface AgentInstallationPageSource extends PageSource {
   /** The agent App's installation id on the org; throws AppNotInstalledError. Cached. */
   resolveInstallationId(): Promise<number>;
+  /** The installation's repository selection ('all' | 'selected'); null if unknown. Resolves like resolveInstallationId. */
+  resolveRepositorySelection(): Promise<"all" | "selected" | null>;
 }
 
 export interface AgentInstallationSourceOptions {
@@ -78,23 +80,34 @@ export function agentInstallationPageSource(
   opts: AgentInstallationSourceOptions,
 ): AgentInstallationPageSource {
   const { client, org, appId, identity } = opts;
-  let installationId: Promise<number> | undefined;
-  const resolveInstallationId = (): Promise<number> => {
-    installationId ??= client
+  let installation:
+    | Promise<{ id: number; selection: "all" | "selected" | null }>
+    | undefined;
+  const resolveInstallation = () => {
+    installation ??= client
       .listOrgInstallations(org, identity?.accountId)
       .then((installs) => {
         const found = matchInstallation(installs, appId, identity);
         if (!found) throw new AppNotInstalledError(appId, org);
-        return found.id;
+        const sel = found.repositorySelection;
+        return {
+          id: found.id,
+          // "none" or an absent value is unknown, never "all".
+          selection: sel === "all" || sel === "selected" ? sel : null,
+        };
       });
     // Do not cache a failure: a later page or run may succeed.
-    installationId.catch(() => {
-      installationId = undefined;
+    installation.catch(() => {
+      installation = undefined;
     });
-    return installationId;
+    return installation;
   };
+  const resolveInstallationId = async (): Promise<number> =>
+    (await resolveInstallation()).id;
   return {
     resolveInstallationId,
+    resolveRepositorySelection: async () =>
+      (await resolveInstallation()).selection,
     async fetchPage(page: number): Promise<RepoPage> {
       const id = await resolveInstallationId();
       const res = await client.listInstallationRepositoriesPage(
@@ -158,8 +171,9 @@ export async function crawlAgentInstallation(
     appId: agent.appId,
     identity: identityOf(agent),
   });
+  let selection: "all" | "selected" | null;
   try {
-    await source.resolveInstallationId();
+    selection = await source.resolveRepositorySelection();
   } catch (err) {
     if (!(err instanceof AppNotInstalledError)) {
       // Let the engine record GitHub failures and rate limits on the snapshot.
@@ -177,10 +191,14 @@ export async function crawlAgentInstallation(
       nextAttemptAt: null,
       rateLimitResetAt: null,
       lastTickAt: now,
+      repositorySelection: null,
     });
     const swept = await store.sweepGeneration(snap.id);
     return { outcome: "not_installed", pagesFetched: 0, swept };
   }
+  // Record the selection on every crawl; null clears a stale value. A GitHub
+  // failure above returns early and leaves the previous value untouched.
+  await store.upsertSnapshot(key, { repositorySelection: selection });
   return crawlRepos({ ...engineOpts(), key, source });
 
   function engineOpts() {
