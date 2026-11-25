@@ -83,6 +83,17 @@ export interface AppInstallationPort {
     repos: readonly string[],
     identity?: AppIdentity,
   ): Promise<void>;
+  /**
+   * Switch the installation from "all" to "selected" with exactly `repos`
+   * (owner/repo, all in `org`, at most 50). Optional so existing
+   * implementations stay valid.
+   */
+  setRepositorySelection?(
+    appId: number,
+    org: string,
+    repos: readonly string[],
+    identity?: AppIdentity,
+  ): Promise<void>;
 }
 
 /** Repos changed by one audited change, on the installation and in the agent's config. */
@@ -91,6 +102,8 @@ export interface InstallationAuditDiff {
   installationRemoves: string[];
   configAdds: string[];
   configRemoves: string[];
+  /** "all" installations switched to "selected", with the repos that landed. */
+  selectionSwitches?: { org: string; repos: string[] }[];
 }
 
 export interface InstallationAuditEntry {
@@ -214,6 +227,13 @@ export interface InstallationRepoClient {
     names: readonly string[],
     accountId?: string | null,
   ): Promise<unknown>;
+  /** Optional: needed only to switch an "all" installation to "selected". */
+  setRepositorySelection?(
+    org: string,
+    installationId: number,
+    input: { repositorySelection: "selected"; repositories: readonly string[] },
+    accountId?: string | null,
+  ): Promise<unknown>;
 }
 
 /** The agent App has no installation on the org (distinct from a GitHub failure). */
@@ -274,6 +294,7 @@ export function createInstallationPort(
     }
     return found.id;
   };
+  const setSelection = client.setRepositorySelection?.bind(client);
   return {
     async listRepos(appId, orgs, identity) {
       const out: Record<string, string[]> = {};
@@ -303,5 +324,25 @@ export function createInstallationPort(
         identity?.accountId,
       );
     },
+    ...(setSelection
+      ? {
+          async setRepositorySelection(
+            appId: number,
+            org: string,
+            repos: readonly string[],
+            identity?: AppIdentity,
+          ) {
+            await setSelection(
+              org,
+              await installationId(appId, org, identity),
+              {
+                repositorySelection: "selected",
+                repositories: repos.map(baseName),
+              },
+              identity?.accountId,
+            );
+          },
+        }
+      : {}),
   };
 }

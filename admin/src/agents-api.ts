@@ -766,6 +766,13 @@ const SkippedOrgsSchema = z.array(
   }),
 );
 
+const SelectionSwitchesSchema = z
+  .array(z.object({ org: z.string(), repos: z.array(z.string()) }))
+  .openapi({
+    description:
+      "Orgs whose agent App installation is on All repositories. Sync switches each to Selected repositories (first 50 repos in the switch, the rest added in batches) before any add or remove; `repos` is the resulting list: the installed repos minus the org's confirmed removals. An org the bound user can push to nothing in is skipped (see `skippedOrgs`) and stays on All repositories.",
+  });
+
 const GithubSyncPreviewSchema = z
   .object({
     status: z.enum(["previewed", "skipped"]).openapi({
@@ -785,6 +792,7 @@ const GithubSyncPreviewSchema = z
       description:
         "Configured agent repos the bound user can no longer push to. The agent's repos are never added to.",
     }),
+    selectionSwitches: SelectionSwitchesSchema.optional(),
     skippedOrgs: SkippedOrgsSchema.optional().openapi({
       description:
         "Orgs whose access listing is missing, partial or failed, whose cached access data is incomplete or stale, or whose lookup App is not installed or installed on selected repositories only; nothing there is added or removed. `reason` says why (for stale data, when it was checked).",
@@ -827,6 +835,7 @@ const GithubSyncApplyResultSchema = z
     appAdds: z.array(z.string()).optional(),
     appRemoves: z.array(z.string()).optional(),
     agentRemoves: z.array(z.string()).optional(),
+    selectionSwitches: SelectionSwitchesSchema.optional(),
     notApplied: z
       .array(z.object({ repo: z.string(), reason: z.string() }))
       .optional()
@@ -3589,6 +3598,9 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
         appAdds: plan.appAdds,
         appRemoves: plan.appRemoves,
         agentRemoves: plan.agentRemoves,
+        ...(plan.selectionSwitches?.length
+          ? { selectionSwitches: plan.selectionSwitches }
+          : {}),
         skippedOrgs: plan.skippedOrgs,
         openWork: result.openWork,
         warnings: result.warnings,
@@ -3648,6 +3660,9 @@ export function createAdminApp(deps: AdminDeps): OpenAPIHono<AdminAuthEnv> {
             appAdds: plan.appAdds,
             appRemoves: plan.appRemoves,
             agentRemoves: plan.agentRemoves,
+            ...(plan.selectionSwitches?.length
+              ? { selectionSwitches: plan.selectionSwitches }
+              : {}),
             notApplied: plan.notApplied,
             skippedOrgs: plan.skippedOrgs,
             warnings:

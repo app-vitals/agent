@@ -3712,6 +3712,28 @@
             },
             "description": "Configured agent repos the bound user can no longer push to. The agent's repos are never added to."
           },
+          "selectionSwitches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "org": {
+                  "type": "string"
+                },
+                "repos": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "org",
+                "repos"
+              ]
+            },
+            "description": "Orgs whose agent App installation is on All repositories. Sync switches each to Selected repositories (first 50 repos in the switch, the rest added in batches) before any add or remove; `repos` is the resulting list: the installed repos minus the org's confirmed removals. An org the bound user can push to nothing in is skipped (see `skippedOrgs`) and stays on All repositories."
+          },
           "skippedOrgs": {
             "type": "array",
             "items": {
@@ -3874,6 +3896,28 @@
             "items": {
               "type": "string"
             }
+          },
+          "selectionSwitches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "org": {
+                  "type": "string"
+                },
+                "repos": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "org",
+                "repos"
+              ]
+            },
+            "description": "Orgs whose agent App installation is on All repositories. Sync switches each to Selected repositories (first 50 repos in the switch, the rest added in batches) before any add or remove; `repos` is the resulting list: the installed repos minus the org's confirmed removals. An org the bound user can push to nothing in is skipped (see `skippedOrgs`) and stays on All repositories."
           },
           "notApplied": {
             "type": "array",
