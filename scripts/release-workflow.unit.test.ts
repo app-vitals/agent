@@ -486,7 +486,7 @@ describe("consumer-smoke workflow", () => {
     expect(checkout?.with["persist-credentials"]).toBe(false);
     expect(cRun).toContain("scripts/consumer-smoke.ts");
     expect(cRun).toContain(
-      'SHIPWRIGHT_CONTRACT_BASE_IMAGE="ghcr.io/app-vitals/agent:$VERSION" bun test runtime/base-image-contract.smoke.test.ts',
+      'SHIPWRIGHT_CONTRACT_BASE_IMAGE="ghcr.io/app-vitals/agent:$VERSION" bun test --config=bunfig.smoke.toml runtime/base-image-contract.smoke.test.ts',
     );
   });
 });

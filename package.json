@@ -12,6 +12,9 @@
   ],
   "scripts": {
     "test": "NODE_ENV=test bun test",
+    "test:unit": "NODE_ENV=test bun test",
+    "test:integration": "NODE_ENV=test bun test --config=bunfig.integration.toml .integration.test.ts",
+    "test:smoke": "NODE_ENV=test bun test --config=bunfig.smoke.toml .smoke.test.ts",
     "lint": "bunx biome lint .",
     "format": "bunx biome format --write .",
     "typecheck": "tsc --noEmit",
