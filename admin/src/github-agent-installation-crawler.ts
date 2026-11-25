@@ -56,7 +56,7 @@ export interface AgentInstallationPageSource extends PageSource {
   /** The agent App's installation id on the org; throws AppNotInstalledError. Cached. */
   resolveInstallationId(): Promise<number>;
   /** The installation's repository selection ('all' | 'selected'); null if unknown. Resolves like resolveInstallationId. */
-  resolveRepositorySelection(): Promise<"all" | "selected" | null>;
+  resolveRepositorySelection?(): Promise<"all" | "selected" | null>;
 }
 
 export interface AgentInstallationSourceOptions {
@@ -173,7 +173,8 @@ export async function crawlAgentInstallation(
   });
   let selection: "all" | "selected" | null;
   try {
-    selection = await source.resolveRepositorySelection();
+    selection = (await source.resolveRepositorySelection?.()) ?? null;
+    if (!source.resolveRepositorySelection) await source.resolveInstallationId();
   } catch (err) {
     if (!(err instanceof AppNotInstalledError)) {
       // Let the engine record GitHub failures and rate limits on the snapshot.
