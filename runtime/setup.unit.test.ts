@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  defaultExec,
   discoverBakedMarketplaces,
   installPlugins,
   resolveShipwrightRepoRoot,
@@ -598,4 +599,21 @@ describe("installPlugins — remote marketplace owner hint (TMK-1.1)", () => {
       ).toBe(true);
     });
   }
+});
+
+describe("defaultExec timeout", () => {
+  it("kills a hung subprocess and returns a nonzero exit code", async () => {
+    const start = Date.now();
+    const res = await defaultExec("sleep", ["30"], {
+      cwd: tmpdir(),
+      timeoutMs: 100,
+    });
+    expect(res.exitCode).not.toBe(0);
+    expect(Date.now() - start).toBeLessThan(10_000);
+  });
+
+  it("returns stdout and exit code for a fast command", async () => {
+    const res = await defaultExec("echo", ["hi"], { cwd: tmpdir() });
+    expect(res).toEqual({ stdout: "hi\n", exitCode: 0 });
+  });
 });

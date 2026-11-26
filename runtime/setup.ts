@@ -334,13 +334,32 @@ export function discoverBakedMarketplaces(conventionRoot: string): string[] {
 type ExecFn = (
   cmd: string,
   args: string[],
-  opts: { cwd: string; env?: Record<string, string | undefined> },
+  opts: {
+    cwd: string;
+    env?: Record<string, string | undefined>;
+    timeoutMs?: number;
+  },
 ) => Promise<{ stdout: string; exitCode: number }>;
 
-async function defaultExec(
+/** Max wall time for one subprocess before it is killed (5 minutes). */
+const DEFAULT_EXEC_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * Max wall time for the boot-time `mise install` (30 minutes). A cold install
+ * can compile tools such as python or ruby from source, which outlasts the
+ * default cap; killing it would leave the workspace's tools missing on every
+ * boot that cannot finish in one run.
+ */
+export const MISE_INSTALL_TIMEOUT_MS = 30 * 60 * 1000;
+
+export async function defaultExec(
   cmd: string,
   args: string[],
-  opts: { cwd: string; env?: Record<string, string | undefined> },
+  opts: {
+    cwd: string;
+    env?: Record<string, string | undefined>;
+    timeoutMs?: number;
+  },
 ): Promise<{ stdout: string; exitCode: number }> {
   // env: process.env is required — Bun.spawn otherwise snapshots env at Bun
   // startup and misses runtime mutations (MISE_CACHE_DIR, etc.).
@@ -350,9 +369,20 @@ async function defaultExec(
     stdout: "pipe",
     stderr: "pipe",
   });
-  const stdout = await new Response(proc.stdout).text();
-  await proc.exited;
-  return { stdout, exitCode: proc.exitCode ?? 1 };
+  // Bound the run: a hung subprocess must not block callers (e.g. the
+  // single-flight config sync) forever.
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill("SIGKILL");
+  }, opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS);
+  try {
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+    return { stdout, exitCode: timedOut ? 124 : (proc.exitCode ?? 1) };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -1189,7 +1219,10 @@ export async function runMiseStartup(
   // Run mise install (idempotent — no-op when tools already cached)
   let install: { stdout: string; exitCode: number };
   try {
-    install = await execFn("mise", ["install"], { cwd: workspaceDir });
+    install = await execFn("mise", ["install"], {
+      cwd: workspaceDir,
+      timeoutMs: MISE_INSTALL_TIMEOUT_MS,
+    });
   } catch (err) {
     console.warn(
       `[agent] mise install failed — tools may be unavailable: ${(err as Error).message}`,
