@@ -26,6 +26,7 @@ import {
   installPlugins,
   isNewWorkspace,
   loadState,
+  MISE_INSTALL_TIMEOUT_MS,
   runMiseStartup,
   saveState,
   seedFile,
@@ -652,6 +653,24 @@ describe("runMiseStartup", () => {
     const mockExec = async () => ({ stdout: "", exitCode: 0 });
     await runMiseStartup(testHome, mockExec);
     expect(process.env.CARGO_HOME).toBe(before);
+  });
+
+  it("gives mise install its own longer timeout, not the default subprocess cap", async () => {
+    mkdirSync(join(testHome, "workspace"), { recursive: true });
+    writeFileSync(join(testHome, "workspace", "mise.toml"), "[tools]\n");
+    const calls: Array<{ args: string[]; timeoutMs?: number }> = [];
+    const mockExec = async (
+      _cmd: string,
+      args: string[],
+      opts: { cwd: string; timeoutMs?: number },
+    ) => {
+      calls.push({ args, timeoutMs: opts.timeoutMs });
+      return { stdout: "", exitCode: 0 };
+    };
+    await runMiseStartup(testHome, mockExec);
+    const install = calls.find((c) => c.args[0] === "install");
+    expect(install?.timeoutMs).toBe(MISE_INSTALL_TIMEOUT_MS);
+    expect(MISE_INSTALL_TIMEOUT_MS).toBeGreaterThan(5 * 60 * 1000);
   });
 
   it("skips mise install when mise.toml absent", async () => {

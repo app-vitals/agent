@@ -334,11 +334,23 @@ export function discoverBakedMarketplaces(conventionRoot: string): string[] {
 type ExecFn = (
   cmd: string,
   args: string[],
-  opts: { cwd: string; env?: Record<string, string | undefined> },
+  opts: {
+    cwd: string;
+    env?: Record<string, string | undefined>;
+    timeoutMs?: number;
+  },
 ) => Promise<{ stdout: string; exitCode: number }>;
 
 /** Max wall time for one subprocess before it is killed (5 minutes). */
 const DEFAULT_EXEC_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * Max wall time for the boot-time `mise install` (30 minutes). A cold install
+ * can compile tools such as python or ruby from source, which outlasts the
+ * default cap; killing it would leave the workspace's tools missing on every
+ * boot that cannot finish in one run.
+ */
+export const MISE_INSTALL_TIMEOUT_MS = 30 * 60 * 1000;
 
 export async function defaultExec(
   cmd: string,
@@ -1207,7 +1219,10 @@ export async function runMiseStartup(
   // Run mise install (idempotent — no-op when tools already cached)
   let install: { stdout: string; exitCode: number };
   try {
-    install = await execFn("mise", ["install"], { cwd: workspaceDir });
+    install = await execFn("mise", ["install"], {
+      cwd: workspaceDir,
+      timeoutMs: MISE_INSTALL_TIMEOUT_MS,
+    });
   } catch (err) {
     console.warn(
       `[agent] mise install failed — tools may be unavailable: ${(err as Error).message}`,
