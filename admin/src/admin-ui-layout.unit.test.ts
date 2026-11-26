@@ -138,3 +138,19 @@ describe("renderAdminPage", () => {
     expect(html).not.toContain('class="vos-signout-btn"');
   });
 });
+
+describe("renderAdminPage — theme", () => {
+  test("sets data-theme in <head>, before the styles, so nothing paints light first", () => {
+    const html = renderAdminPage({ title: "T", body: "<p>x</p>" });
+    const boot = html.indexOf('setAttribute("data-theme",t)');
+    expect(boot).toBeGreaterThan(-1);
+    expect(boot).toBeLessThan(html.indexOf("<style>"));
+    expect(boot).toBeLessThan(html.indexOf("</head>"));
+  });
+
+  test("declares both colour schemes and ships the dark palette", () => {
+    const html = renderAdminPage({ title: "T", body: "<p>x</p>" });
+    expect(html).toContain('<meta name="color-scheme" content="light dark" />');
+    expect(html).toContain(':root[data-theme="dark"]');
+  });
+});

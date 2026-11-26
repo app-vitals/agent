@@ -14,6 +14,7 @@
  * metrics/src/dashboard/dashboard-page.ts.
  */
 
+import { themeBootScript } from "@app-vitals/agent-lib/web/toolbar.ts";
 import { baseStyles, escapeHtml } from "./admin-ui-styles.ts";
 
 interface RenderAdminPageOptions {
@@ -51,6 +52,8 @@ export function renderAdminPage(opts: RenderAdminPageOptions): string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>${escapeHtml(opts.title)}</title>
+  <meta name="color-scheme" content="light dark" />
+  ${themeBootScript()}
   <style>${baseStyles()}${opts.extraStyles ?? ""}</style>${opts.headExtra ? `\n  ${opts.headExtra}` : ""}
 </head>
 ${bodyTag}

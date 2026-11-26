@@ -201,7 +201,9 @@ describe("renderLoginPage", () => {
 
   test("XSS: error string is escaped", () => {
     const html = renderLoginPage({ error: '<script>alert("xss")</script>' });
-    expect(html).not.toContain("<script>");
+    // The page shell carries its own theme script, so assert on the payload.
+    expect(html).not.toContain("<script>alert");
+    expect(html).not.toContain('alert("xss")');
     expect(html).toContain("&lt;script&gt;");
   });
 
@@ -1885,7 +1887,7 @@ describe("renderAgentDetailPage — tokens", () => {
     const noLabel: TokenItem = { ...TOKEN_ACTIVE, label: null };
     const html = render([noLabel]);
     // The template renders a grey dash span when label is null
-    expect(html).toContain("color:#9ca3af");
+    expect(html).toContain("color:var(--vos-text-faint)");
   });
 
   test("XSS: token label is escaped", () => {
@@ -2770,7 +2772,7 @@ describe("renderChatThreadPage", () => {
       [ASSISTANT_MSG],
       "alice",
     );
-    expect(html).toContain("#f0fdf4");
+    expect(html).toContain("var(--vos-success-bg)");
     expect(html).toContain("flex-start");
   });
 

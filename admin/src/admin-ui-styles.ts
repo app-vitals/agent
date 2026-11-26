@@ -28,7 +28,7 @@ export function baseStyles(): string {
     .page-title {
       font-size: 22px;
       font-weight: 700;
-      color: #1a1a2e;
+      color: var(--vos-text);
     }
 
     /* ─── Buttons ───────────────────────────────────────── */
@@ -46,28 +46,28 @@ export function baseStyles(): string {
       text-decoration: none;
     }
     .btn-primary {
-      background: #1a1a2e;
-      color: #fff;
-      border-color: #1a1a2e;
+      background: var(--vos-primary);
+      color: var(--vos-primary-text);
+      border-color: var(--vos-primary);
     }
-    .btn-primary:hover { background: #2d2d4e; }
+    .btn-primary:hover { background: var(--vos-primary-hover); }
     .btn-secondary {
-      background: #fff;
-      color: #1a1a2e;
-      border-color: #e8e8ee;
+      background: var(--vos-surface);
+      color: var(--vos-text);
+      border-color: var(--vos-border);
     }
-    .btn-secondary:hover { background: #f3f4f6; }
+    .btn-secondary:hover { background: var(--vos-surface-subtle); }
     .btn-danger {
-      background: #fff;
-      color: #dc2626;
-      border-color: #fee2e2;
+      background: var(--vos-surface);
+      color: var(--vos-danger);
+      border-color: var(--vos-danger-bg);
     }
-    .btn-danger:hover { background: #fee2e2; }
+    .btn-danger:hover { background: var(--vos-danger-bg); }
 
     /* ─── Cards / panels ────────────────────────────────── */
     .card {
-      background: #fff;
-      border: 1px solid #e8e8ee;
+      background: var(--vos-surface);
+      border: 1px solid var(--vos-border);
       border-radius: 10px;
       padding: 20px 24px;
       margin-bottom: 16px;
@@ -75,10 +75,10 @@ export function baseStyles(): string {
     .card-title {
       font-size: 14px;
       font-weight: 600;
-      color: #1a1a2e;
+      color: var(--vos-text);
       margin-bottom: 16px;
       padding-bottom: 12px;
-      border-bottom: 1px solid #f3f4f6;
+      border-bottom: 1px solid var(--vos-surface-subtle);
     }
 
     /* ─── Agent detail page — stat strip (AGA-1.2) ──────────── */
@@ -89,8 +89,8 @@ export function baseStyles(): string {
       margin-bottom: 24px;
     }
     .stat-tile {
-      background: #fff;
-      border: 1px solid #e8e8ee;
+      background: var(--vos-surface);
+      border: 1px solid var(--vos-border);
       border-radius: 10px;
       padding: 16px;
       text-align: center;
@@ -98,7 +98,7 @@ export function baseStyles(): string {
     .stat-tile-label {
       font-size: 12px;
       font-weight: 600;
-      color: #6b7280;
+      color: var(--vos-text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
       margin-bottom: 8px;
@@ -106,20 +106,20 @@ export function baseStyles(): string {
     .stat-tile-value {
       font-size: 28px;
       font-weight: 700;
-      color: #1a1a2e;
+      color: var(--vos-text);
     }
     .stat-tile-value span {
       display: block;
     }
     .stat-tile-warning {
-      background: #fef3c7;
-      border-color: #fde68a;
+      background: var(--vos-warning-bg);
+      border-color: var(--vos-warning-border);
     }
     .stat-tile-warning .stat-tile-label {
-      color: #92400e;
+      color: var(--vos-warning-text);
     }
     .stat-tile-warning .stat-tile-value {
-      color: #92400e;
+      color: var(--vos-warning-text);
     }
 
     /* ─── Tables ────────────────────────────────────────── */
@@ -134,27 +134,27 @@ export function baseStyles(): string {
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      color: #9ca3af;
+      color: var(--vos-text-faint);
       padding: 8px 12px;
-      border-bottom: 1px solid #f3f4f6;
+      border-bottom: 1px solid var(--vos-surface-subtle);
     }
     .data-table td {
       padding: 10px 12px;
-      border-bottom: 1px solid #f3f4f6;
-      color: #374151;
+      border-bottom: 1px solid var(--vos-surface-subtle);
+      color: var(--vos-text-body);
       vertical-align: middle;
     }
     .data-table tr:last-child td {
       border-bottom: none;
     }
     .data-table tr:hover td {
-      background: #fafafa;
+      background: var(--vos-surface-muted);
     }
 
     /* ─── Agent list ────────────────────────────────────── */
     .agent-link {
       font-weight: 500;
-      color: #1a1a2e;
+      color: var(--vos-text);
       text-decoration: none;
     }
     .agent-link:hover { text-decoration: underline; }
@@ -167,7 +167,7 @@ export function baseStyles(): string {
       display: block;
       font-size: 13px;
       font-weight: 500;
-      color: #374151;
+      color: var(--vos-text-body);
       margin-bottom: 6px;
     }
     .form-input {
@@ -175,14 +175,14 @@ export function baseStyles(): string {
       padding: 8px 12px;
       font-size: 14px;
       font-family: inherit;
-      border: 1px solid #e8e8ee;
+      border: 1px solid var(--vos-border);
       border-radius: 6px;
-      background: #fff;
-      color: #1a1a2e;
+      background: var(--vos-surface);
+      color: var(--vos-text);
     }
     .form-input:focus {
       outline: none;
-      border-color: #1a1a2e;
+      border-color: var(--vos-primary);
     }
     .form-row {
       display: flex;
@@ -202,8 +202,8 @@ export function baseStyles(): string {
       justify-content: center;
     }
     .login-card {
-      background: #fff;
-      border: 1px solid #e8e8ee;
+      background: var(--vos-surface);
+      border: 1px solid var(--vos-border);
       border-radius: 12px;
       padding: 40px;
       width: 100%;
@@ -216,7 +216,7 @@ export function baseStyles(): string {
     }
     .login-subtitle {
       font-size: 13px;
-      color: #6b7280;
+      color: var(--vos-text-muted);
       margin-bottom: 28px;
     }
 
@@ -228,19 +228,19 @@ export function baseStyles(): string {
       margin-bottom: 16px;
     }
     .alert-error {
-      background: #fee2e2;
-      color: #dc2626;
-      border: 1px solid #fecaca;
+      background: var(--vos-danger-bg);
+      color: var(--vos-danger);
+      border: 1px solid var(--vos-danger-border);
     }
     .alert-success {
-      background: #d1fae5;
-      color: #065f46;
-      border: 1px solid #a7f3d0;
+      background: var(--vos-success-bg);
+      color: var(--vos-success-text);
+      border: 1px solid var(--vos-success-border);
     }
     .alert-warning {
-      background: #fef3c7;
-      color: #92400e;
-      border: 1px solid #fde68a;
+      background: var(--vos-warning-bg);
+      color: var(--vos-warning-text);
+      border: 1px solid var(--vos-warning-border);
     }
 
     /* ─── Badges ────────────────────────────────────────── */
@@ -253,24 +253,24 @@ export function baseStyles(): string {
       border-radius: 9999px;
     }
     .badge-green {
-      background: #d1fae5;
-      color: #065f46;
+      background: var(--vos-success-bg);
+      color: var(--vos-success-text);
     }
     .badge-gray {
-      background: #f3f4f6;
-      color: #6b7280;
+      background: var(--vos-surface-subtle);
+      color: var(--vos-text-muted);
     }
     .badge-warning {
-      background: #fde68a;
-      color: #92400e;
+      background: var(--vos-warning-border);
+      color: var(--vos-warning-text);
     }
     .badge-template {
-      background: #dbeafe;
-      color: #1e40af;
+      background: var(--vos-info-bg);
+      color: var(--vos-info-text);
     }
     .badge-custom {
-      background: #ede9fe;
-      color: #5b21b6;
+      background: var(--vos-violet-bg);
+      color: var(--vos-violet-text);
     }
 
     /* ─── Scope pills (filter chips) ────────────────────── */
@@ -282,22 +282,22 @@ export function baseStyles(): string {
       font-weight: 500;
       padding: 3px 10px;
       border-radius: 9999px;
-      background: #f3f4f6;
-      color: #374151;
-      border: 1px solid #e5e7eb;
+      background: var(--vos-surface-subtle);
+      color: var(--vos-text-body);
+      border: 1px solid var(--vos-border);
     }
     .scope-pill.active {
-      background: #eef2ff;
-      color: #4338ca;
-      border-color: #c7d2fe;
+      background: var(--vos-brand-bg);
+      color: var(--vos-brand-strong);
+      border-color: var(--vos-brand-border);
     }
     .scope-pill-remove {
       cursor: pointer;
-      color: #9ca3af;
+      color: var(--vos-text-faint);
       font-weight: 700;
       line-height: 1;
     }
-    .scope-pill-remove:hover { color: #374151; }
+    .scope-pill-remove:hover { color: var(--vos-text-body); }
 
     /* Org/Repo multiselect filters (renderRepoOrgFilterFields) restyled as
        pill/tag-style fields (AXR-1.1). These stay two independent
@@ -309,11 +309,11 @@ export function baseStyles(): string {
     }
     .scope-select {
       border-radius: 10px;
-      background: #f9fafb;
+      background: var(--vos-surface-muted);
     }
     .scope-select option:checked {
-      background: #eef2ff;
-      color: #4338ca;
+      background: var(--vos-brand-bg);
+      color: var(--vos-brand-strong);
     }
 
     /* ─── Board / column / card layout ──────────────────── */
@@ -329,8 +329,8 @@ export function baseStyles(): string {
       display: flex;
       flex-direction: column;
       gap: 10px;
-      background: #f9fafb;
-      border: 1px solid #e8e8ee;
+      background: var(--vos-surface-muted);
+      border: 1px solid var(--vos-border);
       border-radius: 10px;
       padding: 12px;
     }
@@ -340,7 +340,7 @@ export function baseStyles(): string {
       justify-content: space-between;
       font-size: 12px;
       font-weight: 600;
-      color: #6b7280;
+      color: var(--vos-text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
       margin-bottom: 4px;
@@ -348,9 +348,9 @@ export function baseStyles(): string {
     .column-count {
       font-size: 11px;
       font-weight: 600;
-      color: #9ca3af;
-      background: #fff;
-      border: 1px solid #e8e8ee;
+      color: var(--vos-text-faint);
+      background: var(--vos-surface);
+      border: 1px solid var(--vos-border);
       border-radius: 9999px;
       padding: 1px 8px;
     }
@@ -363,19 +363,19 @@ export function baseStyles(): string {
 
     /* ─── Additional badge variants (beyond badge-hitl/badge-dep) ───────── */
     .badge-purple {
-      background: #ede9fe;
-      color: #5b21b6;
+      background: var(--vos-violet-bg);
+      color: var(--vos-violet-text);
     }
     .badge-teal {
-      background: #ccfbf1;
-      color: #0f766e;
+      background: var(--vos-teal-bg);
+      color: var(--vos-teal-text);
     }
 
     /* ─── Header tooltip (hover, data-tip attribute) ────── */
     .header-tooltip {
       position: relative;
       cursor: help;
-      border-bottom: 1px dotted #9ca3af;
+      border-bottom: 1px dotted var(--vos-text-faint);
     }
     .header-tooltip[data-tip]:hover::after {
       content: attr(data-tip);
@@ -384,8 +384,8 @@ export function baseStyles(): string {
       left: 50%;
       transform: translateX(-50%);
       white-space: nowrap;
-      background: #1a1a2e;
-      color: #fff;
+      background: var(--vos-primary);
+      color: var(--vos-primary-text);
       font-size: 11px;
       font-weight: 500;
       padding: 4px 8px;
@@ -400,7 +400,7 @@ export function baseStyles(): string {
       width: 8px;
       height: 8px;
       border-radius: 9999px;
-      background: #d1d5db;
+      background: var(--vos-border-strong);
     }
     .heartbeat-dot.fresh { background: #22c55e; }
     .heartbeat-dot.aging { background: #f59e0b; }
@@ -414,7 +414,7 @@ export function baseStyles(): string {
       cursor: pointer;
       font-size: 12px;
       font-weight: 500;
-      color: #6b7280;
+      color: var(--vos-text-muted);
       list-style: none;
     }
     .more-filters summary::-webkit-details-marker { display: none; }
@@ -428,7 +428,7 @@ export function baseStyles(): string {
       transform: rotate(90deg);
     }
     .more-filters[open] summary {
-      color: #1a1a2e;
+      color: var(--vos-text);
     }
     /* Active-filter count badge — visible whether collapsed or open. */
     .more-filters summary .badge {
@@ -451,19 +451,19 @@ export function baseStyles(): string {
     .provision-step {
       font-size: 12px;
       font-weight: 500;
-      color: #9ca3af;
+      color: var(--vos-text-faint);
       padding: 4px 10px;
       border-radius: 4px;
-      background: #f3f4f6;
+      background: var(--vos-surface-subtle);
     }
     .provision-step.active {
-      background: #1a1a2e;
-      color: #fff;
+      background: var(--vos-primary);
+      color: var(--vos-primary-text);
     }
     .oauth-url-box {
       word-break: break-all;
-      background: #f9fafb;
-      border: 1px solid #e8e8ee;
+      background: var(--vos-surface-muted);
+      border: 1px solid var(--vos-border);
       border-radius: 6px;
       padding: 12px 14px;
       font-size: 13px;
@@ -475,7 +475,7 @@ export function baseStyles(): string {
     .empty-state {
       text-align: center;
       padding: 32px;
-      color: #9ca3af;
+      color: var(--vos-text-faint);
       font-size: 13px;
     }
 
@@ -494,11 +494,11 @@ export function baseStyles(): string {
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
       /* Scroll-shadow: fades appear at edges when content overflows */
-      background-color: #fff;
+      background-color: var(--vos-surface);
       background-image:
-        linear-gradient(to right, #fff, #fff),
+        linear-gradient(to right, var(--vos-surface), var(--vos-surface)),
         linear-gradient(to right, rgba(0,0,0,0.05), transparent),
-        linear-gradient(to left, #fff, #fff),
+        linear-gradient(to left, var(--vos-surface), var(--vos-surface)),
         linear-gradient(to left, rgba(0,0,0,0.05), transparent);
       background-position: left, left, right, right;
       background-size: 20px 100%, 20px 100%, 24px 100%, 24px 100%;
@@ -586,32 +586,32 @@ export function baseStyles(): string {
       flex: 0 0 260px;
       width: 260px;
       padding-right: 16px;
-      border-right: 1px solid #e8e8ee;
+      border-right: 1px solid var(--vos-border);
     }
     .settings-nav-mobile { display: none; }
     .settings-nav-section { margin-bottom: 16px; }
     .settings-nav-label {
       font-size: 12px;
       font-weight: 600;
-      color: #6b7280;
+      color: var(--vos-text-muted);
       text-transform: uppercase;
       letter-spacing: 0.04em;
       padding: 0 12px 6px;
       margin-bottom: 6px;
-      border-bottom: 1px solid #e8e8ee;
+      border-bottom: 1px solid var(--vos-border);
     }
     .settings-nav-link {
       display: block;
       padding: 6px 12px;
       border-radius: 6px;
       font-size: 14px;
-      color: #1a1a2e;
+      color: var(--vos-text);
       text-decoration: none;
     }
-    .settings-nav-link:hover { background: #f7f7fb; }
+    .settings-nav-link:hover { background: var(--vos-bg); }
     .settings-nav-link[aria-current="page"] {
-      background: #eef2ff;
-      color: #4f46e5;
+      background: var(--vos-brand-bg);
+      color: var(--vos-brand);
       font-weight: 600;
     }
     .settings-content { flex: 1 1 auto; min-width: 0; }
@@ -624,30 +624,30 @@ export function baseStyles(): string {
     .settings-content h1 {
       font-size: 24px;
       font-weight: 600;
-      color: #1a1a2e;
+      color: var(--vos-text);
       margin: 0 0 24px;
       padding-bottom: 12px;
-      border-bottom: 1px solid #e8e8ee;
+      border-bottom: 1px solid var(--vos-border);
     }
     .settings-section-title {
       font-size: 18px;
       font-weight: 600;
-      color: #1a1a2e;
+      color: var(--vos-text);
       margin: 32px 0 16px;
       padding-bottom: 8px;
-      border-bottom: 1px solid #e8e8ee;
+      border-bottom: 1px solid var(--vos-border);
     }
     .settings-danger-zone {
-      border: 1px solid #dc2626;
-      background: #fff;
+      border: 1px solid var(--vos-danger);
+      background: var(--vos-surface);
       border-radius: 8px;
       padding: 16px 20px;
       margin-top: 16px;
     }
     .settings-danger-zone > .settings-section-title {
-      color: #dc2626;
+      color: var(--vos-danger);
       margin-top: 0;
-      border-bottom-color: #fee2e2;
+      border-bottom-color: var(--vos-danger-bg);
     }
     @media (max-width: ${BREAKPOINT_MOBILE_MAX}px) {
       .settings-layout { flex-direction: column; gap: 16px; }
@@ -655,9 +655,9 @@ export function baseStyles(): string {
       .settings-nav-mobile {
         display: block;
         width: 100%;
-        border: 1px solid #e8e8ee;
+        border: 1px solid var(--vos-border);
         border-radius: 8px;
-        background: #fff;
+        background: var(--vos-surface);
       }
       .settings-nav-mobile summary {
         padding: 12px;
@@ -665,7 +665,7 @@ export function baseStyles(): string {
         box-sizing: border-box;
         cursor: pointer;
         font-weight: 600;
-        color: #4f46e5;
+        color: var(--vos-brand);
       }
       .settings-nav-mobile .settings-nav-link { padding: 12px; }
     }

@@ -41,7 +41,7 @@ export function renderPushToggle(args: PushToggleArgs): string {
   return `
 <div class="push-toggle" id="push-toggle" style="margin:8px 0;font-size:13px">
   <button type="button" id="push-toggle-btn" class="btn btn-secondary" style="display:none">Enable notifications</button>
-  <span id="push-toggle-status" style="color:#6b7280"></span>
+  <span id="push-toggle-status" style="color:var(--vos-text-muted)"></span>
 </div>
 <script>
 (function() {

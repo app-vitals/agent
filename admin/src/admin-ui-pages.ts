@@ -428,7 +428,7 @@ export function renderAgentsPage(
   const accountCell = (a: AgentListItem): string => {
     if (!showAccount) return "";
     const name = a.accountId ? opts?.accountNames?.get(a.accountId) : undefined;
-    return `<td>${a.accountId && name ? `<a href="/admin/accounts/${escapeHtml(a.accountId)}">${escapeHtml(name)}</a>` : '<span style="color:#9ca3af">—</span>'}</td>`;
+    return `<td>${a.accountId && name ? `<a href="/admin/accounts/${escapeHtml(a.accountId)}">${escapeHtml(name)}</a>` : '<span style="color:var(--vos-text-faint)">—</span>'}</td>`;
   };
   const successHtml = opts?.successMsg
     ? `<div class="alert alert-success">${escapeHtml(opts.successMsg)}</div>`
@@ -453,7 +453,7 @@ export function renderAgentsPage(
           .map(
             (a) => `<tr>
     <td><a href="/admin/agents/${escapeHtml(a.id)}" class="agent-link">${escapeHtml(a.name)}</a></td>
-    <td class="mono">${a.slackId ? escapeHtml(a.slackId) : '<span style="color:#9ca3af">—</span>'}</td>
+    <td class="mono">${a.slackId ? escapeHtml(a.slackId) : '<span style="color:var(--vos-text-faint)">—</span>'}</td>
     ${accountCell(a)}
     <td>${escapeHtml(new Date(a.createdAt).toLocaleDateString("en-US", { timeZone: timezone }))}</td>
     <td>
@@ -569,7 +569,7 @@ export function renderNewLocalAgentPage(
             class="form-input"
             placeholder="sk-ant-oat01-..."
           />
-          <p style="font-size:12px;color:#6b7280;margin-top:4px">
+          <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">
             Stored as the agent's <span class="mono">CLAUDE_CODE_OAUTH_TOKEN</span>. Required for the agent
             to run — set it here or from the agent detail page.
           </p>
@@ -583,7 +583,7 @@ export function renderNewLocalAgentPage(
             class="form-input"
             placeholder="sk-ant-..."
           />
-          <p style="font-size:12px;color:#6b7280;margin-top:4px">
+          <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">
             Stored as the agent's <span class="mono">ANTHROPIC_API_KEY</span>.
           </p>
         </div>`;
@@ -613,14 +613,14 @@ export function renderNewLocalAgentPage(
       </p>
       ${
         selfServe.remaining <= 0
-          ? `<p style="font-size:13px;color:#b91c1c;margin-bottom:8px">
+          ? `<p style="font-size:13px;color:var(--vos-danger-text);margin-bottom:8px">
         This account has reached its agent limit. Delete an agent to free a slot,
         or contact <a href="mailto:${escapeHtml(selfServe.contactEmail)}">${escapeHtml(selfServe.contactEmail)}</a> for more.
       </p>`
           : ""
       }
-      <p style="font-size:13px;color:#6b7280;margin-bottom:4px">Have these ready before you start:</p>
-      <ul style="font-size:13px;color:#6b7280;margin-left:20px">
+      <p style="font-size:13px;color:var(--vos-text-muted);margin-bottom:4px">Have these ready before you start:</p>
+      <ul style="font-size:13px;color:var(--vos-text-muted);margin-left:20px">
         <li>A Slack App Configuration Token</li>
         <li>A GitHub org with an App, or a personal access token (PAT)</li>
         <li>A Claude API key or OAuth token</li>
@@ -629,12 +629,12 @@ export function renderNewLocalAgentPage(
     : "";
   const tplOpts = opts?.template;
   const templateFieldsetHtml = tplOpts
-    ? `<fieldset id="template-section" style="border:1px solid #e8e8ee;border-radius:8px;padding:16px">
+    ? `<fieldset id="template-section" style="border:1px solid var(--vos-border);border-radius:8px;padding:16px">
           <legend style="font-size:13px;font-weight:600;padding:0 8px">Agent template</legend>
           ${
             tplOpts.items.length === 0
-              ? `<p style="font-size:13px;color:#6b7280;margin-bottom:12px">No template items apply to new agents.</p>`
-              : `<p style="font-size:13px;color:#6b7280;margin-bottom:8px">New agents start with these template defaults${tplOpts.allowEnv ? "; anything you enter below overrides them" : ""}:</p>
+              ? `<p style="font-size:13px;color:var(--vos-text-muted);margin-bottom:12px">No template items apply to new agents.</p>`
+              : `<p style="font-size:13px;color:var(--vos-text-muted);margin-bottom:8px">New agents start with these template defaults${tplOpts.allowEnv ? "; anything you enter below overrides them" : ""}:</p>
           <table class="data-table" style="margin-bottom:12px">
             <thead><tr><th>Kind</th><th>Key</th><th>Default</th><th>Applies to</th></tr></thead>
             <tbody>${tplOpts.items
@@ -650,7 +650,7 @@ export function renderNewLocalAgentPage(
               ? `<div class="form-group">
             <label class="form-label" for="env">Env overrides (optional)</label>
             <textarea id="env" name="env" class="form-input mono" rows="3" placeholder="KEY=value (one per line)"></textarea>
-            <p style="font-size:12px;color:#6b7280;margin-top:4px">
+            <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">
               Values entered here win over the template defaults above and stay fixed when the template changes.
             </p>
           </div>`
@@ -661,7 +661,7 @@ export function renderNewLocalAgentPage(
               <input type="checkbox" name="templateDetached" value="true" />
               Start without the template (opt out)
             </label>
-            <p style="font-size:12px;color:#6b7280;margin-top:4px">
+            <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">
               The agent gets only its built-in defaults and ignores later template changes until you reattach it.
             </p>
           </div>
@@ -681,14 +681,14 @@ export function renderNewLocalAgentPage(
   <div class="vos-page">
     <div class="page-header">
       <div>
-        <a href="/admin/agents" style="font-size:13px;color:#6b7280;text-decoration:none">← Agents</a>
+        <a href="/admin/agents" style="font-size:13px;color:var(--vos-text-muted);text-decoration:none">← Agents</a>
         <h1 class="page-title" style="margin-top:4px">New Agent</h1>
       </div>
     </div>
     ${errorHtml}
     ${selfServeHtml}
     <div class="card">
-      <p style="font-size:14px;color:#6b7280;margin-bottom:20px">
+      <p style="font-size:14px;color:var(--vos-text-muted);margin-bottom:20px">
         Create an agent and choose where it runs. Slack and GitHub connections
         below are optional — you can always talk to the agent from the
         <a href="/admin/chat">Chat</a> tab first and connect them later from
@@ -708,7 +708,7 @@ export function renderNewLocalAgentPage(
           />
         </div>
         ${typeFieldHtml}
-        <fieldset style="border:1px solid #e8e8ee;border-radius:8px;padding:16px">
+        <fieldset style="border:1px solid var(--vos-border);border-radius:8px;padding:16px">
           <legend style="font-size:13px;font-weight:600;padding:0 8px">Runtime</legend>
           <div class="form-group" style="margin-bottom:0">
             <label style="display:block;font-size:13px;font-weight:500;margin-bottom:8px">
@@ -716,7 +716,7 @@ export function renderNewLocalAgentPage(
                 onchange="${runtimeSectionsOnchange("")}"
               />
               Provisioned in-cluster
-              <span style="font-weight:400;color:#6b7280">
+              <span style="font-weight:400;color:var(--vos-text-muted)">
                 — the admin service creates the Deployment, Secret, and PVC for you.
               </span>
             </label>
@@ -725,14 +725,14 @@ export function renderNewLocalAgentPage(
                 onchange="${runtimeSectionsOnchange("none")}"
               />
               Self-hosted
-              <span style="font-weight:400;color:#6b7280">
+              <span style="font-weight:400;color:var(--vos-text-muted)">
                 — you run the container yourself (<span class="mono">task stack</span>, local Docker).
               </span>
             </label>
             ${
               canProvision
                 ? ""
-                : `<p style="font-size:12px;color:#6b7280;margin-top:8px">
+                : `<p style="font-size:12px;color:var(--vos-text-muted);margin-top:8px">
               In-cluster provisioning is unavailable — <span class="mono">SHIPWRIGHT_K8S_PROVISIONING</span> is not enabled on this admin service.
             </p>`
             }
@@ -748,7 +748,7 @@ export function renderNewLocalAgentPage(
             rows="4"
             placeholder="my-org/repo-one&#10;my-org/repo-two"
           ></textarea>
-          <p style="font-size:12px;color:#6b7280;margin-top:4px">Format: <span class="mono">org/repo</span></p>
+          <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">Format: <span class="mono">org/repo</span></p>
         </div>
         <div class="form-group">
           <label class="form-label" for="authorAllowlist">Author allowlist (review) (optional, one GitHub login per line)</label>
@@ -759,7 +759,7 @@ export function renderNewLocalAgentPage(
             rows="4"
             placeholder="octocat&#10;another-user"
           ></textarea>
-          <p style="font-size:12px;color:#6b7280;margin-top:4px">GitHub login, one per line</p>
+          <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">GitHub login, one per line</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="patchAuthorAllowlist">Patch author allowlist (optional, one GitHub login per line)</label>
@@ -770,7 +770,7 @@ export function renderNewLocalAgentPage(
             rows="4"
             placeholder="octocat&#10;another-user"
           ></textarea>
-          <p style="font-size:12px;color:#6b7280;margin-top:4px">GitHub login, one per line</p>
+          <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">GitHub login, one per line</p>
         </div>
         <div id="restrict-slack-group" style="display:${runtimeSectionsDisplay}">
           <div class="form-group" style="display:flex;align-items:center;gap:6px">
@@ -783,7 +783,7 @@ export function renderNewLocalAgentPage(
             />
             <label class="form-label" for="restrictSlackToMembers" style="margin-bottom:0">Restrict Slack to members</label>
           </div>
-          <p style="font-size:12px;color:#6b7280;margin-top:-12px">
+          <p style="font-size:12px;color:var(--vos-text-muted);margin-top:-12px">
             When enabled, only AgentMember emails may message this agent over Slack. If the agent has no
             members yet, enabling this will block all Slack senders.
           </p>
@@ -797,11 +797,11 @@ export function renderNewLocalAgentPage(
                 rows="4"
                 placeholder="alice@example.com&#10;bob@example.com"
               ></textarea>
-              <p style="font-size:12px;color:#6b7280;margin-top:4px">Email address, one per line</p>
+              <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">Email address, one per line</p>
             </div>
           </div>
         </div>
-        <fieldset id="slack-section" style="display:${runtimeSectionsDisplay};border:1px solid #e8e8ee;border-radius:8px;padding:16px">
+        <fieldset id="slack-section" style="display:${runtimeSectionsDisplay};border:1px solid var(--vos-border);border-radius:8px;padding:16px">
           <legend style="font-size:13px;font-weight:600;padding:0 8px">Slack (optional)</legend>
           <div class="form-group" style="display:flex;align-items:center;gap:6px;margin-bottom:0">
             <input
@@ -823,7 +823,7 @@ export function renderNewLocalAgentPage(
                 class="form-input"
                 placeholder="xoxe.xoxp-..."
               />
-              <p style="font-size:12px;color:#6b7280;margin-top:4px">
+              <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">
                 ${
                   opts?.slackConfigTokenStored
                     ? "Optional: a stored Slack config token is configured in Settings and is used when this is left blank. A token pasted here is used instead. "
@@ -834,7 +834,7 @@ export function renderNewLocalAgentPage(
             </div>
           </div>
         </fieldset>
-        <fieldset id="github-section" style="display:${runtimeSectionsDisplay};border:1px solid #e8e8ee;border-radius:8px;padding:16px">
+        <fieldset id="github-section" style="display:${runtimeSectionsDisplay};border:1px solid var(--vos-border);border-radius:8px;padding:16px">
           <legend style="font-size:13px;font-weight:600;padding:0 8px">GitHub Authentication (optional)</legend>
           <!--
             ghAppMode disambiguates the two ghAuthMode="app" radios below
@@ -850,7 +850,7 @@ export function renderNewLocalAgentPage(
               <input type="radio" name="ghAuthMode" value="skip" checked
                 onchange="document.getElementById('gh-pat-fields').style.display='none';document.getElementById('gh-app-fields').style.display='none';document.getElementById('gh-app-manual-fields').style.display='none'"
               /> Skip
-              <span style="font-weight:400;color:#6b7280">
+              <span style="font-weight:400;color:var(--vos-text-muted)">
                 — connect GitHub later from the agent detail page.
               </span>
             </label>
@@ -868,7 +868,7 @@ export function renderNewLocalAgentPage(
               <input type="radio" name="ghAuthMode" value="app"
                 onchange="document.getElementById('ghAppMode').value='manual';document.getElementById('gh-pat-fields').style.display='none';document.getElementById('gh-app-fields').style.display='none';document.getElementById('gh-app-manual-fields').style.display='block'"
               /> Use existing GitHub App
-              <span style="font-weight:400;color:#6b7280">
+              <span style="font-weight:400;color:var(--vos-text-muted)">
                 — connect a GitHub App you've already created.
               </span>
             </label>
@@ -883,7 +883,7 @@ export function renderNewLocalAgentPage(
             <div class="form-group">
               <label class="form-label" for="githubOrg">GitHub org</label>
               <input id="githubOrg" name="githubOrg" type="text" class="form-input" placeholder="my-org" />
-              <p style="font-size:12px;color:#6b7280;margin-top:4px">
+              <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">
                 You'll be redirected to GitHub to create the App under this organization from a manifest.
               </p>
             </div>
@@ -900,7 +900,7 @@ export function renderNewLocalAgentPage(
             <div class="form-group">
               <label class="form-label" for="ghAppPrivateKeyFile">Private Key (.pem)</label>
               <input id="ghAppPrivateKeyFile" name="ghAppPrivateKeyFile" type="file" accept=".pem" class="form-input" />
-              <p style="font-size:12px;color:#6b7280;margin-top:4px">
+              <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">
                 Upload the private key <span class="mono">.pem</span> file you downloaded when creating the GitHub App.
               </p>
             </div>
@@ -980,8 +980,8 @@ function renderConnectAction(
     .join("\n              ");
   return `<details style="position:relative">
           <summary class="btn btn-secondary" style="cursor:pointer;font-size:12px;list-style:none">${escapeHtml(cfg.label)}</summary>
-          <div style="position:absolute;left:0;margin-top:6px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:12px;box-shadow:0 4px 12px rgba(0,0,0,0.08);z-index:10;min-width:320px">
-            <p style="font-size:12px;color:#6b7280;margin:0 0 10px">${cfg.description}</p>
+          <div style="position:absolute;left:0;margin-top:6px;background:var(--vos-surface);border:1px solid var(--vos-border);border-radius:6px;padding:12px;box-shadow:0 4px 12px rgba(0,0,0,0.08);z-index:10;min-width:320px">
+            <p style="font-size:12px;color:var(--vos-text-muted);margin:0 0 10px">${cfg.description}</p>
             <form method="POST" action="${cfg.action}"${hasFileInput ? ' enctype="multipart/form-data"' : ""} style="display:flex;flex-direction:column;gap:8px">
               ${hiddenInputs}
               ${visibleInputs}
@@ -1255,7 +1255,7 @@ export function renderAgentDetailPage(
           .map(
             ([k]) => `<tr>
       <td class="mono">${escapeHtml(k)}${secretKeySet.has(k) ? ' <span title="Secret">🔒</span>' : ""}${sourceBadge(envSources[k])}</td>
-      <td class="mono" style="color:#6b7280">••••••••</td>
+      <td class="mono" style="color:var(--vos-text-muted)">••••••••</td>
       <td>
         <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/envs/delete" style="display:inline">
           <input type="hidden" name="key" value="${escapeHtml(k)}" />
@@ -1417,15 +1417,15 @@ export function renderAgentDetailPage(
           <td style="font-size:11px">${
             child.lastRun?.startedAt
               ? `<span class="badge" style="${cronOutcomeStyle(lastRunOutcomeLabel)}">${escapeHtml(lastRunOutcomeLabel ?? "unknown")}</span>`
-              : `<span style="color:#d1d5db">never</span>`
+              : `<span style="color:var(--vos-border-strong)">never</span>`
           }</td>
           <td style="white-space:nowrap">${renderCronActions(child)}</td>
         </tr>`;
       })
       .join("\n");
     return `<tr>
-      <td colspan="8" style="background:#f9fafb;padding:12px 12px 12px 32px">
-        <div style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Phases of ${escapeHtml(parentLabel)}</div>
+      <td colspan="8" style="background:var(--vos-surface-muted);padding:12px 12px 12px 32px">
+        <div style="font-size:11px;font-weight:600;color:var(--vos-text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Phases of ${escapeHtml(parentLabel)}</div>
         <table class="data-table">
           <thead>
             <tr>
@@ -1454,7 +1454,7 @@ export function renderAgentDetailPage(
       ? ""
       : `
       <details style="margin-top:6px">
-        <summary style="cursor:pointer;font-size:11px;color:#6b7280">Edit</summary>
+        <summary style="cursor:pointer;font-size:11px;color:var(--vos-text-muted)">Edit</summary>
         <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/crons/${escapeHtml(c.id)}/update" style="display:flex;flex-direction:column;gap:4px;margin-top:6px;min-width:240px">
           <input name="schedule" type="text" class="form-input mono" style="font-size:11px;padding:3px 6px" value="${escapeHtml(c.schedule)}" placeholder="0 * * * *" required title="Cron expression (5 fields)" />
           <textarea name="prompt" class="form-input" style="font-size:11px;padding:3px 6px;min-height:48px" placeholder="Prompt" required>${escapeHtml(c.prompt)}</textarea>
@@ -1468,12 +1468,12 @@ export function renderAgentDetailPage(
       : null;
     const lastRunHtml = c.lastRun?.startedAt
       ? `
-      <div style="font-size:11px;color:#6b7280;margin-bottom:4px">${relativeTime(c.lastRun.startedAt, now)}</div>
+      <div style="font-size:11px;color:var(--vos-text-muted);margin-bottom:4px">${relativeTime(c.lastRun.startedAt, now)}</div>
       <div>
         <span class="badge" style="${cronOutcomeStyle(lastRunOutcomeLabel)}">${escapeHtml(lastRunOutcomeLabel ?? "unknown")}</span>
       </div>
-      <div style="font-size:11px;color:#6b7280;margin-top:4px">${c.runCountToday ?? 0} run${(c.runCountToday ?? 0) === 1 ? "" : "s"}</div>`
-      : `<div style="color:#d1d5db">never</div>`;
+      <div style="font-size:11px;color:var(--vos-text-muted);margin-top:4px">${c.runCountToday ?? 0} run${(c.runCountToday ?? 0) === 1 ? "" : "s"}</div>`
+      : `<div style="color:var(--vos-border-strong)">never</div>`;
 
     const children = crons.filter((child) => child.parentCronId === c.id);
     const nestedPhasesRow = renderNestedPhasesRow(c, children);
@@ -1481,7 +1481,7 @@ export function renderAgentDetailPage(
     return `<tr>
       <td class="mono">${escapeHtml(c.schedule)}</td>
       <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.name ? `${c.name}: ${c.prompt}` : c.prompt)}${sourceBadge(c.system ? undefined : c.source)}</td>
-      <td class="mono" style="font-size:11px;color:#6b7280;max-width:170px;overflow:hidden;text-overflow:ellipsis">${c.preCheck ? escapeHtml(c.preCheck) : "—"}</td>
+      <td class="mono" style="font-size:11px;color:var(--vos-text-muted);max-width:170px;overflow:hidden;text-overflow:ellipsis">${c.preCheck ? escapeHtml(c.preCheck) : "—"}</td>
       <td>${c.channel ? escapeHtml(c.channel) : c.user ? escapeHtml(c.user) : "—"}</td>
       <td><span class="badge ${c.enabled ? "badge-green" : "badge-gray"}">${c.enabled ? "enabled" : "disabled"}</span></td>
       <td style="font-size:11px">${lastRunHtml}</td>
@@ -1529,7 +1529,7 @@ export function renderAgentDetailPage(
       : tokens
           .map(
             (t) => `<tr>
-      <td>${t.label ? escapeHtml(t.label) : '<span style="color:#9ca3af">—</span>'}</td>
+      <td>${t.label ? escapeHtml(t.label) : '<span style="color:var(--vos-text-faint)">—</span>'}</td>
       <td>${escapeHtml(new Date(t.createdAt).toLocaleDateString("en-US", { timeZone: timezone }))}</td>
       <td>${t.revokedAt ? `<span class="badge badge-gray">Revoked ${escapeHtml(new Date(t.revokedAt).toLocaleDateString("en-US", { timeZone: timezone }))}</span>` : '<span class="badge badge-green">Active</span>'}</td>
       <td>${
@@ -1593,8 +1593,8 @@ export function renderAgentDetailPage(
     .map(
       (name) => `<tr data-baked-marketplace="${escapeHtml(name)}">
       <td class="mono">${escapeHtml(name)}</td>
-      <td class="mono" style="color:#6b7280">—</td>
-      <td class="mono" style="color:#6b7280">—</td>
+      <td class="mono" style="color:var(--vos-text-muted)">—</td>
+      <td class="mono" style="color:var(--vos-text-muted)">—</td>
       <td><span class="badge badge-gray" title="Comes from the agent image; only an image update changes it">from image</span></td>
       <td></td>
     </tr>`,
@@ -1910,7 +1910,7 @@ export function renderAgentDetailPage(
           <input type="hidden" name="restrictSlackToMembers" value="false" />
           <label class="form-label" for="restrictSlackToMembers" style="margin-bottom:0">Restrict Slack to members</label>
         </div>
-        <p style="font-size:12px;color:#6b7280;margin:4px 0 12px">
+        <p style="font-size:12px;color:var(--vos-text-muted);margin:4px 0 12px">
           When enabled, only AgentMember emails may message this agent over Slack. If the agent has no
           members yet, enabling this will block all Slack senders.
         </p>
@@ -1924,12 +1924,12 @@ export function renderAgentDetailPage(
 
       ${
         agent.selfHosted
-          ? `<p style="font-size:13px;color:#6b7280;margin:0 0 16px">Crons fire only while the local agent service is running. Make sure your service is active before enabling crons.</p>`
+          ? `<p style="font-size:13px;color:var(--vos-text-muted);margin:0 0 16px">Crons fire only while the local agent service is running. Make sure your service is active before enabling crons.</p>`
           : ""
       }
 
       <div style="margin-bottom:20px">
-        <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">System</div>
+        <div style="font-size:12px;font-weight:600;color:var(--vos-text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">System</div>
         <div class="data-table-wrapper">
           <table class="data-table">
             <thead>
@@ -1952,7 +1952,7 @@ export function renderAgentDetailPage(
       </div>
 
       <div>
-        <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Custom</div>
+        <div style="font-size:12px;font-weight:600;color:var(--vos-text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Custom</div>
         <form method="POST" action="/admin/agents/${escapeHtml(agent.id)}/crons" style="margin-bottom:12px">
           <div class="form-row" style="flex-wrap:wrap;gap:8px">
             <div class="form-group">
@@ -2102,18 +2102,19 @@ export function renderAgentDetailPage(
         <input name="ref" type="text" class="form-input mono" placeholder="ref (optional)" />
         <button type="submit" class="btn btn-primary">Add marketplace</button>
       </form>
-      <p style="color:#6b7280;font-size:12px;margin-top:8px">Rows marked "from image" are baked into the agent's image and can't be edited here.</p>
+      <p style="color:var(--vos-text-muted);font-size:12px;margin-top:8px">Rows marked "from image" are baked into the agent's image and can't be edited here.</p>
     </div>`;
 
   // PAI-2.5: read-only trace from this agent to its Anthropic identity. Values
   // are user data (owner email) or provider IDs, so every one is escaped.
-  const identityPlaceholder = '<span style="color:#9ca3af">—</span>';
+  const identityPlaceholder =
+    '<span style="color:var(--vos-text-faint)">—</span>';
   const identityRow = (
     label: string,
     value: string | null | undefined,
     mono: boolean,
   ): string =>
-    `<tr><td style="color:#6b7280;width:200px">${label}</td><td${mono ? ' class="mono"' : ""}>${value ? escapeHtml(value) : identityPlaceholder}</td></tr>`;
+    `<tr><td style="color:var(--vos-text-muted);width:200px">${label}</td><td${mono ? ' class="mono"' : ""}>${value ? escapeHtml(value) : identityPlaceholder}</td></tr>`;
   const identitySection = `<div class="card">
       <div class="card-title">Owner &amp; identities</div>
       <table class="detail-table"><tbody>
@@ -2152,7 +2153,7 @@ export function renderAgentDetailPage(
           <input type="hidden" name="signedCommits" value="false" />
           <label class="form-label" for="signedCommits" style="margin-bottom:0">Signed commits</label>
         </div>
-        <p style="font-size:12px;color:#6b7280;margin:4px 0 12px">
+        <p style="font-size:12px;color:var(--vos-text-muted);margin:4px 0 12px">
           Commits are made through the GitHub API so they show Verified. Executable bits and symlinks need the per-call bypass.
         </p>`
       : "";
@@ -2173,7 +2174,7 @@ export function renderAgentDetailPage(
           <input type="hidden" name="autoPostReviews" value="false" />
           <label class="form-label" for="autoPostReviews" style="margin-bottom:0">Auto-post reviews</label>
         </div>
-        <p style="font-size:12px;color:#6b7280;margin:4px 0 12px">
+        <p style="font-size:12px;color:var(--vos-text-muted);margin:4px 0 12px">
           Off stages reviews to state/reviews/ + Slack notify instead of posting directly to GitHub.
         </p>
         <div class="form-group" style="display:flex;align-items:center;gap:6px">
@@ -2187,7 +2188,7 @@ export function renderAgentDetailPage(
           <input type="hidden" name="allowSelfReview" value="false" />
           <label class="form-label" for="allowSelfReview" style="margin-bottom:0">Allow self-review</label>
         </div>
-        <p style="font-size:12px;color:#6b7280;margin:4px 0 12px">
+        <p style="font-size:12px;color:var(--vos-text-muted);margin:4px 0 12px">
           Whether the agent may review its own open PRs.
         </p>
         <div class="form-group" style="display:flex;align-items:center;gap:6px">
@@ -2201,23 +2202,23 @@ export function renderAgentDetailPage(
           <input type="hidden" name="cleanupMergedWorktrees" value="false" />
           <label class="form-label" for="cleanupMergedWorktrees" style="margin-bottom:0">Cleanup merged worktrees</label>
         </div>
-        <p style="font-size:12px;color:#6b7280;margin:4px 0 12px">
+        <p style="font-size:12px;color:var(--vos-text-muted);margin:4px 0 12px">
           Remove worktrees for merged PRs each cron cycle.
         </p>
         <div class="form-group">
           <label class="form-label" for="minConfidence">Min confidence (0-100)</label>
           <input id="minConfidence" name="minConfidence" type="number" value="${agent.minConfidence}" class="form-input" />
-          <p style="font-size:12px;color:#6b7280;margin-top:4px">Minimum finding confidence to surface in a review.</p>
+          <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">Minimum finding confidence to surface in a review.</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="maxFindings">Max findings</label>
           <input id="maxFindings" name="maxFindings" type="number" value="${agent.maxFindings}" class="form-input" />
-          <p style="font-size:12px;color:#6b7280;margin-top:4px">Max findings surfaced per review.</p>
+          <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">Max findings surfaced per review.</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="cleanupAfterDays">Cleanup after days</label>
           <input id="cleanupAfterDays" name="cleanupAfterDays" type="number" value="${agent.cleanupAfterDays}" class="form-input" />
-          <p style="font-size:12px;color:#6b7280;margin-top:4px">Remove worktrees older than N days even if the PR is still open.</p>
+          <p style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">Remove worktrees older than N days even if the PR is still open.</p>
         </div>
         ${signedCommitsHtml}
         <button type="submit" class="btn btn-primary">Save</button>
@@ -2228,7 +2229,7 @@ export function renderAgentDetailPage(
     ? `<!-- Danger Zone -->
     <div class="settings-danger-zone">
       <div class="settings-section-title">Danger Zone</div>
-      <p style="font-size:13px;color:#6b7280;margin-bottom:16px">
+      <p style="font-size:13px;color:var(--vos-text-muted);margin-bottom:16px">
         Deleting this agent permanently removes all its data (env vars, crons, tools, tokens, plugins, members)
         and terminates its pod. This action cannot be undone.
       </p>
@@ -2278,10 +2279,10 @@ export function renderAgentDetailPage(
 
   const headerInfoHtml = `<div class="page-header">
       <div>
-        <a href="/admin/agents" style="font-size:13px;color:#6b7280;text-decoration:none">← Agents</a>
+        <a href="/admin/agents" style="font-size:13px;color:var(--vos-text-muted);text-decoration:none">← Agents</a>
         <div style="margin-top:4px">
-          <span style="font-size:13px;color:#6b7280">Type: <span class="mono">${escapeHtml(agent.specialty)}</span></span>
-          ${agent.slackId ? `<span style="font-size:13px;color:#6b7280">Slack ID: <span class="mono">${escapeHtml(agent.slackId)}</span></span>` : ""}
+          <span style="font-size:13px;color:var(--vos-text-muted)">Type: <span class="mono">${escapeHtml(agent.specialty)}</span></span>
+          ${agent.slackId ? `<span style="font-size:13px;color:var(--vos-text-muted)">Slack ID: <span class="mono">${escapeHtml(agent.slackId)}</span></span>` : ""}
         </div>
       </div>
       ${
@@ -2289,8 +2290,8 @@ export function renderAgentDetailPage(
           ? `<div>
         <details>
           <summary class="btn btn-secondary" style="cursor:pointer;font-size:12px;list-style:none">Sync Manifest</summary>
-          <div style="position:absolute;right:24px;margin-top:6px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:12px;box-shadow:0 4px 12px rgba(0,0,0,0.08);z-index:10;min-width:320px">
-            <p style="font-size:12px;color:#6b7280;margin:0 0 10px">Syncs the current manifest to the provisioned Slack app. ${
+          <div style="position:absolute;right:24px;margin-top:6px;background:var(--vos-surface);border:1px solid var(--vos-border);border-radius:6px;padding:12px;box-shadow:0 4px 12px rgba(0,0,0,0.08);z-index:10;min-width:320px">
+            <p style="font-size:12px;color:var(--vos-text-muted);margin:0 0 10px">Syncs the current manifest to the provisioned Slack app. ${
               slackStored
                 ? 'Optional: a stored Slack config token is used unless you paste a Slack app configuration token (<span class="mono">xoxe.xoxp-</span>).'
                 : 'Requires a Slack app configuration token (<span class="mono">xoxe.xoxp-</span>).'
@@ -2383,7 +2384,7 @@ export function renderGithubAppManifestRedirectPage(
       <span class="provision-step">3. Complete</span>
     </div>
     <div class="card">
-      <p style="font-size:14px;margin-bottom:16px;color:#6b7280">
+      <p style="font-size:14px;margin-bottom:16px;color:var(--vos-text-muted)">
         Redirecting to GitHub to create the GitHub App under <strong>${escapeHtml(opts.githubOrg)}</strong>…
       </p>
       <form id="github-app-manifest-form" method="POST" action="${escapeHtml(actionUrl)}">
@@ -2443,7 +2444,7 @@ export function renderAddAnotherOrgAction(
   if (envVars.GH_APP_SLUG) {
     return `<a href="/admin/agents/${escapeHtml(agentId)}/connect-github/add-org" class="btn btn-secondary" style="font-size:12px" rel="noopener noreferrer">Add another org</a>`;
   }
-  return `<span style="font-size:12px;color:#6b7280">To install this App on another org, see <a href="https://github.com/app-vitals/shipwright/blob/main/docs/configuration-agent.md" rel="noopener noreferrer">the docs</a> (GH_APP_SLUG).</span>`;
+  return `<span style="font-size:12px;color:var(--vos-text-muted)">To install this App on another org, see <a href="https://github.com/app-vitals/shipwright/blob/main/docs/configuration-agent.md" rel="noopener noreferrer">the docs</a> (GH_APP_SLUG).</span>`;
 }
 
 /**
@@ -2519,7 +2520,7 @@ export function renderProvisionXappTokenPage(
       <span class="provision-step active">4. Add Socket Token</span>
     </div>
     <div class="card">
-      <p style="font-size:14px;margin-bottom:16px;color:#6b7280">
+      <p style="font-size:14px;margin-bottom:16px;color:var(--vos-text-muted)">
         Open your Slack App's <strong>Socket Mode</strong> settings, enable Socket Mode,
         and generate an <strong>App-Level Token</strong> with <code class="mono">connections:write</code> scope.
         Paste the <code class="mono">xapp-</code> token below.
@@ -2604,9 +2605,9 @@ export function renderProvisionCompletePage(
 
 const threadPaneStyles = `
     .thread-pane-list { display:flex;flex-direction:column;gap:4px;margin-top:8px }
-    .thread-pane-link { display:block;padding:8px 12px;border-radius:6px;font-size:13px;color:#374151;text-decoration:none;background:#f9fafb;border:1px solid #e5e7eb }
-    .thread-pane-link:hover { background:#eef2ff;color:#4f46e5 }
-    .thread-pane-link.active { background:#eef2ff;color:#4f46e5;font-weight:600 }`;
+    .thread-pane-link { display:block;padding:8px 12px;border-radius:6px;font-size:13px;color:var(--vos-text-body);text-decoration:none;background:var(--vos-surface-muted);border:1px solid var(--vos-border) }
+    .thread-pane-link:hover { background:var(--vos-brand-bg);color:var(--vos-brand) }
+    .thread-pane-link.active { background:var(--vos-brand-bg);color:var(--vos-brand);font-weight:600 }`;
 
 const chatPageStyles = `
     .chat-sidebar-new-thread-input { font-size:12px }
@@ -2781,12 +2782,12 @@ export function renderChatMessageBubble(
     isUser ? "user" : isAssistant ? "assistant" : isSystem ? "system" : "other",
   );
   const bubbleColor = isUser
-    ? "#4f46e5"
+    ? "var(--vos-brand)"
     : isAssistant
-      ? "#166534"
+      ? "var(--vos-success-text)"
       : isSystem
-        ? "#854d0e"
-        : "#374151";
+        ? "var(--vos-warning-text)"
+        : "var(--vos-text-body)";
   const bubbleInnerClass = isSystem
     ? `${CHAT_BUBBLE_INNER_CLASS} ${CHAT_BUBBLE_INNER_WIDE_CLASS}`
     : CHAT_BUBBLE_INNER_CLASS;
@@ -2799,9 +2800,9 @@ export function renderChatMessageBubble(
     const retryable =
       RETRYABLE_ERROR_KINDS.has(m.errorKind) && retryBody !== null;
     const retryAction = retryable
-      ? `<button type="button" class="chat-retry-btn" data-retry-body="${escapeHtml(retryBody as string)}" style="margin-left:8px;padding:2px 8px;background:#fff;color:#b91c1c;border:1px solid #b91c1c;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">Retry</button>`
+      ? `<button type="button" class="chat-retry-btn" data-retry-body="${escapeHtml(retryBody as string)}" style="margin-left:8px;padding:2px 8px;background:var(--vos-surface);color:var(--vos-danger-text);border:1px solid var(--vos-danger-text);border-radius:4px;font-size:12px;font-weight:600;cursor:pointer">Retry</button>`
       : "";
-    errorBadge = `<div style="margin-top:6px;padding:4px 8px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:12px;font-weight:600;display:inline-flex;align-items:center">${errorKindLabel(m.errorKind)}${retryAction}</div>`;
+    errorBadge = `<div style="margin-top:6px;padding:4px 8px;background:var(--vos-danger-bg);color:var(--vos-danger-text);border-radius:4px;font-size:12px;font-weight:600;display:inline-flex;align-items:center">${errorKindLabel(m.errorKind)}${retryAction}</div>`;
   }
 
   // Parse markers from assistant messages to extract URLs/paths and clean text
@@ -2815,7 +2816,7 @@ export function renderChatMessageBubble(
     const uploadBadges = uploads
       .map((path) => {
         const filename = path.split("/").pop() || path;
-        return `<div style="display:inline-block;margin-right:6px;margin-top:8px;padding:3px 8px;background:#e5e7eb;color:#374151;border-radius:6px;font-size:12px">📎 ${escapeHtml(filename)}</div>`;
+        return `<div style="display:inline-block;margin-right:6px;margin-top:8px;padding:3px 8px;background:var(--vos-border);color:var(--vos-text-body);border-radius:6px;font-size:12px">📎 ${escapeHtml(filename)}</div>`;
       })
       .join("");
 
@@ -2823,7 +2824,7 @@ export function renderChatMessageBubble(
     const planLinks = planUrls
       .map(
         (url) =>
-          `<a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;margin-right:6px;margin-top:8px;padding:3px 8px;background:#dbeafe;color:#1e40af;border-radius:6px;font-size:12px;text-decoration:none">View plan →</a>`,
+          `<a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;margin-right:6px;margin-top:8px;padding:3px 8px;background:var(--vos-info-bg);color:var(--vos-info-text);border-radius:6px;font-size:12px;text-decoration:none">View plan →</a>`,
       )
       .join("");
 
@@ -2860,7 +2861,7 @@ export function renderChatMessageBubble(
       ? isAssistant
         ? voiceControl
         : `<audio controls style="display:block;margin-top:8px;max-width:100%" src="${escapeHtml(attachmentUrl)}"></audio>`
-      : `<div style="display:inline-block;margin-top:8px;padding:3px 8px;background:#e5e7eb;color:#374151;border-radius:6px;font-size:12px">📎 ${escapeHtml(m.attachmentFilename)}</div>`
+      : `<div style="display:inline-block;margin-top:8px;padding:3px 8px;background:var(--vos-border);color:var(--vos-text-body);border-radius:6px;font-size:12px">📎 ${escapeHtml(m.attachmentFilename)}</div>`
     : "";
 
   let tokenBadge = "";
@@ -2869,7 +2870,7 @@ export function renderChatMessageBubble(
     const inTok = t.input_tokens ?? 0;
     const outTok = t.output_tokens ?? 0;
     const costPart = m.costUsd !== null ? ` · $${m.costUsd.toFixed(4)}` : "";
-    tokenBadge = `<div style="font-size:11px;color:#6b7280;margin-top:4px">${escapeHtml(`${inTok} in / ${outTok} out${costPart}`)}</div>`;
+    tokenBadge = `<div style="font-size:11px;color:var(--vos-text-muted);margin-top:4px">${escapeHtml(`${inTok} in / ${outTok} out${costPart}`)}</div>`;
   }
 
   return `<div class="${CHAT_BUBBLE_CLASS} ${bubbleRoleClass}" data-message-id="${escapeHtml(m.id)}">
@@ -2880,7 +2881,7 @@ export function renderChatMessageBubble(
         ${attachmentMedia}
         ${errorBadge}
         ${tokenBadge}
-        <div style="font-size:11px;color:#9ca3af;margin-top:6px">${escapeHtml(new Date(m.createdAt).toLocaleString())}</div>
+        <div style="font-size:11px;color:var(--vos-text-faint);margin-top:6px">${escapeHtml(new Date(m.createdAt).toLocaleString())}</div>
       </div>
     </div>`;
 }
@@ -2905,7 +2906,7 @@ function renderLiveStatusBubble(m: ChatMessage): string {
   const seq = m.progressSeq ?? 0;
   return `<div id="${LIVE_STATUS_BUBBLE_ID}" class="${CHAT_BUBBLE_CLASS} ${chatBubbleRoleClass("assistant")}" data-created-at="${createdAtMs}" data-progress-seq="${seq}">
       <div class="${CHAT_BUBBLE_INNER_CLASS}">
-        <div style="font-size:14px;color:#166534;font-style:italic">
+        <div style="font-size:14px;color:var(--vos-success-text);font-style:italic">
           ${milestoneHtml}
           <span id="${LIVE_STATUS_ELAPSED_ID}">working… (0s)</span>
         </div>
@@ -2926,8 +2927,8 @@ const chatThreadStyles = `
     /* Collapsed-by-default rename/delete disclosure (CFB-3.1 #5) — keeps the
        header compact above the fold regardless of viewport width. */
     .chat-thread-actions { margin-top:12px }
-    .chat-thread-actions-summary { cursor:pointer;font-size:13px;color:#6b7280;user-select:none }
-    .chat-thread-actions-summary:hover { color:#374151 }
+    .chat-thread-actions-summary { cursor:pointer;font-size:13px;color:var(--vos-text-muted);user-select:none }
+    .chat-thread-actions-summary:hover { color:var(--vos-text-body) }
     .chat-messages-container { flex:1;overflow-y:auto;overscroll-behavior:contain;padding:8px 0;min-height:0 }
     .${CHAT_BUBBLE_CLASS} { display:flex;margin-bottom:12px }
     .${chatBubbleRoleClass("user")} { justify-content:flex-end }
@@ -2940,39 +2941,39 @@ const chatThreadStyles = `
        to overflow. Scoped to the bubble so it doesn't affect other <pre>. */
     .${CHAT_BUBBLE_INNER_CLASS} pre { overflow-x:auto }
     .${CHAT_BUBBLE_INNER_CLASS}.${CHAT_BUBBLE_INNER_WIDE_CLASS} { max-width:80% }
-    .${chatBubbleRoleClass("user")} .${CHAT_BUBBLE_INNER_CLASS} { background:#eef2ff }
-    .${chatBubbleRoleClass("assistant")} .${CHAT_BUBBLE_INNER_CLASS} { background:#f0fdf4 }
-    .${chatBubbleRoleClass("system")} .${CHAT_BUBBLE_INNER_CLASS} { background:#fef9c3 }
-    .${chatBubbleRoleClass("other")} .${CHAT_BUBBLE_INNER_CLASS} { background:#f3f4f6 }
+    .${chatBubbleRoleClass("user")} .${CHAT_BUBBLE_INNER_CLASS} { background:var(--vos-brand-bg) }
+    .${chatBubbleRoleClass("assistant")} .${CHAT_BUBBLE_INNER_CLASS} { background:var(--vos-success-bg) }
+    .${chatBubbleRoleClass("system")} .${CHAT_BUBBLE_INNER_CLASS} { background:var(--vos-warning-bg) }
+    .${chatBubbleRoleClass("other")} .${CHAT_BUBBLE_INNER_CLASS} { background:var(--vos-surface-subtle) }
     /* Sticky composer: pins to the bottom of the scroll container so it stays
        reachable as messages grow. padding-bottom folds in the iOS safe-area
        inset plus --kb-inset (set by the visualViewport listener when the
        on-screen keyboard shrinks the visual viewport) so the composer isn't
        slid under the keyboard on iOS, where dvh does NOT shrink the layout. */
-    .chat-composer-form { flex-shrink:0;position:sticky;bottom:0;background:#f7f7fb;padding:16px 0;padding-bottom:calc(12px + env(safe-area-inset-bottom) + var(--kb-inset, 0px));border-top:1px solid #e5e7eb;margin-top:8px }
+    .chat-composer-form { flex-shrink:0;position:sticky;bottom:0;background:var(--vos-bg);padding:16px 0;padding-bottom:calc(12px + env(safe-area-inset-bottom) + var(--kb-inset, 0px));border-top:1px solid var(--vos-border);margin-top:8px }
     .chat-composer-row { display:flex;gap:8px;align-items:flex-end }
-    .chat-message-input { flex:1;resize:vertical;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;line-height:1.5;outline:none }
+    .chat-message-input { flex:1;resize:vertical;padding:10px 12px;border:1px solid var(--vos-border-strong);border-radius:8px;font-size:14px;font-family:inherit;line-height:1.5;outline:none }
     .chat-composer-btn { flex-shrink:0;height:44px }
     .chat-composer-btn--attach { padding:0 16px }
     .chat-composer-btn--mic { padding:0 16px }
-    .chat-composer-btn--mic.chat-mic-recording { background:#fee2e2;color:#b91c1c;border-color:#b91c1c }
+    .chat-composer-btn--mic.chat-mic-recording { background:var(--vos-danger-bg);color:var(--vos-danger-text);border-color:var(--vos-danger-text) }
     /* Voice reply control (COS-63.1): 56px round tap target + progress. */
     .chat-voice { display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap }
     .chat-voice-play { width:56px;height:56px;min-width:56px;border-radius:50%;border:0;background:#2563eb;color:#fff;font-size:22px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0 }
-    .chat-voice-play:focus-visible { outline:3px solid #93c5fd;outline-offset:2px }
+    .chat-voice-play:focus-visible { outline:3px solid var(--vos-info-border);outline-offset:2px }
     .chat-voice-meta { flex:1;min-width:120px }
-    .chat-voice-progress { height:4px;border-radius:2px;background:#d1d5db;overflow:hidden }
+    .chat-voice-progress { height:4px;border-radius:2px;background:var(--vos-border-strong);overflow:hidden }
     .chat-voice-bar { height:100%;width:0;background:#2563eb }
-    .chat-voice-time { display:block;margin-top:4px;font-size:12px;color:#6b7280;font-variant-numeric:tabular-nums }
-    .chat-voice-error { flex-basis:100%;font-size:13px;color:#b91c1c }
+    .chat-voice-time { display:block;margin-top:4px;font-size:12px;color:var(--vos-text-muted);font-variant-numeric:tabular-nums }
+    .chat-voice-error { flex-basis:100%;font-size:13px;color:var(--vos-danger-text) }
     .chat-voice-error[hidden] { display:none }
     .chat-composer-btn--send { padding:0 20px }
     /* Live-progress stall state (CFB-2.3): when progressSeq hasn't advanced for
        STALL_WARN_AFTER_MS the status bubble gains .${STALL_INDICATOR_CLASS},
        which pulses to draw the eye. Motion is suppressed for users who ask for
        reduced motion — the amber colour still conveys the state statically. */
-    .${STALL_INDICATOR_CLASS} { color:#b45309 }
-    .${STALL_INDICATOR_CLASS} .${CHAT_BUBBLE_INNER_CLASS} { background:#fffbeb;animation:chat-stall-pulse 1.4s ease-in-out infinite }
+    .${STALL_INDICATOR_CLASS} { color:var(--vos-warning-text) }
+    .${STALL_INDICATOR_CLASS} .${CHAT_BUBBLE_INNER_CLASS} { background:var(--vos-warning-bg);animation:chat-stall-pulse 1.4s ease-in-out infinite }
     @keyframes chat-stall-pulse { 0%,100% { opacity:1 } 50% { opacity:0.55 } }
     @media (prefers-reduced-motion: reduce) {
       .${STALL_INDICATOR_CLASS} .${CHAT_BUBBLE_INNER_CLASS} { animation:none }
@@ -2985,8 +2986,8 @@ const chatThreadStyles = `
        order is load-bearing: the checkbox precedes the sidebar so the ~ sibling
        combinator can reach it. */
     .chat-drawer-toggle { position:absolute;opacity:0;width:1px;height:1px;pointer-events:none }
-    .chat-drawer-hamburger { display:none;background:none;border:1px solid #e5e7eb;border-radius:6px;font-size:18px;line-height:1;padding:6px 10px;cursor:pointer;color:#374151 }
-    .chat-drawer-hamburger:hover { color:#4f46e5 }
+    .chat-drawer-hamburger { display:none;background:none;border:1px solid var(--vos-border);border-radius:6px;font-size:18px;line-height:1;padding:6px 10px;cursor:pointer;color:var(--vos-text-body) }
+    .chat-drawer-hamburger:hover { color:var(--vos-brand) }
     .chat-drawer-scrim { display:none }`;
 
 export function renderChatPage(
@@ -3189,7 +3190,7 @@ export function renderChatThreadPage(
 
   const emptyState =
     messages.length === 0
-      ? `<div class="empty-state" style="text-align:center;padding:48px 24px;color:#9ca3af">No messages in this thread yet. Send a message to get started.</div>`
+      ? `<div class="empty-state" style="text-align:center;padding:48px 24px;color:var(--vos-text-faint)">No messages in this thread yet. Send a message to get started.</div>`
       : "";
 
   const safeAgentId = escapeHtml(agentId);
@@ -3201,12 +3202,12 @@ export function renderChatThreadPage(
   const signedOutReturnTo = encodeURIComponent(
     `/admin/chat/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}`,
   );
-  const signedOutBanner = `<a id="signed-out-banner" class="chat-signed-out-banner" href="/admin/login?returnTo=${signedOutReturnTo}" role="alert" style="display:none;padding:10px 14px;margin-bottom:8px;background:#fef3c7;color:#92400e;border:1px solid #f59e0b;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;text-align:center">You're signed out. Tap to sign in.</a>`;
+  const signedOutBanner = `<a id="signed-out-banner" class="chat-signed-out-banner" href="/admin/login?returnTo=${signedOutReturnTo}" role="alert" style="display:none;padding:10px 14px;margin-bottom:8px;background:var(--vos-warning-bg);color:var(--vos-warning-text);border:1px solid #f59e0b;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;text-align:center">You're signed out. Tap to sign in.</a>`;
 
   // Held-upload prompt (ASX-1.3): hidden until the thread loads with a
   // voice note / file that failed on a 401 and is waiting in IndexedDB.
   // Never auto-sent; the user chooses Resend or Discard.
-  const heldUploadPrompt = `<div id="held-upload-prompt" class="chat-held-upload" role="status" style="display:none;padding:10px 14px;margin-bottom:8px;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;border-radius:8px;font-size:14px"><span>You have an unsent voice note.</span> <button type="button" id="held-upload-resend" style="margin-left:8px;padding:4px 10px;border-radius:6px;border:1px solid #1e3a8a;background:#1e3a8a;color:#fff;cursor:pointer">Resend</button> <button type="button" id="held-upload-discard" style="margin-left:4px;padding:4px 10px;border-radius:6px;border:1px solid #93c5fd;background:#fff;color:#1e3a8a;cursor:pointer">Discard</button></div>`;
+  const heldUploadPrompt = `<div id="held-upload-prompt" class="chat-held-upload" role="status" style="display:none;padding:10px 14px;margin-bottom:8px;background:var(--vos-info-bg);color:var(--vos-info-text);border:1px solid var(--vos-info-border);border-radius:8px;font-size:14px"><span>You have an unsent voice note.</span> <button type="button" id="held-upload-resend" style="margin-left:8px;padding:4px 10px;border-radius:6px;border:1px solid var(--vos-info-text);background:var(--vos-info-text);color:var(--vos-primary-text);cursor:pointer">Resend</button> <button type="button" id="held-upload-discard" style="margin-left:4px;padding:4px 10px;border-radius:6px;border:1px solid var(--vos-info-border);background:var(--vos-surface);color:var(--vos-info-text);cursor:pointer">Discard</button></div>`;
 
   const renameForm = `
     <form method="POST" action="/admin/chat/${escapeHtml(agentId)}/threads/${escapeHtml(threadId)}/rename" style="margin-top:12px">
@@ -3326,13 +3327,13 @@ export function renderChatThreadPage(
   // local object URL (no round-trip needed to preview what was just
   // recorded); everything else still gets the plain filename badge.
   function addUserBubble(body, file) {
-    var color = '#4f46e5';
+    var color = 'var(--vos-brand)';
     var attachmentHtml = '';
     if (file) {
       if (file.type && file.type.indexOf('audio/') === 0) {
         attachmentHtml = '<audio controls style="display:block;margin-top:8px;max-width:100%" src="' + URL.createObjectURL(file) + '"></audio>';
       } else {
-        attachmentHtml = '<div style="display:inline-block;margin-top:8px;padding:3px 8px;background:#e5e7eb;color:#374151;border-radius:6px;font-size:12px">📎 ' + escHtml(file.name) + '</div>';
+        attachmentHtml = '<div style="display:inline-block;margin-top:8px;padding:3px 8px;background:var(--vos-border);color:var(--vos-text-body);border-radius:6px;font-size:12px">📎 ' + escHtml(file.name) + '</div>';
       }
     }
     var bubble = document.createElement('div');
@@ -3385,7 +3386,7 @@ export function renderChatThreadPage(
     live.setAttribute('data-created-at', String(createdAtMs));
     live.setAttribute('data-progress-seq', '0');
     live.innerHTML = '<div class="${CHAT_BUBBLE_INNER_CLASS}">'
-      + '<div style="font-size:14px;color:#166534;font-style:italic">'
+      + '<div style="font-size:14px;color:var(--vos-success-text);font-style:italic">'
       + '<span id="' + LIVE_STATUS_MILESTONE_ID + '"></span> '
       + '<span id="' + LIVE_STATUS_ELAPSED_ID + '">working… (0s)</span>'
       + '</div></div>';
@@ -3431,7 +3432,7 @@ export function renderChatThreadPage(
       var errBubble = document.createElement('div');
       errBubble.className = ASSISTANT_ROLE_CLASS;
       errBubble.innerHTML = '<div class="${CHAT_BUBBLE_INNER_CLASS}">'
-        + '<div style="margin-top:0;padding:4px 8px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:12px;font-weight:600">Request timed out. Please try again.</div>'
+        + '<div style="margin-top:0;padding:4px 8px;background:var(--vos-danger-bg);color:var(--vos-danger-text);border-radius:4px;font-size:12px;font-weight:600">Request timed out. Please try again.</div>'
         + '</div>';
       container.appendChild(errBubble);
       enableSend();
@@ -3800,7 +3801,7 @@ export function renderChatThreadPage(
           var errBubble = document.createElement('div');
           errBubble.className = ASSISTANT_ROLE_CLASS;
           errBubble.innerHTML = '<div class="${CHAT_BUBBLE_INNER_CLASS}">'
-            + '<div style="margin-top:0;padding:4px 8px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:12px;font-weight:600">' + escHtml((data && data.error) || 'Upload failed.') + '</div>'
+            + '<div style="margin-top:0;padding:4px 8px;background:var(--vos-danger-bg);color:var(--vos-danger-text);border-radius:4px;font-size:12px;font-weight:600">' + escHtml((data && data.error) || 'Upload failed.') + '</div>'
             + '</div>';
           container.appendChild(errBubble);
           enableSend();
@@ -4077,7 +4078,7 @@ export function renderChatThreadPage(
           <a href="/admin/chat?agentId=${safeAgentId}" class="btn btn-secondary">&larr; Back to threads</a>
         </div>
         <h1 class="page-title">${title}</h1>
-        <div class="chat-thread-meta" style="font-size:12px;color:#9ca3af;margin-top:4px">Thread <span class="mono">${safeThreadId}</span></div>
+        <div class="chat-thread-meta" style="font-size:12px;color:var(--vos-text-faint);margin-top:4px">Thread <span class="mono">${safeThreadId}</span></div>
         ${
           stats &&
           (
@@ -4085,7 +4086,7 @@ export function renderChatThreadPage(
               stats.totalOutputTokens > 0 ||
               stats.totalCostUsd > 0
           )
-            ? `<div class="chat-thread-stats" style="font-size:12px;color:#6b7280;margin-top:4px">${escapeHtml(`${formatTokenCount(stats.totalInputTokens)} in / ${formatTokenCount(stats.totalOutputTokens)} out | $${stats.totalCostUsd.toFixed(4)}`)}</div>`
+            ? `<div class="chat-thread-stats" style="font-size:12px;color:var(--vos-text-muted);margin-top:4px">${escapeHtml(`${formatTokenCount(stats.totalInputTokens)} in / ${formatTokenCount(stats.totalOutputTokens)} out | $${stats.totalCostUsd.toFixed(4)}`)}</div>`
             : ""
         }
         ${threadActionsDetails}
@@ -4140,7 +4141,7 @@ export function renderChatThreadPage(
               class="btn btn-primary chat-composer-btn chat-composer-btn--send"
             >Send</button>
           </div>
-          <div id="file-name" style="font-size:12px;color:#6b7280;margin-top:6px;min-height:16px"></div>
+          <div id="file-name" style="font-size:12px;color:var(--vos-text-muted);margin-top:6px;min-height:16px"></div>
         </form>
       </div>
     </div>
