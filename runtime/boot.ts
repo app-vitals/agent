@@ -100,6 +100,7 @@ import { ensureAgentHome, installPlugins, runMiseStartup } from "./setup.ts";
 import { SCRIPTS_BIN } from "./scripts-bin.ts";
 import { checkCredentialHelper, setupGitHubAuth } from "./setup-github-auth.ts";
 import { HttpShipwrightRuntimeClient } from "./shipwright-runtime-client.ts";
+import { singleFlight } from "./single-flight.ts";
 import { createSlackApp, hasSlackCredentials } from "./slack.ts";
 import {
   type StartableSlackApp,
@@ -699,7 +700,16 @@ export async function startAgent(
 
     // Await first sync so ANTHROPIC_API_KEY is set before Slack starts
     await syncConfig();
-    setInterval(() => void syncConfig(), 60_000);
+    // A tick installs plugins by spawning `claude plugin …` subprocesses, so
+    // one that outlasts the 60s interval must not overlap the next: the
+    // overlapping ticks starve each other until the health probe times out.
+    const syncConfigTick = singleFlight(syncConfig, {
+      onSkip: (inFlightMs) =>
+        console.warn(
+          `[config-sync] tick skipped: the previous sync has been running for ${inFlightMs}ms`,
+        ),
+    });
+    setInterval(() => void syncConfigTick(), 60_000);
     console.log("[agent] config sync started (60s interval)");
   }
 
