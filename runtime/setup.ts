@@ -337,10 +337,17 @@ type ExecFn = (
   opts: { cwd: string; env?: Record<string, string | undefined> },
 ) => Promise<{ stdout: string; exitCode: number }>;
 
-async function defaultExec(
+/** Max wall time for one subprocess before it is killed (5 minutes). */
+const DEFAULT_EXEC_TIMEOUT_MS = 5 * 60 * 1000;
+
+export async function defaultExec(
   cmd: string,
   args: string[],
-  opts: { cwd: string; env?: Record<string, string | undefined> },
+  opts: {
+    cwd: string;
+    env?: Record<string, string | undefined>;
+    timeoutMs?: number;
+  },
 ): Promise<{ stdout: string; exitCode: number }> {
   // env: process.env is required — Bun.spawn otherwise snapshots env at Bun
   // startup and misses runtime mutations (MISE_CACHE_DIR, etc.).
@@ -350,9 +357,20 @@ async function defaultExec(
     stdout: "pipe",
     stderr: "pipe",
   });
-  const stdout = await new Response(proc.stdout).text();
-  await proc.exited;
-  return { stdout, exitCode: proc.exitCode ?? 1 };
+  // Bound the run: a hung subprocess must not block callers (e.g. the
+  // single-flight config sync) forever.
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill("SIGKILL");
+  }, opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS);
+  try {
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+    return { stdout, exitCode: timedOut ? 124 : (proc.exitCode ?? 1) };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
