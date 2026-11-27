@@ -64,6 +64,10 @@ kubelet probes stay green during setup.
    ones removed or disabled since, ledger-scoped; see
    [agent-ops.md](./agent-ops.md#removal-and-the-ledger)), clone newly
    configured repos, and start Slack if credentials have appeared.
+   The repeat ticks are wrapped in `singleFlight()` (`single-flight.ts`): a tick
+   that outlasts the 60 s interval is skipped with a `[config-sync] tick skipped`
+   warning rather than overlapping the next, since plugin installs spawn
+   `claude plugin` subprocesses.
 5. `reconcileTemplate` and `reconcileSystemCrons`, best effort and non-fatal.
    `reconcileTemplate` applies the agent's merged template (ATP-2.2, via
    `shipwright-runtime-client.ts`) from the admin API; this runs first so any
