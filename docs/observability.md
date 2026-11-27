@@ -39,7 +39,7 @@ Every runtime call site that reports a `claude` CLI runner error (`runtime/cron-
 - A `ClaudeTimeoutError` with `reason: "ceiling"` is the intentional one-hour hard-ceiling backstop firing on a legitimately long-running session, not a defect. It is downgraded to `sentryClient.captureMessage()`, so it stays visible in Sentry without creating an actionable Issue that would keep reappearing as regressed.
 - Every other error, including a `ClaudeTimeoutError` with `reason: "idle"` (a genuine hang), is reported unchanged through `captureException(err)`.
 
-Any new call site that can receive a thrown `ClaudeTimeoutError` should report through `reportClaudeError` to keep this classification consistent. See [agent-runtime.md](agent-runtime.md#running-claude-claudets) for the timeouts.
+Any new call site that can receive a thrown `ClaudeTimeoutError` should report through `reportClaudeError` to keep this classification consistent. See [agent-runtime-claude.md](agent-runtime-claude.md#running-claude-claudets) for the timeouts.
 
 The runtime also strips `SENTRY_DSN` from the environment it passes to each spawned `claude` process (`runtime/claude.ts`), so a Claude Code session, and anything it runs, cannot construct its own Sentry client from the agent's ambient environment. This does not affect the agent's own reporting.
 

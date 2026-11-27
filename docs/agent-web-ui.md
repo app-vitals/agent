@@ -86,7 +86,7 @@ Caching is deliberately austere. Only the offline fallback page and the six icon
 
 ## Chatting with an agent
 
-The agent has no HTTP chat endpoint. Chat flows through the chat service: the admin console's chat pages post user messages to it, and the agent's chat poll loop (`runtime/chat-poller.ts`) claims them, runs them through Claude and posts the replies. See [agent-runtime.md](./agent-runtime.md#entry-points-that-call-claude) for the runtime side.
+The agent has no HTTP chat endpoint. Chat flows through the chat service: the admin console's chat pages post user messages to it, and the agent's chat poll loop (`runtime/chat-poller.ts`) claims them, runs them through Claude and posts the replies. See [agent-runtime-claude.md](./agent-runtime-claude.md#entry-points-that-call-claude) for the runtime side.
 
 ## Template marketplaces in the admin (`admin-ui-templates.ts`, `admin-ui-pages.ts`)
 
