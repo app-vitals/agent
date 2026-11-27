@@ -55,7 +55,7 @@ On startup the runtime calls `POST /agents/:id/crons/reconcile` (`reconcileSyste
 
 System crons reject changes to `schedule`, `prompt` and `preCheck` (403) and cannot be deleted; an `enabled`-only `PATCH` is allowed, so operators can still switch them on and off. See [agent-api-ops.md](./agent-api-ops.md#cron-jobs).
 
-When a cron fires, `runtime/cron-handler.ts` handles it as described in [agent-runtime.md](./agent-runtime.md#entry-points-that-call-claude). Two job fields matter for operations:
+When a cron fires, `runtime/cron-handler.ts` handles it as described in [agent-runtime-claude.md](./agent-runtime-claude.md#entry-points-that-call-claude). Two job fields matter for operations:
 
 - `silent`: the job needs no Slack channel or user, and `[silent]` replies are not posted. A non-silent job with neither `channel` nor `user` fails validation with a 422.
 - `preCheck`: a script that runs before Claude from the workspace directory with the live process environment. A path starting with `./`, `../` or `/` is run directly; a `plugin:script` value resolves to that script in the installed plugin's `scripts/` directory. The script's trimmed stdout **replaces the prompt**. Exit code 0 with output runs the job; exit 0 with no output, or any exit code 1, skips the tick (recorded as `preCheck:no-output`); an exit code of 2 or higher is treated as a crash (`preCheck:crash`, with an alert posted when an alerts channel is configured); an unresolvable script is skipped as `preCheck:not-found`. A cron with a `preCheck` therefore only spends a Claude turn when there is real work.
@@ -64,7 +64,7 @@ Coding-specific crons (the loop and pipeline crons, patrol crons, and their prec
 
 ## Environment
 
-The table lists the variables an operator sets for the admin service and the agent container. [admin-service.md](./admin-service.md#configuration) groups the admin variables by area and [agent-runtime.md](./agent-runtime.md#configuration) covers runtime tuning; the full agent runtime reference is [configuration-agent.md](./configuration-agent.md).
+The table lists the variables an operator sets for the admin service and the agent container. [admin-service.md](./admin-service.md#configuration) groups the admin variables by area and [agent-runtime-claude.md](./agent-runtime-claude.md#configuration) covers runtime tuning; the full agent runtime reference is [configuration-agent.md](./configuration-agent.md).
 
 | Variable | Required | Purpose |
 |---|---|---|

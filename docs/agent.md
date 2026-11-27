@@ -32,7 +32,9 @@ How the pieces fit:
 - [admin-service.md](admin-service.md): module map, boot order, data flows and
   configuration of the admin process.
 - [agent-runtime.md](agent-runtime.md): the two runtime processes, boot order,
-  Claude invocation, Slack, chat, cron, GitHub auth and health.
+  extension seam, GitHub auth and health.
+- [agent-runtime-claude.md](agent-runtime-claude.md): runtime configuration,
+  Claude invocation, sessions, and the Slack, chat and cron entry points.
 - [agent-types.md](agent-types.md): the built-in specialist type record and the workspace templates that seed a new agent.
 - [shared-lib.md](shared-lib.md): modules shared by `admin/` and `runtime/`.
 
