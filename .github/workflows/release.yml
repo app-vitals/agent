@@ -467,56 +467,6 @@ jobs:
           path: ${{ runner.temp }}/digest/digest.txt
           if-no-files-found: error
 
-  # Tell Shipwright a new platform version exists so it can bump and rebuild
-  # without waiting for Renovate. Failures must be loud: the 2026-10-02..10-09
-  # poller stall went unnoticed for a week because it failed silently. A failed
-  # dispatch fails this job (and so the workflow) and opens an issue.
-  notify-shipwright:
-    name: Notify Shipwright
-    needs: [resolve, publish-npm, publish-image]
-    # `!cancelled()` replaces the implicit `success()`, which fails when `guard`
-    # was skipped (tag push); each publish job must still have succeeded. The
-    # repo variable LEGACY_RELEASE_NOTIFY=false switches the dispatch off; unset
-    # (or any other value) leaves it on.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-image.result == 'success' && needs.resolve.outputs.dry_run != 'true' && vars.LEGACY_RELEASE_NOTIFY != 'false' }}
-    timeout-minutes: 5
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-    env:
-      VERSION: ${{ needs.resolve.outputs.version }}
-    steps:
-      - name: Download the agent-chat image digest
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: image-digest-agent-chat
-          path: ${{ runner.temp }}/chat-digest
-
-      # chat_image stays a tag (platform-release consumes it as one); the digest
-      # is additive.
-      - name: Dispatch platform-release to app-vitals/shipwright
-        id: dispatch
-        env:
-          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
-        run: |
-          CHAT_DIGEST=$(tr -d '[:space:]' < "$RUNNER_TEMP/chat-digest/digest.txt")
-          gh api --method POST repos/app-vitals/shipwright/dispatches \
-            -f event_type=platform-release \
-            -f "client_payload[version]=$VERSION" \
-            -f "client_payload[chat_image]=ghcr.io/app-vitals/agent-chat:$VERSION" \
-            -f "client_payload[chat_image_digest]=$CHAT_DIGEST"
-
-      - name: Open an issue when the dispatch failed
-        if: ${{ failure() && steps.dispatch.outcome == 'failure' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "Shipwright dispatch failed for platform release $VERSION" \
-            --body "The \`platform-release\` repository_dispatch to app-vitals/shipwright failed for version $VERSION, so Shipwright was not told to bump and rebuild. Check that the \`DISPATCH_TOKEN\` secret is valid, then re-run the failed job: $RUN_URL"
-
   # Post-publish smoke of the released artifacts. Never on dry runs (nothing
   # was pushed). Publish steps stay in this file for npm Trusted Publishing.
   consumer-smoke:
