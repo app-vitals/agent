@@ -61,7 +61,6 @@ The release-workflow scan steps are introduced in PR #115. Each `publish-image` 
 - Filters to HIGH and CRITICAL severities, fixable findings only (`ignore-unfixed: true`).
 - Runs in report-only mode (`exit-code: 0`). A finding never fails the release.
 - Captures the pushed image digest and uploads it as an artifact named `image-digest-<image-name>`.
-- Passes the `chat_image_digest` value into the `notify-shipwright` dispatch payload.
 
 To read the output for a release, open the workflow run in GitHub Actions and read the job summary of the relevant `Image ghcr.io/app-vitals/<image>` job. The digest for a given image is in the `image-digest-<image-name>` artifact of the same run.
 

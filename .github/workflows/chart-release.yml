@@ -123,8 +123,7 @@ jobs:
           echo "published=true" >> "$GITHUB_OUTPUT"
 
   # Tell Shipwright a new library chart version exists so it can bump its
-  # dependency. Same mechanism and DISPATCH_TOKEN as release.yml's
-  # notify-shipwright. No `!cancelled()`: a failed publish dispatches nothing,
+  # dependency. Uses the DISPATCH_TOKEN secret. No `!cancelled()`: a failed publish dispatches nothing,
   # and an unchanged version (nothing pushed) is not a release. A failed
   # dispatch fails this job and opens an issue.
   notify-shipwright:

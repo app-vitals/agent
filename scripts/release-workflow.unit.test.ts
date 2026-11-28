@@ -183,42 +183,10 @@ describe("release workflow", () => {
     }
   });
 
-  test("notifies shipwright with a platform-release dispatch carrying the version, after publishing", () => {
-    const job = wf.jobs["notify-shipwright"];
-    expect(job.needs).toEqual(["resolve", "publish-npm", "publish-image"]);
-    expect(job.if).toContain("dry_run != 'true'");
-    const dispatch = job.steps.find((s: Step) => s.id === "dispatch");
-    expect(dispatch.env.GH_TOKEN).toBe("${{ secrets.DISPATCH_TOKEN }}");
-    expect(dispatch.run).toContain("repos/app-vitals/shipwright/dispatches");
-    expect(dispatch.run).toContain("event_type=platform-release");
-    expect(dispatch.run).toContain("client_payload[version]=$VERSION");
-    // Chat takes the platform version; the payload names the image so the
-    // chart bump can pick it up.
-    expect(dispatch.run).toContain(
-      "client_payload[chat_image]=ghcr.io/app-vitals/agent-chat:$VERSION",
-    );
-    expect(job.env.VERSION).toBe("${{ needs.resolve.outputs.version }}");
-  });
-
-  test("notify-shipwright is skipped only when the LEGACY_RELEASE_NOTIFY variable is 'false' (default on)", () => {
-    const cond = wf.jobs["notify-shipwright"].if;
-    expect(cond).toContain("vars.LEGACY_RELEASE_NOTIFY != 'false'");
-    // Unset must stay on: the guard may only be a `!= 'false'` comparison.
-    expect(cond).not.toContain("LEGACY_RELEASE_NOTIFY == 'true'");
-  });
-
-  test("a failed dispatch fails the workflow (no continue-on-error) and opens an issue", () => {
-    const job = wf.jobs["notify-shipwright"];
-    expect(job.permissions.issues).toBe("write");
-    expect(job["continue-on-error"]).toBeUndefined();
-    const dispatch = job.steps.find((s: Step) => s.id === "dispatch");
-    expect(dispatch["continue-on-error"]).toBeUndefined();
-    const alert = job.steps.find((s: Step) =>
-      s.run?.includes("gh issue create"),
-    );
-    expect(alert.if).toContain("failure()");
-    expect(alert.if).toContain("steps.dispatch.outcome == 'failure'");
-    expect(alert.run).toContain("$VERSION");
+  test("no job dispatches to another repository", () => {
+    expect(wf.jobs["notify-shipwright"]).toBeUndefined();
+    expect(raw).not.toContain("DISPATCH_TOKEN");
+    expect(raw).not.toContain("repos/app-vitals/shipwright/dispatches");
   });
 });
 
@@ -301,21 +269,6 @@ describe("image scan and digest hand-off", () => {
       idxByName("Push image"),
     );
   });
-
-  test("notify-shipwright downloads the chat digest and adds chat_image_digest without touching chat_image", () => {
-    const job = wf.jobs["notify-shipwright"];
-    const dl = job.steps.find((s: Step) =>
-      String(s.uses).startsWith("actions/download-artifact@"),
-    );
-    expect(dl.with.name).toBe("image-digest-agent-chat");
-    const dispatch = job.steps.find((s: Step) => s.id === "dispatch");
-    expect(job.steps.indexOf(dl)).toBeLessThan(job.steps.indexOf(dispatch));
-    expect(dispatch.run).toContain("client_payload[chat_image_digest]=");
-    expect(dispatch.run).toContain(
-      '-f "client_payload[chat_image]=ghcr.io/app-vitals/agent-chat:$VERSION"',
-    );
-    expect(dispatch.run).toContain("client_payload[version]=$VERSION");
-  });
 });
 
 describe("automatic release on merge to main", () => {
@@ -389,7 +342,6 @@ describe("automatic release on merge to main", () => {
       [
         "consumer-smoke",
         "guard",
-        "notify-shipwright",
         "publish-image",
         "publish-npm",
         "release",
@@ -408,7 +360,6 @@ describe("tag-push publish gating", () => {
   const downstream = [
     "publish-npm",
     "publish-image",
-    "notify-shipwright",
     "consumer-smoke",
   ];
 
@@ -421,7 +372,7 @@ describe("tag-push publish gating", () => {
     },
   );
 
-  test.each(["notify-shipwright", "consumer-smoke"])(
+  test.each(["consumer-smoke"])(
     "%s also requires both publish jobs to succeed",
     (name) => {
       const cond: string = wf.jobs[name].if;
